@@ -650,6 +650,25 @@ describe("A filter mark in the map's picture", () => {
   });
 });
 
+describe("The map's picture without formulas' links", () => {
+  it("draws only the links that count more than formulas' where those are left out, with every box where it was", () => {
+    const make = new GraphMaker();
+    const [a, b, c] = ["A", "B", "C"].map(name => make.item(make.module(name, "01: Main"), "Value"));
+    const flag = make.item(make.module("D", "01: Main"), "Flag", { format: "BOOLEAN" });
+    make.link(a, b).link(b, c).link(flag, b, "write_access");
+    const model = indexModel(make.graph());
+    const graph = ready(modulesGraph(model, undefined, true));
+    const all = draw(sceneOf(graph)).pen;
+    const some = draw(sceneOf(graph, { formulas: false })).pen;
+    expect([linkStrokes(all).length, linkStrokes(some).length]).toEqual([3, 1]);
+    // The one link left is drawn as strongly as one link alone is.
+    expect(linkStrokes(some)[0].globalAlpha).toBe(1);
+    expect(some.named("roundRect").map(call => call.args)).toEqual(all.named("roundRect").map(call => call.args));
+    // Where formulas alone link the boxes, no link is drawn at all.
+    expect(linkStrokes(draw(sceneOf(ready(modulesGraph(model, undefined, false)), { formulas: false })).pen)).toEqual([]);
+  });
+});
+
 describe("A page filter's link in the map's picture", () => {
   it("is drawn in its own colour and in dashes that stand still, where a formula's link is a plain line in the links' colour", () => {
     const model = indexModel(filteredModel().graph);

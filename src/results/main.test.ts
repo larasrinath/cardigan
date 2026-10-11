@@ -4864,7 +4864,7 @@ describe("The ways from a count or a row to where it leads", () => {
   it("opens a module's box on the model map from its row of Module Usage", async () => {
     mapNodes = blueprintNodes();
     const usage: ResultTable = { file: MODULE_USAGE_FILE, label: "Module Usage", guard: true, headers: [...MODULE_USAGE_HEADERS],
-      rows: [["COST01 Costs", NONE, "Not on any page", NONE, NONE, NONE], ["Gone (not in the model)", NONE, "Not on any page", NONE, NONE, NONE]] };
+      rows: [["COST01 Costs", NONE, NONE, NONE, NONE, NONE], ["Gone (not in the model)", NONE, NONE, NONE, NONE, NONE]] };
     await openWith({ ...BLUEPRINT, tables: [...BLUEPRINT.tables, usage] });
     goTo(3);
     openRow("Gone (not in the model)");
@@ -4939,7 +4939,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
       pageRow(MODULE_USAGE_HEADERS, { Module: "REV01 Revenue", Page: "Revenue sheet", ...place("Worksheet", SHEET) }),
       pageRow(MODULE_USAGE_HEADERS, { Module: "COST01 Costs", Page: "Cost report", ...place("Report", REPORT) }),
       pageRow(MODULE_USAGE_HEADERS, { Module: "COST01 Costs", Page: "Odd page", ...place("Planning page", BOARD) }),
-      pageRow(MODULE_USAGE_HEADERS, { Module: "--- Archive ---", Page: "Not on any page" })] },
+      pageRow(MODULE_USAGE_HEADERS, { Module: "--- Archive ---" })] },
     { file: PAGE_FILTERS_FILE, label: "Page Filters", guard: true, headers: [...PAGE_FILTERS_HEADERS], rows: [
       pageRow(PAGE_FILTERS_HEADERS, { "Condition line item's module": "REV01 Revenue", "Condition line item": "Units", "Filtered module": "COST01 Costs", Page: "Revenue board",
         ...place("Board", BOARD) }),
@@ -5197,6 +5197,29 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(strayImg()).toBe(false);
     // The model's tab never goes to an app: it is asked to open nothing inside its page, and is sent nowhere.
     expect([asks(), tabUpdates.filter(([tab]) => tab === 7)]).toEqual([[], []]);
+  });
+
+  it("shows a module on no page with a greyed dash for its app and its page, which their filters list, and the search finds it by its name", async () => {
+    await openModel(WITH_PAGES);
+    choose(String(WITH_PAGES.tables.findIndex(table => table.file === MODULE_USAGE_FILE)));
+    const row = page.all("#tableWrap tbody tr")[4];
+    expect([row.children[0].textContent.trim(), row.children[1].querySelector(".dash")?.textContent, row.children[2].querySelector(".dash")?.textContent, row.textContent.includes("Not on any page")])
+      .toEqual(["--- Archive ---", "-", "-", false]);
+    // App always has a filter, and Page has one for its few pages, as Module has for its few modules: App's and Page's
+    // list the dash as a value, with its one row.
+    expect(filterable()).toEqual(["Module", "App", "Page"]);
+    page.find('[data-colfilter="1"]').press();
+    expect(choices()).toContainEqual(["-", "1", true]);
+    page.key("Escape");
+    page.find('[data-colfilter="2"]').press();
+    expect(choices()).toContainEqual(["-", "1", true]);
+    // The dash alone ticked: the module on no page alone is shown.
+    for (const option of page.all("#popover .pop-opt")) if (option.children[1].textContent !== "-") option.children[0].tick();
+    expect(firstCells()).toEqual(["--- Archive ---"]);
+    page.find('#popover [data-popact="all"]').press();
+    page.key("Escape");
+    page.id("tblSearch").type("Archive");
+    expect(firstCells()).toEqual(["--- Archive ---"]);
   });
 
   it("opens a filter's two modules, its app and its page from Page Filters, one module where the two are one, and a button's app and page from Page Actions", async () => {

@@ -43,7 +43,7 @@ export const OTHER = "Other";
 export const ROLES = { data: "Data", input: "Input", system: "System", calculation: "Calculation", output: "Output" } as const;
 export const NO_LINE_ITEMS = "No line items";
 export const SEVERAL_APPS = "Several apps";
-/** As the Module Usage table says it of a module that no page uses (page-files.ts). */
+/** The group of the modules that no page uses: those Module Usage gives a dash for their app (model-pages.ts). */
 export const NO_PAGE = "Not on any page";
 export const TIME_ONLY = "Time only";
 export const NO_DIMENSIONS = "No dimensions";

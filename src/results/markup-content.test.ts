@@ -559,12 +559,20 @@ describe("What the results page's markup shows", () => {
     expect(view.querySelectorAll(".stat .s-lab").map(label => label.getAttribute("title"))).toEqual(["Line Items", "Model Calendar", "Odd", "Bare"]);
   });
 
+  it("sizes a tile's number by its length: full size up to four figures, and a longer count and the calendar's word by the tile's width", () => {
+    const counts = [7, 5279, 15389, 153890, 1538900, 15389000];
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [...counts.map(count => ({ label: "Line Items", count })), { label: "Model Calendar", count: 21, value: "Monthly" }] })));
+    expect(view.querySelectorAll(".s-num").map(number => [number.getAttribute("class"), number.textContent])).toEqual([["s-num", "7"], ["s-num", "5279"], ["s-num s-n5", "15389"],
+      ["s-num s-n6", "153890"], ["s-num s-n7", "1538900"], ["s-num s-n8", "15389000"], ["s-num s-word", "Monthly"]]);
+  });
+
   it("says on a Model Calendar's tile what its calendar is in the number's place, its current year under that, and the whole in its title", () => {
     const calendar = { label: "Model Calendar", count: 21, value: "Weekly", detail: "4-4-5 · FY24", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY24" };
     const view = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar, { label: "Modules", count: 2 }] }), "none", [3, 4], ["Model Calendar.csv", "Modules.csv"]));
     const [tile, other] = view.querySelectorAll(".stat");
-    // The kind in the number's place, and under it the year: no word for a screen reader that it is a count, for it is none.
-    expect(tile.children.map(child => [child.getAttribute("class"), child.textContent])).toEqual([["s-lab", "Model Calendar"], ["s-num", "Weekly"], ["s-detail", "4-4-5 · FY24"]]);
+    // The kind in the number's place, sized as a word, and under it the year: no word for a screen reader that it is a
+    // count, for it is none.
+    expect(tile.children.map(child => [child.getAttribute("class"), child.textContent])).toEqual([["s-lab", "Model Calendar"], ["s-num s-word", "Weekly"], ["s-detail", "4-4-5 · FY24"]]);
     // Its title and its name for a screen reader are the tile in full; a tile that counts has neither.
     expect([tile.getAttribute("title"), tile.getAttribute("aria-label"), tile.dataset.nav, other.getAttribute("title"), other.getAttribute("aria-label")])
       .toEqual([calendar.title, calendar.title, "3", null, null]);

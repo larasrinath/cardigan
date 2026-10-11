@@ -1,5 +1,5 @@
 import { minimapTransform, toWorld, type Camera, type MinimapTransform } from "./map-camera.js";
-import type { ViewGraph, ViewNode } from "./map-graphs.js";
+import { edgeDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, hasSmallLine, ITEM } from "./map-layout.js";
 import { layerColour, layerStriped, type MapPalette } from "./map-palette.js";
 import { shorten, wrapLines, type TextMeasure } from "./map-text.js";
@@ -27,6 +27,9 @@ export interface Scene {
   order?: readonly number[];
   /** The time in milliseconds that moves a trace's dashes. Nothing where nothing moves: the dashes then stand still. */
   time?: number;
+  /** False where formulas' links are left undrawn (map-graphs.ts `edgeDrawn`): the links that count only formulas are
+   * not drawn, and the boxes stay where they are. Drawn where nothing is said. */
+  formulas?: boolean;
 }
 
 /** The context's methods the map draws with. */
@@ -177,10 +180,11 @@ function drawGrid(pen: Pen, scene: Scene): void {
  * has to cross the column it starts in. */
 function drawEdges(pen: Pen, scene: Scene): boolean {
   const { graph, camera, width, height, shown, trace, matches, palette } = scene;
+  const formulas = scene.formulas !== false;
   const { k, ox, oy } = camera;
-  // The links the picture has: those between two boxes that are shown, wherever the camera is.
+  // The links the picture has: those drawn between two boxes that are shown, wherever the camera is.
   let drawn = 0;
-  for (const edge of graph.edges) if (shown[edge.s] && shown[edge.t]) drawn++;
+  for (const edge of graph.edges) if (shown[edge.s] && shown[edge.t] && edgeDrawn(edge, formulas)) drawn++;
   const idle = linkStrength(drawn);
   let marked = 0;
   if (trace) for (let index = 0; index < trace.edges.length; index++) if (trace.edges[index]) marked++;
@@ -189,7 +193,7 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
   let traced = false;
   for (let index = 0; index < graph.edges.length; index++) {
     const edge = graph.edges[index];
-    if (!shown[edge.s] || !shown[edge.t]) continue;
+    if (!shown[edge.s] || !shown[edge.t] || !edgeDrawn(edge, formulas)) continue;
     const from = graph.nodes[edge.s];
     const to = graph.nodes[edge.t];
     const fromLeft = from.x * k + ox;

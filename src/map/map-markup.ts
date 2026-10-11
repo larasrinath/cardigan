@@ -74,16 +74,20 @@ export const FILTER_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
 };
 /** A filter mark's funnel, as the canvas draws it (map-canvas.ts `funnel`). */
 const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 .8h10L6.2 5.2v3.4L3.8 10V5.2Z"/></svg>';
-/** What the links of formulas are, said beside the switch of the others: they are always drawn. */
-export const FORMULAS_SAY = "Always drawn. An arrow from A to B: B reads A.";
+/** What the links of formulas are, said under their switch, which is ticked unless the viewer unticks it. */
+export const FORMULAS_SAY = "An arrow from A to B: B reads A. Untick to see only access drivers and page filters.";
 /** What a line on the map means. */
 export const LINK_SAYS = "An arrow from A to B: B reads A.";
+/** What an access driver's link means, said in the legend while the picture draws some. */
+export const ACCESS_LINK_SAYS = "An arrow from an access driver to what it controls.";
+/** What the legend says where the Links panel has no kind of link ticked. */
+export const NO_LINKS_SAYS = "No links are drawn. Tick Formulas, Access drivers or Page filters under Links.";
 /** Why a box beside a module's line items can be marked as part of a trace with no coloured link leading to it: there
  * the trace follows the model from line item to line item (map-trace.ts), and draws only the links of this module. */
 export const BESIDE_SAYS = "Among a module's line items, a box that stands for another module can carry a sign without a coloured link: it feeds the line item selected, or is fed by it, by way of line items that are not on this map.";
 
 /** The names the view gives the elements that others point at. */
-export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string; filters: string; links: string; picker: string }
+export interface ShellIds { results: string; hints: string; legend: string; about: string; formulas: string; access: string; filters: string; links: string; picker: string }
 
 /** The chevron of a select, which draws its own (map.css `.map-select-wrap`): the one the results page's menus have. */
 /** What stands between two parts of the map's path: a chevron pointing on, drawn as the bar's other chevrons are. */
@@ -91,8 +95,6 @@ const PATH_CHEVRON = '<svg class="map-sep-chevron" width="10" height="10" viewBo
 const SELECT_CHEVRON = '<svg class="map-select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
 /** The same chevron after a button's words, as a menu's button has it. */
 const BUTTON_CHEVRON = '<svg class="map-btn-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
-/** The mark beside the links that are always drawn: a drawn tick. */
-const TICK = '<svg class="map-links-tick" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
 /** The full screen button's two faces: four corners going out, to fill the screen, and coming in, to leave it. */
 const FULL_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>';
 const LEAVE_FULL_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5"/></svg>';
@@ -149,8 +151,8 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
         <button type="button" class="map-btn map-links-btn" data-map-act="links" aria-expanded="false" aria-controls="${esc(ids.links)}">Links${BUTTON_CHEVRON}</button>
         <div class="map-panel map-links-pop" id="${esc(ids.links)}" role="group" aria-label="Links on the map" hidden>
           <h3 class="map-about-title">Links on the map</h3>
-          <div class="map-links-row">${TICK}<span><b>Formulas</b></span></div>
-          <p class="map-links-note">${esc(FORMULAS_SAY)}</p>
+          <label class="map-check map-links-row"><input type="checkbox" class="map-formulas" checked aria-describedby="${esc(ids.formulas)}"><b>Formulas</b></label>
+          <p class="map-links-note" id="${esc(ids.formulas)}">${esc(FORMULAS_SAY)}</p>
           <label class="map-check map-links-row"><input type="checkbox" class="map-access" aria-describedby="${esc(ids.access)}"><b>Access drivers</b></label>
           <p class="map-links-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
           <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
@@ -238,16 +240,25 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
     : `<h2 class="map-title-name"><button type="button" class="map-crumb" data-map-act="crumb" data-map-crumb="root" title="${esc(said)}">${esc(model)}</button></h2>`;
 }
 
+/** Which links the legend speaks of, besides those of page filters: formulas' where they are drawn, access drivers'
+ * where the picture draws some, and, where the Links panel has no kind of link ticked, that none is drawn. */
+export interface LegendLinks { formulas: boolean; access: boolean; none: boolean }
+const FORMULAS_ONLY: LegendLinks = { formulas: true, access: false, none: false };
+
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
- * shows it again, and under them what a line means: while the links of page filters are drawn (`filters`), what theirs
- * means too, beside a piece of the line they are drawn in; and while a box of the picture has a filter mark, what the
- * mark means on that kind of picture (`marks`), beside one. A hidden layer says so in more than its colour: its name is
- * struck through, and the button is not pressed. */
-export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false, marks?: ViewGraph["kind"]): string {
+ * shows it again, and under them what a line means, for only the kinds of link drawn (`links`): while the links of page
+ * filters are drawn (`filters`), what theirs means too, beside a piece of the line they are drawn in; and while a box of
+ * the picture has a filter mark, what the mark means on that kind of picture (`marks`), beside one. Where no kind of link
+ * is ticked, it says so plainly. A hidden layer says so in more than its colour: its name is struck through, and the
+ * button is not pressed. */
+export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false, marks?: ViewGraph["kind"],
+  links: LegendLinks = FORMULAS_ONLY): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
-  }).join("")}<p class="map-legend-note">${esc(LINK_SAYS)}</p>${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS)}</p>` : ""}${
+  }).join("")}${links.formulas ? `<p class="map-legend-note">${esc(LINK_SAYS)}</p>` : ""}${
+    links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
+    links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS)}</p>` : ""}${
     marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}`;
 }
 

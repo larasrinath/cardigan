@@ -4,7 +4,7 @@ import {
   type Area, type Camera, type Direction, type Insets, type MinimapTransform,
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
-import { moduleGraph, modulesGraph, sectionsGraph, type Box, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
@@ -134,7 +134,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   root.setAttribute("class", "map-root");
   root.hidden = true;
   const pickerId = `map-picker-${number}`;
-  root.innerHTML = shellHtml({ results: `map-results-${number}`, hints: `map-hints-${number}`, legend: `map-legend-${number}`, about: `map-about-${number}`, access: `map-access-${number}`, filters: `map-filters-${number}`, links: `map-links-${number}`, picker: pickerId }, options.modelName);
+  root.innerHTML = shellHtml({ results: `map-results-${number}`, hints: `map-hints-${number}`, legend: `map-legend-${number}`, about: `map-about-${number}`, formulas: `map-formulas-${number}`, access: `map-access-${number}`, filters: `map-filters-${number}`, links: `map-links-${number}`, picker: pickerId }, options.modelName);
   host.appendChild(root);
 
   const part = <T extends HTMLElement = HTMLElement>(selector: string): T => root.querySelector(selector) as T;
@@ -160,6 +160,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const links = part(".map-links");
   const linksButton = part<HTMLButtonElement>('[data-map-act="links"]');
   const linksPop = part(".map-links-pop");
+  const formulasToggle = part<HTMLInputElement>(".map-formulas");
   const accessToggle = part<HTMLInputElement>(".map-access");
   const filtersToggle = part<HTMLInputElement>(".map-filters");
   const filtersNote = part(".map-filters-note");
@@ -204,6 +205,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let section: string | undefined;
   let moduleId: number | undefined;
   let expanded = false;
+  /** Whether formulas' links are drawn. Leaving them out moves no box: only the drawing, the trace and the words follow. */
+  let formulas = true;
   let access = false;
   /** Whether the links of the pages' filters are drawn: only where the model has some (`filtersDrawable`). */
   let filters = false;
@@ -293,7 +296,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     // A trace's dashes move for as long as the trace is on screen, unless the user asked for less motion: then they stand.
     const moves = motion();
-    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined };
+    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined, formulas };
     pen.setTransform(ratio, 0, 0, ratio, 0, 0);
     const tracing = drawScene(pen, scene, fonts);
     if (miniPen) {
@@ -511,11 +514,18 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return list;
   }
 
+  /** The boxes a box has links with, of the links drawn: all of them where formulas' are, and otherwise those that count
+   * more than formulas' alone (map-graphs.ts `edgeDrawn`). */
+  function linkedWith(current: ViewGraph, node: ViewNode): ViewNode[] {
+    if (formulas) return [...current.in[node.index], ...current.out[node.index]].map(index => current.nodes[index]);
+    return current.edges.flatMap(edge => (!edgeDrawn(edge, false) ? [] : edge.s === node.index ? [current.nodes[edge.t]] : edge.t === node.index ? [current.nodes[edge.s]] : []));
+  }
+
   /** The camera that has a box of the graph in view in one of the rooms, from where the camera is: moved no further
    * than it must be and brought no nearer, with the boxes it has links with where those fit as well, and never further
    * away than `floor`. Where not even the box alone fits so, the camera stays. */
   function beside(current: ViewGraph, node: ViewNode, list: readonly Insets[], from: Camera, floor: number): Camera {
-    const linked = [node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])].filter(each => isShown(each.index));
+    const linked = [node, ...linkedWith(current, node)].filter(each => isShown(each.index));
     const cost = (to: Camera): number => (from.k - to.k) * 1e6 + Math.abs(to.ox - from.ox) + Math.abs(to.oy - from.oy);
     for (const box of [boxAround(linked, 8), boxAround([node], 8)]) {
       if (!box) continue;
@@ -678,7 +688,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, at, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }, covered) : shownCount;
       // Beside a selection the bar of what is traced stands in the line's place, unless the line has more to say than
       // what the graph holds: that part of it is not drawn, or is out of view. It then says that alone.
-      const said = statusWords(onScreen, shownCount, inView, selected !== undefined);
+      const said = statusWords(onScreen, shownCount, inView, selected !== undefined, linksDrawn());
       if (stats.textContent !== said) stats.textContent = said;
       wholeButton.hidden = inView >= shownCount;
       status.hidden = selected !== undefined && shownCount >= onScreen.nodes.length && inView >= shownCount;
@@ -691,7 +701,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function footFor(whole: boolean): void {
     if (!onScreen) return;
     // Not whole: the longest the line can be, with one box out of view.
-    const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), selected !== undefined);
+    const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), selected !== undefined, linksDrawn());
     if (stats.textContent !== said) stats.textContent = said;
     wholeButton.hidden = whole;
     status.hidden = whole && selected !== undefined && shownCount >= onScreen.nodes.length;
@@ -700,8 +710,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function renderLegend(): void {
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
+    // Of links it says only the kinds drawn: a link that is neither a filter's nor formulas' alone has an access driver.
     legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers, onScreen.edges.some(edge => edge.filter),
-      onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined);
+      onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
+      { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" });
     legendButton.hidden = onScreen.layers.length === 0;
   }
 
@@ -749,6 +761,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     externalCheck.hidden = view !== "drill";
     externalToggle.checked = expanded;
     buildZone.hidden = groupingField.hidden && externalCheck.hidden;
+    formulasToggle.checked = formulas;
     accessToggle.checked = access;
     // The pages' filters can be shown only where the model has some to show, as links between modules or as marks on
     // modules their own line items filter: otherwise the switch is off, and the note under it says why in its
@@ -756,8 +769,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     filtersToggle.checked = filters;
     filtersToggle.disabled = !filtersDrawable();
     filtersNote.textContent = filtersSay(model.graph, model.filterEdges.length > 0, model.ownFiltered > 0);
-    // Which links are drawn is said on the button too, where more than formulas are.
-    linksButton.classList.toggle("map-on", access || filters);
+    // Which links are drawn is said on the button too, where they are not formulas' alone, as the map opens.
+    linksButton.classList.toggle("map-on", !formulas || access || filters);
   }
 
   function renderInspector(): void {
@@ -1003,7 +1016,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       : grouped && section === undefined ? sectionsGraph(model, access, filters) : modulesGraph(model, section, access, filters);
     sizeNodes(onScreen, fonts.measure("label"), fonts.measure("item"));
     selected = selected && onScreen.byId.get(selected.id);
-    trace = selected ? traceNode(onScreen, model, selected.index, access, filters) : undefined;
+    trace = selected ? traceNode(onScreen, model, selected.index, access, filters, formulas) : undefined;
     if (!selected) onlyTrace = false;
     refreshShown();
     matches = undefined;
@@ -1011,6 +1024,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     arrange();
     renderStatus();
     tellView();
+  }
+
+  /** Which of the graph's links are drawn, as the Links panel has them ticked. */
+  function linksDrawn(): LinksDrawn {
+    return formulas ? "all" : access || filters ? "noFormulas" : "none";
   }
 
   /** Whether the model has its pages' filters to show: links of them between modules, or modules that their own line
@@ -1022,7 +1040,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Where the map is, as the page keeps it: the view, and in it the group, all modules or the module shown, by name, and
    * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
   function viewNow(): MapView {
-    const drawn = { ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}) };
+    const drawn = { ...(formulas ? {} : { noFormulas: true }), ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
       if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
@@ -1044,6 +1062,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * model no longer has, a module or a group of that name, is let go, and the map opens as it opens by itself. */
   function takeView(left: MapView | undefined): void {
     if (!model || !left || typeof left !== "object") return;
+    formulas = left.noFormulas !== true;
     access = left.access === true;
     filters = left.filters === true && filtersDrawable();
     if (left.view === "drill" && typeof left.module === "string") {
@@ -1084,7 +1103,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     closeResults();
     hideTip();
     build();
-    if (onScreen) announce(viewSentence(onScreen, options.modelName));
+    if (onScreen) announce(viewSentence(onScreen, options.modelName, linksDrawn()));
   }
 
   /** Selects a box, or none. `deliberate` is for a box the user went to, by the search, a link of the details, a row of
@@ -1094,7 +1113,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const had = selected !== undefined;
     selected = node;
     onlyTrace = false;
-    trace = node ? traceNode(onScreen, model, node.index, access, filters) : undefined;
+    trace = node ? traceNode(onScreen, model, node.index, access, filters, formulas) : undefined;
     refreshShown();
     renderInspector();
     if (node && traced) announce(traced.sentence);
@@ -1121,7 +1140,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // The camera comes close: part of the graph will be out of view, and the line at the foot will say so.
     footFor(false);
     const list = rooms();
-    const linked = boxAround([node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])], 24);
+    const linked = boxAround([node, ...linkedWith(current, node)], 24);
     let to = linked ? fitCameraIn(linked, width, height, list, 1) : undefined;
     if (!to || to.k < full) {
       const alone = boxAround([node], 24);
@@ -1288,7 +1307,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     switch (data.mapAct) {
       case "view": setView(data.mapView === "drill" ? "drill" : "modules", moduleId); break;
       case "crumb": if (data.mapCrumb === "section") openSection(Number(data.mapSection)); else showSections(); break;
-      case "links": setLinks(linksPop.hidden); if (!linksPop.hidden) focusOn(accessToggle); break;
+      case "links": setLinks(linksPop.hidden); if (!linksPop.hidden) focusOn(formulasToggle); break;
       case "fullscreen": setFull(!(fullWindow || onScreenWhole())); break;
       case "focus":
         setOnlyTrace(!onlyTrace);
@@ -1388,7 +1407,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       // The model whole, grouped anew: the selection, the hidden layers and the search start afresh.
       applyGrouping(grouping);
       setView("modules");
-      if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName)}`);
+      if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     } else if (target === showSelect) {
       // The groups as a whole, all modules, or one group's.
       if (showSelect.value === SHOW_GROUPS) showSections();
@@ -1409,17 +1428,28 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     } else if (target === externalToggle) {
       expanded = externalToggle.checked;
       setView("drill", moduleId);
+    } else if (target === formulasToggle) {
+      // The same picture with formulas' links drawn or not: no box moves, as the graph is not built again. What is
+      // selected stays selected, its trace following only the links drawn.
+      formulas = formulasToggle.checked;
+      onlyTrace = false;
+      if (onScreen) trace = selected ? traceNode(onScreen, model, selected.index, access, filters, formulas) : undefined;
+      refreshShown();
+      renderChrome();
+      invalidate();
+      tellView();
+      if (onScreen) announce(`${formulas ? "Formula links are drawn." : "Formula links are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     } else if (target === accessToggle) {
       // The same view with other links: what is selected stays selected where it is still on screen.
       access = accessToggle.checked;
       onlyTrace = false;
       build();
-      if (onScreen) announce(`${access ? "Access driver links are drawn." : "Access driver links are not drawn."} ${viewSentence(onScreen, options.modelName)}`);
+      if (onScreen) announce(`${access ? "Access driver links are drawn." : "Access driver links are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     } else if (target === filtersToggle) {
       filters = filtersToggle.checked && filtersDrawable();
       onlyTrace = false;
       build();
-      if (onScreen) announce(`${filters ? "Page filters are drawn." : "Page filters are not drawn."} ${viewSentence(onScreen, options.modelName)}`);
+      if (onScreen) announce(`${filters ? "Page filters are drawn." : "Page filters are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     }
   }));
 
