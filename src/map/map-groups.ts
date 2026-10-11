@@ -121,6 +121,9 @@ export function leadingCode(name: string): string {
 /** How many modules must share a code for it to be a group: three, and at least one in fifty of the model's modules. */
 export const PREFIX_SHARE = { least: 3, part: 0.02 } as const;
 
+/** The same minimum in the grouping and its explanation, including large models. */
+export const prefixThreshold = (model: MapModel): number => Math.max(PREFIX_SHARE.least, Math.ceil(model.modules.length * PREFIX_SHARE.part));
+
 /** The codes enough modules share, each a group, compared whatever their case and named as the first module writes it.
  * Every other module, and one whose name starts with no code, is under "Other". */
 function byPrefix(model: MapModel): Grouping | undefined {
@@ -135,7 +138,7 @@ function byPrefix(model: MapModel): Grouping | undefined {
     if (known) known.count++;
     else codes.set(key, { code, count: 1 });
   }
-  const least = Math.max(PREFIX_SHARE.least, Math.ceil(model.modules.length * PREFIX_SHARE.part));
+  const least = prefixThreshold(model);
   const shared = new Map([...codes].filter(([, { count }]) => count >= least).map(([key, { code }]) => [key, code]));
   if (!shared.size) return undefined;
   return grouped(model, { kind: "prefix", label: "Name prefix", source: "from module names", rest: OTHER }, module => shared.get(keyOf.get(module.id) ?? "") ?? OTHER);
@@ -328,9 +331,30 @@ export function automaticGrouping(groupings: readonly Grouping[]): Grouping | un
   return of("role") ?? groupings[0];
 }
 
-/** Explain the actual automatic choice in plain words. Rounding is only for display: automaticGrouping still uses
- * BUILT and GOOD on the real figures. The first line names the choice, and the last invites a different grouping. */
-export function automaticGroupingReason(groupings: readonly Grouping[]): string {
+/** Explain the grouping shown, independently of whether it was picked or kept. */
+export function howGroupingWorks(grouping: Grouping | undefined, model: MapModel): string {
+  if (!grouping) return "There are no modules to group.";
+  switch (grouping.kind) {
+    case "functionalArea":
+      return "Each module is in the Functional Area set for it in the model. Modules without one are under No functional area.";
+    case "headings":
+      return "Each module is under the model heading above it, a module whose name starts with --. Modules with no heading above them are under Ungrouped.";
+    case "prefix": {
+      const examples = grouping.groups.filter(group => group !== grouping.rest).slice(0, 3).join(", ");
+      return `Modules whose names start with the same code, like ${examples}, form a group when ${prefixThreshold(model)} or more share it. The rest are under Other.`;
+    }
+    case "role":
+      return "Each module gets a role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.";
+    case "app":
+      return "Each module is in the app whose pages use it, from Module Usage. Modules on pages of several apps are under Several apps, and those on none under Not on any page.";
+    case "dimension":
+      return "Each module is in the first list it applies to. Modules with only a time scale are under Time only, and those with neither are under No dimensions.";
+  }
+}
+
+/** Explain the best fit in plain words. Rounding is only for display: automaticGrouping still uses
+ * BUILT and GOOD on the real figures. */
+export function bestGroupingReason(groupings: readonly Grouping[]): string {
   const chosen = automaticGrouping(groupings);
   if (!chosen) return "There are no modules to group.";
   const percent = (share: number): string => `${Math.round(share * 100)}%`;
@@ -349,24 +373,24 @@ export function automaticGroupingReason(groupings: readonly Grouping[]): string 
   const n = numbers(chosen.kind);
   let reason: string;
   if (chosen.kind === "functionalArea") {
-    reason = `${percent(n.coverage)} of modules have one, across ${n.named} areas.`;
+    reason = `${percent(n.coverage)} of modules have a functional area, across ${n.named} areas.`;
   } else if (chosen.kind === "headings") {
     const area = numbers("functionalArea");
     const why = area.named === 0 ? "This model has no functional areas."
-      : area.coverage < BUILT.share ? `Functional areas only cover ${percent(area.coverage)} of modules, so they weren't used.`
-      : "The modules with functional areas are all in one area, so they weren't used.";
-    reason = `They sort ${percent(n.coverage)} of modules into ${n.named} groups. ${why}`;
+      : area.coverage < BUILT.share ? `Functional areas cover only ${percent(area.coverage)} of modules.`
+      : "The modules with functional areas are all in one area.";
+    reason = `Headings sort ${percent(n.coverage)} of modules into ${n.named} groups. ${why}`;
   } else if (chosen.kind === "prefix") {
     const examples = chosen.groups.filter(group => group !== chosen.rest).slice(0, 3).join(", ");
     const tooFewGroups = BUILDERS.some(kind => {
       const built = numbers(kind);
       return built.coverage >= BUILT.share && built.named < BUILT.least;
     });
-    reason = `It splits the modules into ${n.groups} groups (like ${examples}). `
+    reason = `Name prefix splits the modules into ${n.groups} groups (like ${examples}). `
       + (tooFewGroups ? "Functional areas and headings don't divide this model well enough."
         : "Functional areas and heading rows don't cover enough modules.");
   } else {
     reason = "No other grouping fits this model well enough.";
   }
-  return `Grouped by ${chosen.label.toLowerCase()}.\n${reason}\n\nPick another grouping to change it.`;
+  return reason;
 }

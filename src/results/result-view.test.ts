@@ -42,6 +42,25 @@ const modelDetails = detailsTable("Model Details.csv", [
 ]);
 
 describe("What the results page reads out of a result", () => {
+  it.each(["app", "model"] as const)("keeps every %s table listed and carries each nonempty tile's index and file for both engines", kind => {
+    const table = (label: string, rows: Cell[][]): ResultTable => ({ file: `${label}.csv`, label, headers: ["Name"], rows, guard: true });
+    const tables = [table("Exports", [["Practice export"]]), table("Line Item Subsets", []), modelDetails,
+      table("Versions", [["Plan"], ["Actual"]]), table("Source Models", []), table("General Lists", [["Products"]])];
+    for (const engine of [undefined, "polaris"] as const) {
+      const mixed = { ...result(kind, tables), engine };
+      expect(listedTables(mixed).map(({ index }) => index)).toEqual(kind === "model" ? [3, 5, 1, 0, 4] : [0, 1, 3, 4, 5]);
+      const tiles = [
+        { index: 0, file: "Exports.csv", label: "Exports", count: 1 },
+        { index: 3, file: "Versions.csv", label: "Versions", count: 2 },
+        { index: 5, file: "General Lists.csv", label: "General Lists", count: 1 },
+      ];
+      expect(overviewOf(mixed).tiles).toEqual(kind === "model" ? [tiles[1], tiles[2], tiles[0]] : tiles);
+      const empty = { ...mixed, tables: tables.map(table => ({ ...table, rows: [] })) };
+      expect(overviewOf(empty).tiles).toEqual([]);
+      expect(listedTables(empty).map(({ index }) => index)).toEqual(listedTables(mixed).map(({ index }) => index));
+    }
+  });
+
   it("finds the Details file by its mark, not by its name or its place", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: [], guard: false };
     expect(detailsOf(result("model", [lineItems, modelDetails]))).toBe(modelDetails);
@@ -56,7 +75,7 @@ describe("What the results page reads out of a result", () => {
     expect(detailsOf(result("app", [{ ...appDetails, file: "Model Details.csv" }]))?.file).toBe("Model Details.csv");
     // What the page reads out of the Details file follows the mark too: the header's host, the notes and the tiles.
     const named = result("model", [unmarked, lineItems], []);
-    expect([analysedOf(named).host, resultNotes(named), overviewOf(named).tiles.map(tile => tile.label)]).toEqual([undefined, [], ["Line Items", "Model Details"]]);
+    expect([analysedOf(named).host, resultNotes(named), overviewOf(named).tiles.map(tile => tile.label)]).toEqual([undefined, [], ["Model Details"]]);
   });
 
   it("groups the Details file's rows by section, in the file's order, and keeps the diagnostic log apart", () => {
@@ -157,7 +176,7 @@ describe("What the results page reads out of a result", () => {
     ]);
     const cards = appTable("Cards.csv", [{ "Card type": "KPI" }, { "Card type": "Grid" }, { "Card type": "Text" }, { "Card type": "Grid" }, { "Card type": "Chart" }, { "Card type": "KPI" }]);
     expect(overviewOf(result("app", [appDetails, pages, cards, appTable("Filters.csv", [])]))).toEqual({
-      tiles: [{ label: "Pages", count: 4 }, { label: "Cards", count: 6 }, { label: "Filters", count: 0 }],
+      tiles: [expect.objectContaining({ label: "Pages", count: 4 }), expect.objectContaining({ label: "Cards", count: 6 })],
       notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."],
       // What the Details file says besides: the app and its ID, and no more, under About this export; the tables whose row
       // says something else than the file's own number of rows (here the Details file was written for fewer rows); how to
@@ -170,13 +189,13 @@ describe("What the results page reads out of a result", () => {
   });
 
   it("names an app's tiles by the design's shorter names, and any other file's by the file's own", () => {
-    const every = (Object.values(APP_FILES)).map(file => appTable(file, []));
+    const every = (Object.values(APP_FILES)).map(file => appTable(file, [{}]));
     expect(overviewOf(result("app", [appDetails, ...every])).tiles.map(tile => tile.label)).toEqual(
       ["Pages", "Cards", "Grid sections", "Filters", "Formatting rules", "Action buttons", "Model objects"]);
     // The file's own label is not what names the tile, and a file the app export does not have keeps its label.
-    const renamed: ResultTable = { ...appTable("Conditional Formatting.csv", []), label: "Something else" };
+    const renamed: ResultTable = { ...appTable("Conditional Formatting.csv", [{}]), label: "Something else" };
     const other: ResultTable = { file: "Formatting rules.csv", label: "Formatting rules of mine", headers: [""], rows: [["a"]], guard: false };
-    expect(overviewOf(result("app", [renamed, other])).tiles).toEqual([{ label: "Formatting rules", count: 0 }, { label: "Formatting rules of mine", count: 1 }]);
+    expect(overviewOf(result("app", [renamed, other])).tiles).toEqual([expect.objectContaining({ label: "Formatting rules", count: 1 }), expect.objectContaining({ label: "Formatting rules of mine", count: 1 })]);
     // The navigation and the table's own heading keep the file's name: only the tile is short.
     expect(appTable("Conditional Formatting.csv", []).label).toBe("Conditional Formatting");
   });
@@ -185,7 +204,7 @@ describe("What the results page reads out of a result", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: [["Revenue", "Units * Price"], ["Units", ""]], guard: false };
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
     expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
-      tiles: [{ label: "Modules", count: 1 }, { label: "Line Items", count: 2 }],
+      tiles: [expect.objectContaining({ label: "Modules", count: 1 }), expect.objectContaining({ label: "Line Items", count: 2 })],
       notes: ["Actions: the Actions list came without Notes; the diagnostic log lists the columns it had."],
       about: [["Workspace", "Main"], ["Model", "Model one"]],
       files: [["Line Items", "120 rows"], ["Imports", "Not exported: the grid did not load"]], howToRead: [], log: [] });
@@ -195,7 +214,7 @@ describe("What the results page reads out of a result", () => {
     const imports = (rows: number): ResultTable => ({ file: "Imports.csv", label: "Imports", headers: ["", "Source"], rows: Array.from({ length: rows }, (_, index) => [`Import ${index}`, ""]), guard: false });
     const overview = (value: string, rows = 372) => overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Imports.csv", value]]), imports(rows)]));
     // Every row matched: the row says no more than the tile's count, so Tables has nothing of it, and there is no note.
-    expect(overview("372 rows (372 matched in the Actions list)")).toMatchObject({ tiles: [{ label: "Imports", count: 372 }], files: [], notes: [] });
+    expect(overview("372 rows (372 matched in the Actions list)")).toMatchObject({ tiles: [expect.objectContaining({ label: "Imports", count: 372 })], files: [], notes: [] });
     // Some were not: a note says how many and what it means, with a word for one row and for several. Tables has nothing.
     expect(overview("372 rows (370 matched in the Actions list)")).toMatchObject({ files: [],
       notes: ["Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty."] });
@@ -225,7 +244,7 @@ describe("What the results page reads out of a result", () => {
     const overview = overviewOf(result("model", [details, lineItems, imports]));
     // The file whose row says only how many rows it has is the tile, and so is the Imports row whose every row was matched
     // in the Actions list; the other is said, with what it says.
-    expect([overview.tiles, overview.files]).toEqual([[{ label: "Line Items", count: 120 }, { label: "Imports", count: 2 }],
+    expect([overview.tiles, overview.files]).toEqual([[expect.objectContaining({ label: "Line Items", count: 120 }), expect.objectContaining({ label: "Imports", count: 2 })],
       [["Source Models", "Not exported: no such axis"]]]);
     // About this export says the workspace, the model and its ID, in that order, and no more: neither a section the page
     // does not know nor the export's host, time and tool.
@@ -274,7 +293,7 @@ describe("What the results page reads out of a result", () => {
     // The table lists the 5 of the calendar's 31 rows that are settings with a value. Its tile says what the calendar is,
     // a months one, and keeps the 5 it lists, which no line of it shows. A file whose table lists every row says the file's
     // own number: Line Items lists the grid's 5 rows, the modules' own among them.
-    expect(overview.tiles).toEqual([{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }, { label: "Modules", count: 2 }, { label: "Line Items", count: 5 }]);
+    expect(overview.tiles).toEqual([expect.objectContaining({ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }), expect.objectContaining({ label: "Modules", count: 2 }), expect.objectContaining({ label: "Line Items", count: 5 })]);
     // So the three rows that only count a file are not said under Tables, and the three summary lines that only count one are no notes.
     expect([overview.files, overview.notes]).toEqual([[["Imports", "Not exported: the grid did not load"]], ["Imports: not read"]]);
     // Every count the Details file gives is on the overview, under Tables or as a tile's number, but for the calendar's 31:
@@ -285,11 +304,11 @@ describe("What the results page reads out of a result", () => {
       .toEqual(["tile", "tile", "under its table", "Tables"]);
     // A count in the Details file that is not the file's own stays under Tables, whatever the tile says.
     const other = overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Line Items.csv", "3 rows"], ["Files", "Model Calendar.csv", "26 rows"]]), blueprint, calendar()]));
-    expect([other.tiles, other.files]).toEqual([[{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }, { label: "Line Items", count: 5 }],
+    expect([other.tiles, other.files]).toEqual([[expect.objectContaining({ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }), expect.objectContaining({ label: "Line Items", count: 5 })],
       [["Line Items", "3 rows"], ["Model Calendar", "26 rows"]]]);
     // An app's tiles say one number each too, a Where Used table by object's as well.
     expect(overviewOf(result("app", [appDetails, appTable("Pages.csv", [{ Page: "Overview" }]), appTable("Where Used.csv", [{ Page: "Overview" }, { Page: "Overview" }])])).tiles)
-      .toEqual([{ label: "Pages", count: 1 }, { label: "Model objects", count: 2 }]);
+      .toEqual([expect.objectContaining({ label: "Pages", count: 1 }), expect.objectContaining({ label: "Model objects", count: 2 })]);
   });
 
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
@@ -313,9 +332,9 @@ describe("What the results page reads out of a result", () => {
     // Only the files the result has, in that order.
     expect(listed("model", "Imports.csv", "Line Items.csv", "Versions.csv")).toEqual(["3 Versions.csv", "2 Line Items.csv", "1 Imports.csv"]);
     // A file that is not in the order comes after those that are, in the result's order, and none is dropped: a renamed
-    // file, a new one, one whose name differs in case. An empty Line Item Subsets table is left out.
+    // file, a new one, one whose name differs in case. An empty Line Item Subsets table keeps its place.
     expect(listed("model", "Users.csv", "Line Items.csv", "modules.csv", "Line Item Subsets.csv", "Line Items (2).csv", "Model Calendar.csv"))
-      .toEqual(["6 Model Calendar.csv", "2 Line Items.csv", "1 Users.csv", "3 modules.csv", "5 Line Items (2).csv"]);
+      .toEqual(["6 Model Calendar.csv", "4 Line Item Subsets.csv", "2 Line Items.csv", "1 Users.csv", "3 modules.csv", "5 Line Items (2).csv"]);
     // Two files of one name keep the result's order between them.
     expect(listed("model", "Versions.csv", "Line Items.csv", "Versions.csv")).toEqual(["1 Versions.csv", "3 Versions.csv", "2 Line Items.csv"]);
     // The Details file is not listed, wherever it stands; the result itself is left as it is.
@@ -327,10 +346,10 @@ describe("What the results page reads out of a result", () => {
       .toEqual(["1 Pages.csv", "2 Cards.csv", "3 Line Items.csv", "4 Model Calendar.csv", "5 Where Used.csv"]);
     // The overview's tiles follow the same order. Two of them have the page's own names for their tables, by their files:
     // Data Sources for Import Data Sources, and DCA for Dynamic Cell Access, which says what it stands for in full.
-    const tiles = overviewOf(result("model", [modelDetails, ...written.map(file)])).tiles;
+    const tiles = overviewOf(result("model", [modelDetails, ...written.map(name => ({ ...file(name), rows: [["A row", "A value"]] }))])).tiles;
     expect(tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
       "Line Items", "DCA", "Processes", "Imports", "Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage", "Page Filters", "Page Actions"]);
-    expect(tiles.filter(tile => tile.full !== undefined)).toEqual([{ label: "DCA", count: 0, full: "Dynamic Cell Access (DCA)" }]);
+    expect(tiles.filter(tile => tile.full !== undefined)).toEqual([expect.objectContaining({ label: "DCA", count: 1, full: "Dynamic Cell Access (DCA)" })]);
   });
 
   // A model's Model Calendar file as the export writes it: the assessment template's rows, the first five about the model.
@@ -410,7 +429,7 @@ describe("What the results page reads out of a result", () => {
     const one: ResultTable = { ...file, headers: ["Section", "Value"], rows: [["Model", "Main"], ["Model Calendar", "Weeks: General"]] };
     expect([fileView(model, bare).note, fileView(model, one).note, modelFacts(result("model", [bare])), modelFacts(result("model", [one]))])
       .toEqual([undefined, undefined, [], []]);
-    expect(overviewOf(result("model", [only])).tiles).toEqual([{ label: "Model Calendar", count: 0 }]);
+    expect(overviewOf(result("model", [only])).tiles).toEqual([]);
   });
 
   it("shows a model's Line Items file with every row, each module's own row a heading above its line items, and says what its rows are", () => {
@@ -459,7 +478,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(result("app", [appDetails, blueprint]), blueprint), fileView(model, renamed), fileView(model, flat)]).toEqual([{ table: blueprint }, { table: renamed }, { table: flat }]);
     expect(fileView(model, flat).table).toBe(flat);
     // The overview's tile counts the file's rows, every one, as Anaplan's grid does; the modules' tile is the Modules file's.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 7 }]);
+    expect(overviewOf(model).tiles).toEqual([expect.objectContaining({ label: "Modules", count: 3 }), expect.objectContaining({ label: "Line Items", count: 7 })]);
   });
 
   it("shows a model's Dynamic Cell Access file as it stands, under a line that says what it lists and how many of its rows have a driver that could not be matched", () => {
@@ -492,7 +511,7 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(model, empty)).toEqual({ table: empty, note: undefined, empty: NO_DRIVERS, opensFrom: 1 });
     expect([shown.empty, fileView(model, modelDetails).empty, fileView(model, { ...file, file: "Versions.csv" }).empty]).toEqual([NO_DRIVERS, undefined, undefined]);
     // The tile and the navigation count every row of the file, the unmatched ones among them: the table leaves none out.
-    expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "DCA", count: 5, full: "Dynamic Cell Access (DCA)" }]);
+    expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([expect.objectContaining({ label: "DCA", count: 5, full: "Dynamic Cell Access (DCA)" })]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a file
     // of the name without the column are shown as they stand, without a line: the very table. A file of the name that
     // has the driver's module and not its name has the line, and opens its rows as any table does.
@@ -543,7 +562,7 @@ describe("What the results page reads out of a result", () => {
     // The file itself is as it was: a model's map is made of the result's own tables. The rule keeps every row, so the tile
     // counts the file's own number.
     expect(file).toEqual(kept);
-    expect(overviewOf(model).tiles).toEqual([{ label: "Imports", count: 4 }]);
+    expect(overviewOf(model).tiles).toEqual([expect.objectContaining({ label: "Imports", count: 4 })]);
     // The rule is that file's alone, in a model's result: an app's file of that name, and a file of another name, are shown as they stand.
     const renamed: ResultTable = { ...file, file: "Imports (2).csv" };
     expect([fileView(result("app", [appDetails, file]), file), fileView(model, renamed)]).toEqual([{ table: file }, { table: renamed }]);
@@ -608,7 +627,7 @@ describe("What the results page reads out of a result", () => {
     // The file itself is as it was: a model's map is made of the result's own tables.
     expect(file).toEqual(kept);
     // The rule keeps every row, so the tile counts the file's own number, and says no second one.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Source Models", count: 2 }]);
+    expect(overviewOf(model).tiles).toEqual([expect.objectContaining({ label: "Source Models", count: 2 })]);
     // Wherever the column stands, the two take its place; a cell a row holds beyond the headers stays after them.
     const first = fileView(model, sourceModels([[FINANCE, "Finance Hub (old)", "beyond"]], ["Mapped To", ""]));
     expect([first.table.headers, first.table.rows, [...first.readUnder ?? []]])
@@ -666,7 +685,7 @@ describe("What the results page reads out of a result", () => {
     const none = sourceModels(file.rows.slice(1));
     const empty = sourceModels([]);
     expect([fileView(result("model", [none]), none), fileView(result("model", [empty]), empty)]).toEqual([{ table: none }, { table: empty }]);
-    expect([fileView(result("model", [none]), none).table === none, overviewOf(result("model", [empty])).tiles]).toEqual([true, [{ label: "Source Models", count: 0 }]]);
+    expect([fileView(result("model", [none]), none).table === none, overviewOf(result("model", [empty])).tiles]).toEqual([true, []]);
   });
 
   it("says a model's definitions in words after the Source Models rule, and keeps the texts that both read", () => {
@@ -699,14 +718,14 @@ describe("What the results page reads out of a result", () => {
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
         ["Sales", "Revenue", "Units * Price", "Products, Time", "Module"]],
       note: "1 line item has no Module Name: its module is not known.",
-      tile: { label: "Line Items", count: 4 } });
+      tile: expect.objectContaining({ label: "Line Items", count: 4 }) });
     // And here it is the last row under its module: it is a line item, not a module with nothing under its row.
     const last = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "", "", ""], ["Costs", "", "Regions", ""], ["Rent", "", "-", "Costs"]]);
     expect(shown(last, [modules])).toEqual({
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
         ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
       note: "1 line item has no Module Name: its module is not known.",
-      tile: { label: "Line Items", count: 5 } });
+      tile: expect.objectContaining({ label: "Line Items", count: 5 }) });
     // The names are the Modules file's first column, as the file has it: a module the file lists is a module's own row
     // also with nothing under it.
     const listed: ResultTable = { ...modules, rows: [...modules.rows, ["Price", ""]] };
@@ -714,7 +733,7 @@ describe("What the results page reads out of a result", () => {
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Price", "", "", "Module"],
         ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
       note: undefined,
-      tile: { label: "Line Items", count: 5 } });
+      tile: expect.objectContaining({ label: "Line Items", count: 5 }) });
     // A name is the Modules file's only as the file writes it: listed with a space before or after it, Price is not the
     // row's name, and the row is a line item, as it is when the file does not list it at all.
     for (const spaced of [" Price", "Price ", " Price "]) {
@@ -832,7 +851,7 @@ describe("What the results page reads out of a result", () => {
     // The module's own row is the shown table's heading, in the rows said in words as in the view's.
     expect(shown.table.rows.filter(row => shown.headings?.has(row)).map(row => row[0])).toEqual(["Revenue"]);
     // The words change no row: the tile counts the file's rows, as before.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 3 }]);
+    expect(overviewOf(model).tiles).toEqual([expect.objectContaining({ label: "Line Items", count: 3 })]);
     expect(blueprint.rows[1]).toEqual(["Units", NUMBER, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}', "-", "Revenue", "", ""]);
   });
 
@@ -1042,12 +1061,12 @@ describe("What the results page reads out of a result", () => {
     const year = (value: string): [string, string] => ["Current Fiscal Year", value];
     // A months calendar is Monthly, with its current fiscal year's label under it; the title has the type as written and the
     // year's dates, as the export writes them after the label.
-    expect(tileOf([type("Calendar Months/Quarters/Years"), year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual({ label: "Model Calendar", count: 2, value: "Monthly", detail: "FY24",
-      title: "Model Calendar: Calendar Months/Quarters/Years, current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" });
+    expect(tileOf([type("Calendar Months/Quarters/Years"), year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual(expect.objectContaining({ label: "Model Calendar", count: 2, value: "Monthly", detail: "FY24",
+      title: "Model Calendar: Calendar Months/Quarters/Years, current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" }));
     // Each of Anaplan's weeks calendars is Weekly. A 4-4-5 one says the grouping its setting gives, a 13-period one that it
     // has 13 periods, and a general one how many weeks it has, where its setting gives a number of them.
-    expect(tileOf([type("Weeks: 4-4-5, 4-5-4 or 5-4-4"), ["Week Grouping into Months / Qtrs", "4-5-4"], year("FY2025")])).toEqual({ label: "Model Calendar", count: 3,
-      value: "Weekly", detail: "4-5-4 · FY2025", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-5-4, current fiscal year FY2025" });
+    expect(tileOf([type("Weeks: 4-4-5, 4-5-4 or 5-4-4"), ["Week Grouping into Months / Qtrs", "4-5-4"], year("FY2025")])).toEqual(expect.objectContaining({ label: "Model Calendar", count: 3,
+      value: "Weekly", detail: "4-5-4 · FY2025", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-5-4, current fiscal year FY2025" }));
     expect([tileOf([type("Weeks: 13 4-week Periods"), year("FY24: 31 Dec 2023 - 28 Dec 2024")]), tileOf([type("Weeks: General"), ["Number of Weeks", "52"]])]
       .map(tile => [tile.value, tile.detail])).toEqual([["Weekly", "13 periods · FY24"], ["Weekly", "52 weeks"]]);
     // A 4-4-5 calendar whose grouping is not given, and a general one of no weeks, say only that they are weekly.
@@ -1059,13 +1078,13 @@ describe("What the results page reads out of a result", () => {
       .map(text => tileOf([type(text)]).value)).toEqual(["Monthly", "Weekly", "Weekly", "Weekly", "Weekly", "Monthly", "Quarters", "Seasons"]);
     // Without a type, the current year is the tile's value; without either, the tile counts the rows its table lists, as
     // every other tile does.
-    expect(tileOf([year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual({ label: "Model Calendar", count: 1, value: "FY24",
-      title: "Model Calendar: current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" });
-    expect([tileOf([["Fiscal Year Starts", "Jan"]]), tileOf([type(" "), year("")])]).toEqual([{ label: "Model Calendar", count: 1 }, { label: "Model Calendar", count: 1 }]);
+    expect(tileOf([year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual(expect.objectContaining({ label: "Model Calendar", count: 1, value: "FY24",
+      title: "Model Calendar: current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" }));
+    expect([tileOf([["Fiscal Year Starts", "Jan"]]), tileOf([type(" "), year("")])]).toEqual([expect.objectContaining({ label: "Model Calendar", count: 1 }), expect.objectContaining({ label: "Model Calendar", count: 1 })]);
     // A file without the columns these are read by, and an app's file of that name, are counted.
     expect(overviewOf(result("model", [{ file: "Model Calendar.csv", label: "Model Calendar", headers: ["Section", "Name", "Value"], rows: [["Model Calendar", "Calendar Type", "Weeks: General"]],
-      guard: false }])).tiles[0]).toEqual({ label: "Model Calendar", count: 1 });
-    expect(tileOf([type("Weeks: General")], "app")).toEqual({ label: "Model Calendar", count: 1 });
+      guard: false }])).tiles[0]).toEqual(expect.objectContaining({ label: "Model Calendar", count: 1 }));
+    expect(tileOf([type("Weeks: General")], "app")).toEqual(expect.objectContaining({ label: "Model Calendar", count: 1 }));
   });
 
   it("says under About this export the workspace and its ID, what was read and its ID, and its apps or models: in that order and no more", () => {
@@ -1110,7 +1129,7 @@ describe("What the results page reads out of a result", () => {
     // the export's host, time and tool are not said there.
     const overview = overviewOf(result("model", [modelDetails, calendar()], ["Model Calendar: 31 rows"]));
     expect([overview.about, overview.tiles]).toEqual([[["Workspace", "Main"], ["Model", "Model one"]],
-      [{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }]]);
+      [expect.objectContaining({ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" })]]);
     // Where the two say different things, the Details file's value is the one said; a fact fills in only what the Details
     // file does not say, or says with a dash.
     expect(overviewOf(result("model", [modelDetails, calendar("Another workspace")])).about).toEqual([["Workspace", "Main"], ["Model", "Model one"]]);
@@ -1311,7 +1330,7 @@ describe("The names the page gives two of a model's tables", () => {
     expect(overview.files).toEqual([["Data Sources", "2 rows (1 of them a file)"], ["DCA", "Not exported: Line Items has no driver columns."]]);
     expect(overview.howToRead).toEqual([["Data Sources", "Each data source."], ["DCA", "The drivers."], ["Imports", "The imports."]]);
     expect(overview.notes).toEqual(["Data Sources: One source could not be read."]);
-    expect(overview.tiles).toEqual([{ label: "Data Sources", count: 2 }]);
+    expect(overview.tiles).toEqual([expect.objectContaining({ label: "Data Sources", count: 2 })]);
     // The result keeps the export's file and label: the page knows the table by its file everywhere else.
     expect([sources.file, sources.label, listedTables(model).map(({ table }) => table.file)]).toEqual(["Import Data Sources.csv", "Import Data Sources", ["Import Data Sources.csv"]]);
   });

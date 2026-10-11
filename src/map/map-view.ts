@@ -7,7 +7,7 @@ import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen 
 import { drawLinks, edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { accessTipLines, filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
-import { automaticGrouping, automaticGroupingReason, groupingsOf, type Grouping } from "./map-groups.js";
+import { automaticGrouping, bestGroupingReason, groupingsOf, howGroupingWorks, type Grouping } from "./map-groups.js";
 import {
   accessNote as accessSay, brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupingReasonHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
   pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, traceHtml, type Tip,
@@ -137,6 +137,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const canvas = part<HTMLCanvasElement>(".map-canvas");
   const miniCanvas = part<HTMLCanvasElement>(".map-minimap");
   const stats = part(".map-stats");
+  const statsSize = part(".map-stats-size");
   const miniWrap = part(".map-minimap-wrap");
   const miniButton = part<HTMLButtonElement>('[data-map-act="minimap"]');
   const notes = part(".map-notes");
@@ -206,7 +207,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** The ways this model's modules can be grouped (map-groups.ts), and the one the map picks by itself. */
   let groupings: Grouping[] = [];
   let automatic: Grouping | undefined;
-  let automaticReason = "";
+  let bestReason = "";
   let pickedGrouping = false;
   let search: ReturnType<typeof createSearch> | undefined;
   /** The view: the modules (as sections, of one section, or all) or the line items of one module. */
@@ -653,6 +654,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * has come to rest. With part of the graph out of view, one press shows it whole. */
   function renderStatus(): void {
     if (!onScreen) return;
+    statsSize.textContent = statusWords(onScreen, shownCount, Math.max(0, shownCount - 1), false, linksDrawn());
     const at = heading ?? camera;
     countedFor = at;
     // Read again if the panels' measured places settle while the words are rendered.
@@ -677,6 +679,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function footFor(whole: boolean): void {
     if (!onScreen) return;
     // Not whole: the longest the line can be, with one box out of view.
+    statsSize.textContent = statusWords(onScreen, shownCount, Math.max(0, shownCount - 1), false, linksDrawn());
     const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), false, linksDrawn());
     if (stats.textContent !== said) stats.textContent = said;
     stats.title = said;
@@ -729,10 +732,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     groupingButton.setAttribute("aria-label", `Group by: ${groupingName.textContent}`);
     groupingButton.title = `Group by: ${groupingName.textContent}`;
     groupingButton.disabled = groupings.length === 0;
-    groupingReason.innerHTML = groupingReasonHtml(pickedGrouping
-      ? `You picked ${model.grouping!.label}.\n${automatic!.label} is suggested for this model; pick it to go back to automatic.`
-      : automaticReason);
-    infoButton.title = groupingReason.textContent;
+    const how = howGroupingWorks(model.grouping, model);
+    const bestLabel = automatic?.label ?? "None";
+    groupingReason.innerHTML = groupingReasonHtml(how, bestLabel, bestReason);
+    infoButton.title = `How it groups\n${how}\n\nBest fit for this model: ${bestLabel}\n${bestReason}`;
     externalCheck.hidden = view !== "drill";
     externalToggle.checked = expanded;
     formulasToggle.checked = formulas;
@@ -1884,7 +1887,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     base = indexModel(graph);
     groupings = groupingsOf(base);
     automatic = automaticGrouping(groupings);
-    automaticReason = automaticGroupingReason(groupings);
+    bestReason = bestGroupingReason(groupings);
     groupingList.innerHTML = groupingOptionsHtml(groupings, automatic?.kind);
     const keptGrouping = groupings.find(grouping => grouping.kind === options.grouping);
     pickedGrouping = keptGrouping !== undefined;
