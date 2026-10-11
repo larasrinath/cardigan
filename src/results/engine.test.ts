@@ -14,7 +14,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
+import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf, tableLabel } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -226,7 +226,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // the file's tile, as the rows its table lists, but for the calendar's: its table lists 10 of its 31, and the line under
     // the table's name says the rest, 5 rows about the model and 16 settings with no value.
     const overview = overviewOf(result);
-    const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
+    // A tile names its table as the page does, which for two files is not the file's own name (`tableLabel`).
+    const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2])))
+      .map(row => `${tableLabel({ file: String(row[1]), label: String(row[1]).replace(/\.csv$/, "") })}: ${row[2]}`);
     const onTiles = overview.tiles.map(tile => `${tile.label}: ${tile.count} rows`);
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")])
       .toEqual([10, ["Model Calendar: 31 rows"], { label: "Model Calendar", count: 10 }]);
@@ -239,7 +241,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const NO_ACCESS = "Line Items has no Module Name, Read Access Driver and Write Access Driver columns.";
     expect(result.summary.filter(line => !/^[A-Za-z ]+: \d+ rows$/.test(line))).toEqual(["Imports: 3 rows (2 matched in the Actions list)",
       `Dynamic Cell Access: not exported (${NO_ACCESS}).`, "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
-    expect([overview.notes, overview.files]).toEqual([[], [["Dynamic Cell Access", `Not exported: ${NO_ACCESS}`], ["Imports", "3 rows (2 matched in the Actions list)"],
+    expect([overview.notes, overview.files]).toEqual([[], [["DCA", `Not exported: ${NO_ACCESS}`], ["Imports", "3 rows (2 matched in the Actions list)"],
       ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order. The names in the order that the export does not know are Line Item Subsets, which it
@@ -380,7 +382,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([held.placed, held.beyond, held.map.map(part => part.length)]).toEqual([held.map, [], [10, 2]]);
     // The overview has a tile for the file with its number of rows, and says the export's count with the files, once.
     const overview = overviewOf(result);
-    expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access", COUNTED]]);
+    expect([overview.tiles.find(tile => tile.label === "DCA"), overview.notes, overview.files[0]]).toEqual([{ label: "DCA", count: 12, full: "Dynamic Cell Access (DCA)" }, [],
+      ["DCA", COUNTED]]);
   });
 
   it("lists a driver named in a row of Line Items that the model map leaves out, and counts on the page the rows the export counted", async () => {
@@ -408,8 +411,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // summary, and the page counts the same rows in the line under the table's name, on the file's tile and with the files.
     const COUNTED = "4 rows (2 with a driver that could not be matched)";
     const overview = overviewOf(result);
-    expect([result.summary[1], overview.files[0], overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), fileView(result, file).note]).toEqual([`Dynamic Cell Access: ${COUNTED}`,
-      ["Dynamic Cell Access", COUNTED], { label: "Dynamic Cell Access", count: 4 },
+    expect([result.summary[1], overview.files[0], overview.tiles.find(tile => tile.label === "DCA"), fileView(result, file).note]).toEqual([`Dynamic Cell Access: ${COUNTED}`,
+      ["DCA", COUNTED], { label: "DCA", count: 4, full: "Dynamic Cell Access (DCA)" },
       `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     // The map of the same tables has a link for one of the four rows and an unmatched name for another: on those the
     // file and the map agree. The two rows beyond them are the cells of the line item the map left out, as it says.
