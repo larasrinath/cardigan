@@ -932,7 +932,7 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
 /** Which zone the page shows times in, and the viewer's own: a row's details say each time in both (times.ts). */
 export interface DrawerTimes { mode: TimeMode; zone: string }
 
-/** Where a button at the top right of a row's details leads: the model map, a module or a list of the model in Model
+/** Where a button under the name in a row's details leads: the model map, a module or a list of the model in Model
  * Building, an app, or a page of an app. */
 export type OpenKind = "map" | "module" | "app" | "page";
 /** One such button: where it leads, its few words, and what it opens, by name, which its title says. */
@@ -948,7 +948,7 @@ export const OPEN_ICONS: Readonly<Record<OpenKind, string>> = {
   page: FILE_ICONS.get(APP_FILES.Pages) ?? NAV_ICONS.table,
 };
 
-/** The buttons at the top right of a row's details, one under another, each with its icon and its words, and its title
+/** The buttons under the name in a row's details, in one row, each with its icon and its words, and its title
  * naming what it opens. A button is named by its place among them, a number the page counts itself: what it opens is the
  * page's, read from the row it holds, never from the markup. */
 export function opensHtml(opens: readonly OpenButton[]): string {

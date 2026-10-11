@@ -398,6 +398,26 @@ describe("The results page's files", () => {
     expect(rules(".ov-kept:empty")).toEqual([[".ov-kept:empty", "display:none"]]);
   });
 
+  it("puts a row's buttons in one row under its name in its details, across the header, with the close button alone at the top right", () => {
+    // The name and the line under it stand together, then the close button, then the buttons: in the page as on screen,
+    // since the page draws nothing out of its order. The line that says why a button is missing follows the header.
+    const shell = new FakePage(html);
+    const header = shell.find(".drawer-hd");
+    expect(header.children.map(child => child.id || child.getAttribute("class"))).toEqual(["d-head", "drawerClose", "drawerOpens"]);
+    expect(shell.find(".d-head").children.map(child => child.id)).toEqual(["drawerTitle", "drawerSub"]);
+    expect([shell.id("drawerOpens").getAttribute("role"), shell.id("drawerOpens").getAttribute("aria-label")]).toEqual(["group", "Open elsewhere"]);
+    expect(shell.id("drawer").children.map(child => child.id || child.getAttribute("class"))).toEqual(["drawer-hd", "drawerWhy", "drawerBody"]);
+    // The header wraps: the name beside the close button, then the buttons on a line of their own as wide as the header.
+    // They sit side by side and wrap only where the details are too narrow for them; nothing stands them one under another.
+    expect(declared(".drawer-hd")[0]).toContain("flex-wrap:wrap");
+    expect(declared(".d-head")).toEqual(["flex:1;min-width:0"]);
+    expect(declared(".d-opens")).toEqual(["flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:5px"]);
+    expect(rules(".d-opens").filter(([, body]) => /flex-direction|column/.test(body))).toEqual([]);
+    // Each button keeps its words on one line, a little smaller than the page's other buttons, so that a page filter's
+    // five fit on one row in the details' usual width.
+    expect(declared(".d-opens .btn")).toEqual(["white-space:nowrap;padding:3px 9px;gap:5px;font-size:11.5px"]);
+  });
+
   it("lists a value of several items one to a line, in the drawer's values and in a card's parts alike, by the page's tokens alone", () => {
     // The list takes no room round it; its bullet hangs in its own margin, in the muted colour; an item's text runs as text,
     // so that the bullet stands beside an item's first line, not beside the last line of a box.
