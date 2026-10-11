@@ -2,8 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
 import { FakePage, parseMarkup } from "./dom.test-support.js";
-import { cardDrawerHtml, keptCopyHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
+import { cardDrawerHtml, keptCopyHtml, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
+import { MARKED_WEIGHT, PLAIN_WEIGHT } from "./nav-spread.js";
 import { PAGE_IDS } from "./page-ids.js";
 
 // The page itself and its stylesheet, as they are packaged: an extension page runs no inline script and no inline handler.
@@ -292,44 +293,50 @@ describe("The results page's files", () => {
     // at the line's start. Until the page has told the line its items' widths in all, the gaps are 1px.
     const list = declared(".nav-list")[0];
     expect(list.split(";").filter(part => /gap/.test(part))).toEqual(["row-gap:4px", "column-gap:max(1px,calc((100% - var(--nav-need,9999px) - 1px) / var(--nav-gaps,1)))"]);
-    // The items keep their own widths: no rule of the line's items lets one grow or shrink, so the space between them is
-    // all the line's.
+    // The items keep the widths the page sets them (nav-spread.ts): no rule of the line's items lets one grow or shrink, so
+    // the space between them is all the line's. An item only centres what it shows in its own width.
     const items = [...rules(".nav-item"), ...rules(".nav-group-btn"), ...rules(".nav-group")].filter(([selector]) => !selector.includes(".nav-menu") && !selector.includes(".nav-compact"));
-    expect(items.filter(([, body]) => /flex(-grow|-basis)?:(?!none)|flex-grow|justify-content/.test(body))).toEqual([]);
-    expect(declared(".nav-item,.nav-group-btn")[0]).toContain("flex:none");
+    expect(items.filter(([, body]) => /flex(-grow|-basis)?:(?!none)|flex-grow|justify-content:(?!center)/.test(body))).toEqual([]);
+    expect([declared(".nav-item,.nav-group-btn")[0], declared(".nav-list>.nav-group")[0]].map(body => body.includes("flex:none"))).toEqual([true, true]);
   });
 
-  it("keeps each item of the navigation one width whatever it shows and however it is marked, so that no item after it moves", () => {
-    // An entry's words stand over their room (markup.ts `wordsHtml`): the same words in the bold of the view shown, unseen,
-    // of no height, and read by nothing, which give the words the width of their bold. A group's button keeps the room of
-    // every text it can show the same way, its row, icon, words and chevron, in the middle of the same cell.
-    expect(declared(".nav-item>span")).toEqual(["display:inline-flex;flex-direction:column;align-items:flex-start"]);
-    expect([declared(".nav-group-btn[data-room]"), declared(".nav-row")]).toEqual([["display:inline-grid"], ["grid-area:1/1;justify-self:center;display:inline-flex;align-items:center;gap:4px"]]);
-    const room = declared(".nav-item>span::after,.nav-group-btn[data-room]::after")[0] ?? "";
+  it("keeps each item of the navigation one slot whatever it shows and however it is marked, so that no item after it moves", () => {
+    // The page sets each item of the line the width of its slot (nav-spread.ts), and the item shows what it shows in the
+    // middle of it, past its two ends where it is wider: an entry within its own pill, a group's button within the group,
+    // whose menu opens under the button wherever it stands, by what the page tells it.
+    expect([declared(".nav-list>.nav-item"), declared(".nav-list>.nav-group"), declared(".nav-list>.nav-group>.nav-menu")])
+      .toEqual([["justify-content:center"], ["display:flex;justify-content:center;flex:none"], ["left:var(--nav-shift,0px)"]]);
+    // What the page writes to measure an item's texts stands out of the flow, unseen, on one line each, and is read by
+    // nothing: the item is the same width with it as without.
+    const measure = declared(".nav-measure")[0] ?? "";
+    expect(["position:absolute;", "visibility:hidden;", "white-space:pre;", "pointer-events:none"].map(part => [part, measure.includes(part)]))
+      .toEqual(["position:absolute;", "visibility:hidden;", "white-space:pre;", "pointer-events:none"].map(part => [part, true]));
+    // The words of the view shown's item are in the bold the page measures them in, and every other's in the weight it
+    // measures them in, the page's own.
+    const bold = (body: string) => /font-weight:(\d+)/.exec(body)?.[1];
+    expect([bold(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')[0] ?? ""), bold(declared(".nav-item,.nav-group-btn")[0] ?? "") ?? "400"])
+      .toEqual([MARKED_WEIGHT, PLAIN_WEIGHT]);
+    // A menu's entry keeps the room of its words in bold, unseen, of no height and read by nothing (markup.ts `wordsHtml`), so
+    // that the menu does not widen as its table is chosen; the room's bold is the mark's.
+    expect(declared(".nav-item>span[data-room]")).toEqual(["display:inline-flex;flex-direction:column;align-items:flex-start"]);
+    const room = declared(".nav-item>span[data-room]::after")[0] ?? "";
     expect(['content:attr(data-room) / "";', "height:0;", "line-height:0;", "visibility:hidden;", "white-space:pre;", "pointer-events:none;"].map(part => [part, room.includes(part)]))
       .toEqual(['content:attr(data-room) / "";', "height:0;", "line-height:0;", "visibility:hidden;", "white-space:pre;", "pointer-events:none;"].map(part => [part, true]));
-    // The room's bold is the mark's bold: the words of the view shown take no more room than the room keeps.
-    const bold = (body: string) => /font-weight:(\d+)/.exec(body)?.[1];
-    expect([bold(room), bold(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')[0] ?? "")]).toEqual(["600", "600"]);
-    // A group's room keeps beside its texts the room of the row's two drawings and the gaps by them, as the line draws
-    // them: the icon and a gap before, a gap and the chevron, drawn a little into its gap, after.
-    const px = (pattern: RegExp, body: string | undefined) => Number(pattern.exec(body ?? "")?.[1]);
-    const gap = px(/gap:(\d+)px/, declared(".nav-row")[0]);
-    const icon = px(/width="(\d+)"/, NAV_ICONS.modules);
+    expect(bold(room)).toBe(MARKED_WEIGHT);
+    // The line's own items stand closer than a menu's entries, which keep the spacing of every item (above): 6px at each
+    // side, a group's chevron as well, so that the gaps between what the items show are as even as their slots'.
     const chevron = declared(".nav-list>.nav-group>.nav-group-btn .nav-chevron")[0];
-    expect(declared(".nav-group-btn[data-room]::after")).toEqual([`grid-area:1/1;padding:0 ${gap + px(/width:(\d+)px/, chevron) + px(/margin-left:(-\d+)px/, chevron)}px 0 ${icon + gap}px`]);
-    // The line's own items stand closer than a menu's entries, which keep the spacing of every item (above); the gap between
-    // an icon and its words is the row's.
-    expect([declared(".nav-list>.nav-item,.nav-list>.nav-group>.nav-group-btn"), declared(".nav-list>.nav-group>.nav-group-btn")])
-      .toEqual([[`padding-left:6px;padding-right:6px;gap:${gap}px`], ["padding-right:9px"]]);
-    // What the page writes is what these rules name: an entry's words carry their own room; a group's button, the room of
-    // its name and every table's label in its menu, whichever it shows, and the row it shows.
+    expect([declared(".nav-list>.nav-item,.nav-list>.nav-group>.nav-group-btn"), declared(".nav-list>.nav-group>.nav-group-btn"), chevron])
+      .toEqual([["padding-left:6px;padding-right:6px;gap:4px"], [], "width:9px;height:9px;margin-left:-1px"]);
+    // What the page writes is what these rules name: an entry of the line keeps no room; a group's button carries its name
+    // and every table's label in its menu, whichever it shows; a menu's entry keeps its room.
     const grouped = navItems([{ id: "overview", label: "Overview" }, { id: "1", label: "Modules", file: "Modules.csv" }, { id: "2", label: "Line Items", file: "Line Items.csv" }], true);
-    const rooms = (current: string) => {
+    const written = (current: string) => {
       const line = parseMarkup(navHtml(grouped, current));
-      return [line.querySelector(".nav-item span")?.getAttribute("data-room"), line.querySelector(".nav-group-btn")?.getAttribute("data-room"), line.querySelectorAll(".nav-group-btn .nav-row").length];
+      return [line.children[0].querySelector("span")?.hasAttribute("data-room"), line.querySelector(".nav-group-btn")?.getAttribute("data-labels"),
+        line.querySelectorAll(".nav-menu span[data-room]").length];
     };
-    expect(["overview", "1", "2"].map(rooms)).toEqual(Array(3).fill(["Overview", "Modules\nModules\nLine Items", 1]));
+    expect(["overview", "1", "2"].map(written)).toEqual(Array(3).fill([false, "Modules\nModules\nLine Items", 2]));
     // No mark of an item's state, the view shown, a hover, an open menu or the keyboard's focus, changes a size: they
     // change colours and turn the chevron, and that is all.
     const marks = [...rules(".nav-item"), ...rules(".nav-group-btn")].filter(([selector]) => /\[aria-current|:hover|\[aria-expanded|:focus/.test(selector));
