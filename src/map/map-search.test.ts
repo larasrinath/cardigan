@@ -24,7 +24,7 @@ describe("The map's search", () => {
     expect(hits.map(hit => [hit.kind, hit.name, hit.context])).toEqual([
       // What is named exactly as typed comes first.
       ["lineItem", "Revenue", "CAL01 - Revenue"],
-      ["section", "02: Revenue Calculations", "Section · 1 module"],
+      ["section", "02: Revenue Calculations", "Group · 1 module"],
       ["module", "CAL01 - Revenue", "Module · 02: Revenue Calculations"],
       ["lineItem", "Revenue Share", "INP01 - Volumes"],
       // A line item of a module that the text names is found by its module.

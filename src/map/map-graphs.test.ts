@@ -70,7 +70,7 @@ describe("The graph of a model's sections", () => {
 });
 
 describe("The graph of a section's modules", () => {
-  it("shows the section's modules, and beside them the modules of other sections they read or feed", () => {
+  it("shows the section's modules, and beside them the modules of other groups they read or feed", () => {
     const { model, volumes, prices, revenue, margin, board } = sample();
     const graph = modulesGraph(model, "02: Calculations", false);
     expect([graph.name, graph.local]).toEqual(["02: Calculations", 2]);
@@ -82,7 +82,7 @@ describe("The graph of a section's modules", () => {
     ]);
     // The section's own modules say how much they hold; a module of another section says which section it is of.
     expect(graph.nodes.map(node => node.meta)).toEqual(["01: Inputs", "01: Inputs", "3 line items", "2 line items", "Reporting"]);
-    expect(graph.layers).toEqual([{ key: LAYER.external, label: "Modules of other sections", count: 3 }, { key: "s1", label: "02: Calculations", count: 2 }]);
+    expect(graph.layers).toEqual([{ key: LAYER.external, label: "Modules of other groups", count: 3 }, { key: "s1", label: "02: Calculations", count: 2 }]);
   });
   it("counts the links between two modules together, each way apart, and drops a module's links to itself", () => {
     const { model, volumes, prices, revenue, margin, board } = sample();
