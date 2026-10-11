@@ -4,7 +4,7 @@ import { columnWidths, headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.j
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
 import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_FIND_FROM, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
-  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
+  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, sourceModelHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
   type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { dayOf, NONE, pageOf, rangeColumn, selectRows } from "./table-engine.js";
@@ -1004,5 +1004,28 @@ describe("What the results page's markup shows", () => {
       // Without anything about the export, the place stands under the tiles.
       expect(parseMarkup(overviewHtml(overviewWith({ tiles: parts.tiles }), copy)).children.map(child => child.id || child.localName), copy).toEqual(["h1", "div", "ovKept"]);
     }
+  });
+});
+
+describe("What a source model gives, as its row's details write it", () => {
+  const TAG = "<img src=x onerror=alert(1)>";
+  it("writes its objects and its imports as text, each a link only where the page can open its row, with the lines under them", () => {
+    const view = parseMarkup(sourceModelHtml({ sources: [{ name: `Hub ${TAG}`, kind: "Saved view", row: 0 }, { name: "DAT01", kind: TAG, row: 1 }],
+      imports: [{ name: "IMP01", from: [`Hub ${TAG}`, "DAT01"] }], sourceLines: ["Sources counts 3; 2 are found in Import Data Sources."], importLines: [] }, [4, undefined], [undefined]));
+    expect(view.querySelectorAll("img")).toEqual([]);
+    expect(view.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (2)", "Imports (1)"]);
+    expect(view.querySelectorAll("#drawerSources tbody tr").map(row => row.children.map(cell => cell.textContent))).toEqual([[`Hub ${TAG}`, "Saved view"], ["DAT01", TAG]]);
+    expect(view.querySelectorAll('#drawerSources [data-act="item"]').map(link => [link.textContent, link.dataset.item])).toEqual([[`Hub ${TAG}`, "4"]]);
+    expect(view.querySelectorAll("#drawerSources p").map(line => line.textContent)).toEqual(["Sources counts 3; 2 are found in Import Data Sources."]);
+    expect(view.querySelectorAll("#drawerSourceImports tbody tr").map(row => row.children.map(cell => cell.textContent))).toEqual([["IMP01", `Hub ${TAG}, DAT01`]]);
+    expect(view.querySelectorAll('#drawerSourceImports [data-act="item"]')).toEqual([]);
+  });
+
+  it("writes no section of nothing, and stands before All columns in a row's details", () => {
+    expect(sourceModelHtml({ sources: [], imports: [{ name: "IMP01", from: [] }], sourceLines: [], importLines: [] }, [], [undefined])).not.toContain("drawerSources");
+    const [column] = columnsOf({ file: "Source Models.csv", label: "Source Models", headers: [""], rows: [["Hub"]], guard: false });
+    const drawer = parseMarkup(rowDrawerHtml([column], ["Hub"], {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { view: { sources: [{ name: "SYS02", kind: "Module", row: 0 }], imports: [], sourceLines: [], importLines: [] }, sources: [undefined], imports: [] }));
+    expect(drawer.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (1)", "All columns"]);
   });
 });

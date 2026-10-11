@@ -4,8 +4,8 @@ import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-typ
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, PICKER_CAP, type MapEnvironment } from "./map-view.js";
-import { FakePen, filteredModel, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
-import { ACCESS_SAYS, FILTERS_NONE, FILTERS_SAY, FULL_SAYS } from "./map-markup.js";
+import { FakePen, filteredModel, GraphMaker, HOSTILE, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
+import { ACCESS_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FULL_SAYS } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -3051,19 +3051,48 @@ describe("The links of the pages' filters on the map", () => {
     expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("1 link"), 0]);
     tickFilters();
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([true, true, { view: "modules", filters: true }]);
-    expect(text(".map-live")).toMatch(/^Page filter links are drawn\. /);
+    expect(text(".map-live")).toMatch(/^Page filters are drawn\. /);
     expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("3 links"), 1]);
     env.settle();
     expect(linksDrawn().filter(call => call.dash.join(",") === "5,3.5").length).toBe(2);
     tickFilters();
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1), status()]).toEqual([false, false, { view: "modules" }, expect.stringContaining("1 link")]);
-    expect(text(".map-live")).toMatch(/^Page filter links are not drawn\. /);
+    expect(text(".map-live")).toMatch(/^Page filters are not drawn\. /);
   });
 
   it("opens with them drawn where the page kept the tick", () => {
     const heard: MapView[] = [];
     openWith(withTable(filteredModel().graph), heard, { view: "modules", filters: true });
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard[0]]).toEqual([true, true, { view: "modules", filters: true }]);
+  });
+
+  it("marks the modules their own line items filter, where ticked, in a model whose filters are all on their own modules", () => {
+    const heard: MapView[] = [];
+    openWith(ownFilteredModel().graph, heard);
+    // The switch can be ticked, and says what it shows: there is no link to draw, only marks.
+    expect([part(".map-filters").disabled, part(".map-filters").checked, note()]).toEqual([false, false, FILTERS_OWN_SAY]);
+    expect(parts(".map-legend-mark").length).toBe(0);
+    tickFilters();
+    expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([true, true, { view: "modules", filters: true }]);
+    expect(text(".map-live")).toMatch(/^Page filters are drawn\. /);
+    // The legend says what the mark on a box of this picture means, and has no line for links: there are none.
+    expect([parts(".map-legend-mark").map(line => line.textContent), parts(".map-legend-filter").length]).toEqual([[FILTER_MARK_SAYS.sections], 0]);
+    tickFilters();
+    expect([part(".map-filters").checked, parts(".map-legend-mark").length]).toEqual([false, 0]);
+    map.destroy();
+    // Taken up where the page kept the tick.
+    openWith(ownFilteredModel().graph, [], { view: "modules", filters: true });
+    expect([part(".map-filters").checked, parts(".map-legend-mark").length]).toEqual([true, 1]);
+    map.destroy();
+    // A model with both kinds says it draws both.
+    openWith(ownFilteredModel(true).graph);
+    expect([part(".map-filters").disabled, note()]).toEqual([false, FILTERS_BOTH_SAY]);
+  });
+
+  it("says why it cannot be ticked where the table's filters name no line item of the map", () => {
+    const missing = { ...sample().graph, pageFilterTable: true, pageFilterCheck: { rows: 32, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 32, missing: ["Gone · Show?"] } };
+    openWith(missing);
+    expect([part(".map-filters").disabled, part(".map-filters").checked, note()]).toEqual([true, false, FILTERS_NONE.unfound(32)]);
   });
 
   it("cannot be ticked where the result has no Page Filters table, or none of its filters has a line item of the model as its condition, and says why", () => {
