@@ -16,6 +16,17 @@ const { tags } = readMarkup(html, true);
 const opening = tags.filter(tag => !tag.closing);
 
 describe("The results page's files", () => {
+  it("keeps the details below the header and makes room beside the table on wide windows, without a scrim", () => {
+    const page = new FakePage(html);
+    expect([page.id("drawer").getAttribute("role"), page.id("drawer").getAttribute("aria-labelledby"), page.id("drawer").hasAttribute("aria-modal"), page.has("#scrim")])
+      .toEqual(["region", "drawerTitle", false, false]);
+    expect(declared(".drawer")[0]).toContain("top:var(--details-top)");
+    expect(declared(".drawer")[0]).toContain("z-index:35");
+    expect(declared(".top")[0]).toContain("z-index:40");
+    expect(css).toContain("@media(min-width:1100px){body.details-open .shell,body.details-open .banners{width:calc(100% - var(--details-width))");
+    expect(page.id("drawerBack").hidden).toBe(true);
+  });
+
   it("loads its one script from the extension, last, and writes none in the page", () => {
     const scripts = tags.map((tag, index) => ({ tag, index })).filter(({ tag }) => tag.name === "script" && !tag.closing);
     expect(scripts.map(({ tag }) => [...tag.attributes])).toEqual([[["src", "dist/results.js"]]]);
@@ -138,7 +149,7 @@ describe("The results page's files", () => {
     // them keeps at its two sides, the gutter, so that their backgrounds and borders still reach the window's edges.
     const sized = [".shell", ".banners", "main"].flatMap(name => rules(name));
     expect(sized.length).toBeGreaterThan(6);
-    expect(sized.filter(([, body]) => /max-width|margin/.test(body))).toEqual([]);
+    expect(sized.filter(([selector, body]) => !selector.includes("details-open") && /max-width|margin/.test(body))).toEqual([]);
     // The column is at most 1400px wide, with at least the edge at each side: 16px in a phone's window, more as the window
     // widens past 400px, and 48px from 1200px on. From 1496px on the column is 1400px wide, in the middle of the window,
     // and the rest of the width is the room at its two sides.
@@ -425,7 +436,7 @@ describe("The results page's files", () => {
     // since the page draws nothing out of its order. The line that says why a button is missing follows the header.
     const shell = new FakePage(html);
     const header = shell.find(".drawer-hd");
-    expect(header.children.map(child => child.id || child.getAttribute("class"))).toEqual(["d-head", "drawerRun", "drawerClose", "drawerOpens"]);
+    expect(header.children.map(child => child.id || child.getAttribute("class"))).toEqual(["d-head", "d-history", "drawerClose", "drawerOpens"]);
     expect(shell.find(".d-head").children.map(child => child.id)).toEqual(["drawerTitle", "drawerSub"]);
     expect([shell.id("drawerOpens").getAttribute("role"), shell.id("drawerOpens").getAttribute("aria-label")]).toEqual(["group", "Open elsewhere"]);
     expect(shell.id("drawer").children.map(child => child.id || child.getAttribute("class"))).toEqual(["drawer-hd", "drawerWhy", "drawerBody"]);
@@ -436,13 +447,13 @@ describe("The results page's files", () => {
     expect(declared(".d-opens")).toEqual(["flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:5px"]);
     expect(rules(".d-opens").filter(([, body]) => /flex-direction|column/.test(body))).toEqual([]);
     // Each button keeps its words on one line, a little smaller than the page's other buttons, so that a page filter's
-    // five fit on one row in the details' usual width.
-    expect(declared(".d-opens .btn")).toEqual(["white-space:nowrap;padding:3px 9px;gap:5px;font-size:11.5px"]);
+    // six fit on one row in the details' usual width.
+    expect(declared(".d-opens .btn")).toEqual(["white-space:nowrap;padding:3px 7px;gap:5px;font-size:11.5px"]);
   });
 
   it("holds the run controls' width, draws their spinner and respects reduced motion", () => {
     const shell = new FakePage(html);
-    for (const id of ["runAgain", "drawerRun"]) {
+    for (const id of ["runAgain"]) {
       expect(shell.id(id).classList.contains("run-control")).toBe(true);
       expect(shell.id(id).querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
       expect(shell.id(id).querySelector("svg .run-spinner")?.localName).toBe("circle");

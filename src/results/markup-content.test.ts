@@ -590,11 +590,12 @@ describe("What the results page's markup shows", () => {
     const summary = '{"summaryMethod":"RATIO"} <b>bold</b>\n  second line';
     const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, new Map([[1, format], [3, summary]])));
     // Each column's name beside its cell as the table shows it; after a cell said in words, the text that was read under "as read".
-    expect(drawer.querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Format as read", "Formula", "Summary", "Summary as read"]);
-    expect(drawer.querySelectorAll("dd").map(value => value.textContent)).toEqual(["Margin %", "Number, 2 decimal places, %", format, "Margin / Revenue", "Ratio = Margin / Revenue", summary]);
+    expect(drawer.querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Formula", "Summary", "Format as read", "Summary as read"]);
+    expect(drawer.querySelectorAll("dd").map(value => value.textContent)).toEqual(["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue", format, summary]);
     // The text that was read is a text, whole: in the element that keeps its line breaks and spaces, whatever the column's kind, and never an element.
     expect(drawer.querySelectorAll("dd").map(value => [value.children.map(child => child.classList.contains("cell-t") || child.classList.contains("tag")), value.querySelector(".cell-t")?.textContent]))
-      .toEqual([[[true], "Margin %"], [[true], "Number, 2 decimal places, %"], [[true], format], [[true], "Margin / Revenue"], [[true], "Ratio = Margin / Revenue"], [[true], summary]]);
+      .toEqual([[[true], "Margin %"], [[true], "Number, 2 decimal places, %"], [[true], "Margin / Revenue"], [[true], "Ratio = Margin / Revenue"], [[true], format], [[true], summary]]);
+    expect([drawer.querySelector("details")?.hasAttribute("open"), drawer.querySelector("summary")?.textContent]).toEqual([false, "As read"]);
     expect([drawer.querySelectorAll("b").length, drawer.querySelectorAll("h3").map(text)]).toEqual([0, ["All columns"]]);
     // A row none of whose cells is said in words, and a table that has no such cells, show the columns alone.
     for (const none of [rowDrawerHtml(columns, row, NO_LINKS, new Map()), rowDrawerHtml(columns, row, NO_LINKS)]) {
@@ -610,13 +611,13 @@ describe("What the results page's markup shows", () => {
     const names = (html: string) => parseMarkup(html).querySelectorAll("dt").map(name => name.textContent);
     const drawer = rowDrawerHtml(columns, row, NO_LINKS, new Map([[2, mapping]]), undefined, new Map([[2, "Mapped To"]]));
     // The two columns, then the text both were read from, once, under the file's name for it and "as read".
-    expect(names(drawer)).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Mapped To as read", "Notes"]);
-    expect(parseMarkup(drawer).querySelectorAll("dd").map(value => value.textContent)).toEqual([...row.slice(0, 3), mapping, row[3]]);
-    expect(parseMarkup(drawer).querySelectorAll("dd")[3].querySelector(".cell-t")?.textContent).toBe(mapping);
+    expect(names(drawer)).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Notes", "Mapped To as read"]);
+    expect(parseMarkup(drawer).querySelectorAll("dd").map(value => value.textContent)).toEqual([...row, mapping]);
+    expect(parseMarkup(drawer).querySelectorAll("dd")[4].querySelector(".cell-t")?.textContent).toBe(mapping);
     // A file's name for a column whose cell has no text that was read adds nothing; and without such a name, the text that
     // was read is named by its own column, as for a Format or a Summary.
     expect(names(rowDrawerHtml(columns, row, NO_LINKS, new Map(), undefined, new Map([[2, "Mapped To"]])))).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Notes"]);
-    expect(names(rowDrawerHtml(columns, row, NO_LINKS, new Map([[2, mapping]])))).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Mapped Model as read", "Notes"]);
+    expect(names(rowDrawerHtml(columns, row, NO_LINKS, new Map([[2, mapping]])))).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Notes", "Mapped Model as read"]);
   });
 
   it("lists in a drawer each item of a value that lists several, one to a line, and leaves the table's cell as it is", () => {

@@ -41,6 +41,42 @@ function named(of: ResultTable, header: string, row: number, items: string[]): (
 }
 
 describe("Which row of the result an item of a row's details names", () => {
+  it("resolves the additional single names by their table and owning module", () => {
+    const sourceModels = table("Source Models", [""], [["Seed model"]]);
+    const tables = new Map([...TABLES, [sourceModels.file, { table: sourceModels, name: 0 }]]);
+    const cases: [string, string[], Cell[], string, string, string][] = [
+      ["Line Items", ["Name", "Module Name"], ["Price", "REV01 Revenue"], "Module Name", "REV01 Revenue", "Modules.csv"],
+      ["Imports", ["Target Object", "Target Type"], ["REV01 Revenue", "MODULE"], "Target Object", "REV01 Revenue", "Modules.csv"],
+      ["Imports", ["Target Object", "Target Type"], ["Products", "LIST"], "Target Object", "Products", "General Lists.csv"],
+      ["Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Controlled Module", "Controlled Line Item"],
+        ["SYS100 Time", "Price", "REV01 Revenue", "Units"], "Driver Line Item", "Price", "Line Items.csv"],
+      ["Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Controlled Module", "Controlled Line Item"],
+        ["SYS100 Time", "Price", "REV01 Revenue", "Units"], "Controlled Line Item", "Units", "Line Items.csv"],
+      ["Page Filters", ["Condition line item's module", "Condition line item", "Filtered module"],
+        ["SYS100 Time", "Price", "REV01 Revenue"], "Condition line item", "Price", "Line Items.csv"],
+      ["Page Filters", ["Filtered module"], ["REV01 Revenue"], "Filtered module", "REV01 Revenue", "Modules.csv"],
+      ["Page Actions", ["Model action name", "Action type"], ["Nightly load", "Process"], "Model action name", "Nightly load", "Processes.csv"],
+      ["Import Data Sources", ["Source Model"], ["Seed model"], "Source Model", "Seed model", "Source Models.csv"],
+    ];
+    for (const [label, headers, row, header, name, file] of cases) {
+      const of = table(label, headers, [row]);
+      const found = itemRows(of, header, [name], row, tables)[0];
+      expect(found?.file, `${label}: ${header}`).toBe(file);
+      if (file === "Line Items.csv") expect(found?.row[1]).toBe(header === "Controlled Line Item" ? "REV01 Revenue" : "SYS100 Time");
+    }
+  });
+
+  it("leaves absent, ambiguous, and Missing names plain, including a line item in the wrong module", () => {
+    const of = table("Page Filters", ["Condition line item's module", "Condition line item"], [["Gone", "Price"]]);
+    expect(itemRows(of, "Condition line item", ["Price"], of.rows[0], TABLES)).toEqual([undefined]);
+    const imports = table("Imports", ["Target Object"], [["Twice"]]);
+    expect(itemRows(imports, "Target Object", ["Twice", "Gone", "Missing module (ID 102000000999)"], imports.rows[0], TABLES))
+      .toEqual([undefined, undefined, undefined]);
+    const sameName = table("Modules", ["Name"], [["Missing module (ID 102000000999)"]]);
+    expect(itemRows(of, "Filtered module", ["Missing module (ID 102000000999)"], of.rows[0], new Map([[sameName.file, { table: sameName, name: 0 }]])))
+      .toEqual([undefined]);
+  });
+
   it("finds what refers to a module: a module by its name out of its quotes, a line item behind its module's name, and nothing that no row or several have", () => {
     expect(named(MODULES, "Referenced By", 0, ["'PRM000 - Global'", "REV01 Revenue", "'REV01 Revenue'.Price", "Gone module", "Twice"]))
       .toEqual(["Modules.csv: PRM000 - Global", "Modules.csv: REV01 Revenue", "Line Items.csv: Price / REV01 Revenue", undefined, undefined]);

@@ -514,10 +514,11 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .diag-body > * + pre{margin-top:10px}
 
 /* ---------- drawer ---------- */
-.scrim{position:fixed;inset:0;background:rgba(16,15,12,.44);z-index:60;opacity:0;transition:opacity .18s}
-.scrim.show{opacity:1}
+:root{--details-width:620px;--details-top:100px}
+/* Only the content gives the panel room. The header and navigation keep their full width. */
+@media(min-width:1100px){body.details-open .shell,body.details-open .banners{width:calc(100% - var(--details-width));margin-right:var(--details-width)}}
 .drawer{
-  position:fixed;top:0;right:0;height:100dvh;width:min(540px,94vw);z-index:70;
+  position:fixed;top:var(--details-top);right:0;bottom:0;width:min(var(--details-width),94vw);z-index:35;
   background:var(--panel);border-left:1px solid var(--border-strong);box-shadow:var(--shadow);
   transform:translateX(102%);transition:transform .2s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;
 }
@@ -525,14 +526,17 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .drawer-hd{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
 .drawer-hd h2{font-size:14.5px;flex:1;word-break:break-word}
 .drawer-hd .d-sub{font-size:12px;color:var(--text-2);margin-top:3px}
+/* Reserve the Back button's place so following a link does not move the name or close control. */
+.d-history{width:53px;min-height:27px;flex:none}
+.d-raw summary{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);cursor:pointer;margin-bottom:8px}
 /* The row's name and the line under it, beside the close button, which stands alone at the top right. */
 .d-head{flex:1;min-width:0}
 /* The ways a row leads elsewhere, under its name and the close button: one row of buttons across the header's whole
    width, left to right in the page's order, each with its icon and its words. They are drawn a little smaller than the
-   page's other buttons, so that the most a row has, a page filter's five, fit on one row in the details' usual width;
+   page's other buttons, so that the most a row has, a page filter's six, fit on one row in the details' usual width;
    only a narrower window wraps them onto a second row. */
 .d-opens{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:5px}
-.d-opens .btn{white-space:nowrap;padding:3px 9px;gap:5px;font-size:11.5px}
+.d-opens .btn{white-space:nowrap;padding:3px 7px;gap:5px;font-size:11.5px}
 /* Why a way to open the row is not there, where the result keeps it from every row: a quiet line under the header. */
 .d-open-why{margin:0;padding:8px 16px;font-size:12px;color:var(--text-2);background:var(--panel-2);border-bottom:1px solid var(--border)}
 .drawer-bd{overflow:auto;padding:14px 16px;flex:1}

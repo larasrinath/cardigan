@@ -52,17 +52,13 @@
   </main>
 </div>
 
-<div class="scrim" id="scrim" hidden></div>
-<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+<aside class="drawer" id="drawer" role="region" aria-labelledby="drawerTitle" hidden>
   <div class="drawer-hd">
     <div class="d-head">
       <h2 id="drawerTitle"></h2>
       <div class="d-sub" id="drawerSub"></div>
     </div>
-    <button type="button" class="btn run-control" id="drawerRun" title="Analyse the Anaplan tab again">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="run-icon"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></g><circle class="run-spinner" cx="8" cy="8" r="5.25" stroke-dasharray="24 9"/></svg>
-      Run again
-    </button>
+    <div class="d-history"><button type="button" class="btn sm" id="drawerBack" hidden>Back</button></div>
     <button class="icon-btn" id="drawerClose" aria-label="Close details panel">
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>
     </button>
