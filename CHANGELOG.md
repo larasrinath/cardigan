@@ -2,13 +2,21 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.9 (10 October 2026)
+## 0.18.10 (10 October 2026)
 
 A table's name and its toolbar share one row, and the toolbar is quieter.
 
 - **One row.** Every table, an app's and a model's, has its name and then its toolbar on one line: the search box, **Reset** when something is in force, and at the right end the count of rows and the pager. The line under a table's name, where it has one, now stands under that row. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that, and always together: the count, the page buttons and the rows per page are never parted, as they could be before. Under 560 pixels the pager may go under the count, so the page never scrolls sideways. A table with the switch of ways or a page's chip keeps them at the toolbar's head. (#61)
 - **The column chooser is in the search box.** The **Columns** button is gone: a button with three lines at the search box's right end, set off by a thin line, opens the same chooser. Its tooltip and its name for screen readers say **Show or hide columns**. (#61)
 - **No key drawn in the search boxes.** The search boxes of the tables and of the model map no longer show a `/` key. The key still reaches them, and their tooltips and `aria-keyshortcuts` say so. (#61)
+
+## 0.18.9 (10 October 2026)
+
+Three small mends: a module's code on the model map, what Forget this result forgets, and two tests that a busy machine could fail.
+
+- **A module's code, told from its name whatever stands between.** The map sets a module's code apart from the rest of its name. It took off a dash between spaces (" - ") or a space alone, so a name such as "CLM101 : - Stat Combos: Without Order History" showed ": - Stat Combos: Without Order History". Now any mix of spaces, colons and dashes between the code and the rest is taken off: "CLM101 : - Stat Combos", "FIN03: Cash", "X_1 — Y". A colon with no dash takes only a word of capitals and digits for a code, so "Note: Revenue Plan" stays whole, and a mark written against the rest stays with it ("SYS01 -Time"). (#63)
+- **Forget this result forgets where the map was.** Forgetting removed what the tab kept, but the page went on holding where the map had been left: the map built afresh after it took that place back and wrote it to the tab again. It now opens where it opens by itself, and nothing comes back. (#63)
+- **Tests that hold on a busy machine.** The page tests now tell a page it goes, as a browser does when a refresh replaces it, so what a page was about to write lands in its own test and never in the next one's storage. The check that a table of 200,000 rows has its column widths worked out quickly counts the cells read and takes the process's own time, not the clock. (#63)
 
 ## 0.18.8 (10 October 2026)
 
