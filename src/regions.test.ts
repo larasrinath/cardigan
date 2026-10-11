@@ -21,12 +21,13 @@ describe("Anaplan regions, Australia's app2 host included", () => {
     ]);
   });
 
-  it("asks only for activeTab and scripting, and for no host permissions, required or optional", () => {
-    // The toolbar icon's click, the tab it opens and the port to a tab's content script need none. These two let the click
-    // put the content script into the clicked Anaplan tab when Chrome has not (results/connection.ts): neither comes with
-    // a warning, and neither reaches a tab the icon was not clicked on.
+  it("asks only for activeTab, contextMenus and scripting, and for no host permissions, required or optional", () => {
+    // The toolbar icon's click, the tab it opens and the port to a tab's content script need none. activeTab and scripting
+    // let the click put the content script into the clicked Anaplan tab when Chrome has not (results/connection.ts), and
+    // reach no tab the icon was not clicked on; contextMenus gives the icon's own menu Cardigan's two items, About Cardigan
+    // and the version (background.ts), and reaches no page at all. None of the three comes with a warning.
     expect(Object.keys(manifest).filter(key => key.endsWith("permissions"))).toEqual(["permissions"]);
-    expect((manifest as Manifest & { permissions: string[] }).permissions).toEqual(["activeTab", "scripting"]);
+    expect((manifest as Manifest & { permissions: string[] }).permissions).toEqual(["activeTab", "contextMenus", "scripting"]);
   });
 
   it("puts its content script back only on the hosts the manifest's matches name", () => {

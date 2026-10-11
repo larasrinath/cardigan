@@ -1,20 +1,59 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FRESH_MS, OPENED_PARAM, RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
+import { ABOUT_PAGE, FRESH_MS, OPENED_PARAM, RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
 
 const EXTENSION = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 /** When the icon is clicked, as Date.now() gives it. */
 const CLICKED = Date.UTC(2026, 8, 28, 1, 59, 9);
 
-interface Manifest { icons: Record<string, string>; action: { default_title: string; default_icon: Record<string, string> }; background: { service_worker: string } }
+interface Manifest { version: string; icons: Record<string, string>; action: { default_title: string; default_icon: Record<string, string> }; background: { service_worker: string } }
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as Manifest;
 
-/** Just enough of `chrome` for the worker: it keeps the click listeners registered with it and the tabs it is asked for. */
+/** One item of the toolbar icon's menu, as the worker asks Chrome to make it. */
+type MenuItem = { id: string; title: string; contexts: "action"[]; enabled?: boolean };
+
+/** Just enough of `chrome` for the worker: it keeps the listeners registered with it, the tabs it is asked for, the icon's
+ * title and the items of the icon's menu, in the order Chrome is asked for them. */
 class FakeChrome {
   readonly listeners: ((tab: chrome.tabs.Tab) => void)[] = [];
+  readonly installed: (() => void)[] = [];
+  readonly started: (() => void)[] = [];
+  readonly chosen: ((info: chrome.contextMenus.OnClickData) => void)[] = [];
   readonly created: unknown[] = [];
-  readonly action = { onClicked: { addListener: (listener: (tab: chrome.tabs.Tab) => void) => { this.listeners.push(listener); } } };
-  readonly runtime = { getURL: (path: string) => `${this.origin}/${path}` };
+  /** What the worker asked of the icon's title and menu, in order. */
+  readonly asked: unknown[] = [];
+  /** The menu's items as Chrome holds them. */
+  menu: MenuItem[] = [];
+  /** Why Chrome refuses the icon's title, when it does. */
+  titleRefusal: Error | undefined;
+  readonly action = {
+    onClicked: { addListener: (listener: (tab: chrome.tabs.Tab) => void) => { this.listeners.push(listener); } },
+    setTitle: async (details: { title: string }): Promise<void> => {
+      this.asked.push(["setTitle", details]);
+      if (this.titleRefusal) throw this.titleRefusal;
+    },
+  };
+  readonly contextMenus = {
+    create: (properties: MenuItem, callback?: () => void): string => {
+      this.asked.push(["create", properties]);
+      this.menu.push(properties);
+      callback?.();
+      return properties.id;
+    },
+    removeAll: (callback?: () => void): void => {
+      this.asked.push(["removeAll"]);
+      this.menu = [];
+      callback?.();
+    },
+    onClicked: { addListener: (listener: (info: chrome.contextMenus.OnClickData) => void) => { this.chosen.push(listener); } },
+  };
+  readonly runtime = {
+    getURL: (path: string) => `${this.origin}/${path}`,
+    getManifest: () => ({ name: "Cardigan", version: manifest.version }),
+    lastError: undefined as { message?: string } | undefined,
+    onInstalled: { addListener: (listener: () => void) => { this.installed.push(listener); } },
+    onStartup: { addListener: (listener: () => void) => { this.started.push(listener); } },
+  };
   /** Why Chrome opens no tab, when it does not: the clicked tab's window has just closed, say. */
   refusal: Error | undefined;
   readonly tabs = { create: async (properties: unknown): Promise<chrome.tabs.Tab> => {
@@ -39,9 +78,10 @@ describe("Toolbar icon's service worker", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("is named in the manifest, behind a toolbar icon that has a title, the extension's icons and no popup", () => {
-    // A popup would take the click: Chrome tells the worker only about a click on an icon that has none.
+    // A popup would take the click: Chrome tells the worker only about a click on an icon that has none. The title is the
+    // name alone: the worker adds the version to it as it starts (below).
     expect(manifest.action).toEqual({
-      default_title: "Cardigan: analyse this Anaplan app or model",
+      default_title: "Cardigan",
       default_icon: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
     });
     expect(manifest.action.default_icon).toEqual(manifest.icons);
@@ -111,5 +151,55 @@ describe("Toolbar icon's service worker", () => {
     browser.refusal = undefined;
     browser.listeners[0]({ id: 7, index: 0, windowId: 2 });
     expect(browser.created).toHaveLength(1);
+  });
+
+  it("gives the toolbar icon the version as its title, and its menu About Cardigan and the version, as Cardigan is installed and as the browser starts", async () => {
+    const { ABOUT_ITEM, VERSION_ITEM } = await import("./background.js");
+    // Nothing is asked of Chrome until it says Cardigan was installed or the browser started.
+    expect([browser.installed.length, browser.started.length, browser.chosen.length, browser.asked]).toEqual([1, 1, 1, []]);
+    browser.installed[0]();
+    // The title and the menu say the version the manifest gives, Cardigan's one record of it. The menu is made afresh, its
+    // last items removed first: About Cardigan, then the version, which does nothing when chosen and is greyed out.
+    const version = manifest.version;
+    expect(browser.asked).toEqual([
+      ["setTitle", { title: `Cardigan ${version}` }],
+      ["removeAll"],
+      ["create", { id: ABOUT_ITEM, title: "About Cardigan", contexts: ["action"] }],
+      ["create", { id: VERSION_ITEM, title: `Version ${version}`, contexts: ["action"], enabled: false }],
+    ]);
+    // Only the icon's menu: no page or link of any site gets an item.
+    expect(browser.menu.flatMap(item => item.contexts)).toEqual(["action", "action"]);
+    // As the browser starts it does the same, and the menu still holds the two items once each.
+    browser.started[0]();
+    expect([browser.asked.length, browser.menu.map(item => item.title)]).toEqual([8, ["About Cardigan", `Version ${version}`]]);
+  });
+
+  it("takes a title Chrome refuses as the end of it: no unhandled rejection, and the menu is made all the same", async () => {
+    const unhandled: unknown[] = [];
+    const rejected = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", rejected);
+    browser.titleRefusal = new Error("The extension is being reloaded.");
+    await import("./background.js");
+    browser.installed[0]();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    process.off("unhandledRejection", rejected);
+    expect([unhandled, browser.menu.length]).toEqual([[], 2]);
+  });
+
+  it("opens the About page in a new tab when About Cardigan is chosen, and nothing for any other item", async () => {
+    const { ABOUT_ITEM, VERSION_ITEM, chooseItem } = await import("./background.js");
+    browser.chosen[0]({ menuItemId: ABOUT_ITEM });
+    browser.chosen[0]({ menuItemId: VERSION_ITEM });
+    browser.chosen[0]({ menuItemId: "another extension's item" });
+    expect(browser.created).toEqual([{ url: `${EXTENSION}/${ABOUT_PAGE}` }]);
+    // Through the API it is given, not the global one; a tab Chrome does not open goes to the worker's console.
+    const api = new FakeChrome("chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba");
+    await chooseItem(api, { menuItemId: ABOUT_ITEM });
+    expect(api.created).toEqual([{ url: "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/about.html" }]);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    browser.refusal = new Error("No current window.");
+    browser.chosen[0]({ menuItemId: ABOUT_ITEM });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(warned.mock.calls).toEqual([["Cardigan could not open the About page:", browser.refusal]]);
   });
 });

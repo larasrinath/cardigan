@@ -16,6 +16,10 @@ declare namespace chrome {
     function getURL(path: string): string;
     function getManifest(): { name: string; version: string };
     const onConnect: { addListener(listener: (port: Port) => void): void };
+    /** When the extension is installed or updated, and when the browser starts with it: where the service worker sets up
+     * what Chrome keeps for it, such as the toolbar icon's menu. */
+    const onInstalled: { addListener(listener: () => void): void };
+    const onStartup: { addListener(listener: () => void): void };
   }
   namespace tabs {
     /** `openerTabId`: the tab that opened this one, where one did and the browser still says so. `status`: "loading" while
@@ -45,5 +49,14 @@ declare namespace chrome {
   }
   namespace action {
     const onClicked: { addListener(listener: (tab: tabs.Tab) => void): void };
+    /** The toolbar icon's title, which Chrome shows when the pointer rests on the icon. */
+    function setTitle(details: { title: string }): Promise<void>;
+  }
+  /** The "contextMenus" permission's: items of the menu Chrome shows on the toolbar icon ("action"). */
+  namespace contextMenus {
+    interface OnClickData { menuItemId: string | number }
+    function create(properties: { id: string; title: string; contexts: "action"[]; enabled?: boolean }, callback?: () => void): string | number;
+    function removeAll(callback?: () => void): void;
+    const onClicked: { addListener(listener: (info: OnClickData) => void): void };
   }
 }

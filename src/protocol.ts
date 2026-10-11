@@ -18,6 +18,8 @@ import type { AnalysisResult, Cell } from "./result-types.js";
 export const PORT_NAME = "cardigan-results";
 /** The results page: chrome.runtime.getURL(RESULTS_PAGE) + "?" + TAB_PARAM + "=" + the Anaplan tab's ID. */
 export const RESULTS_PAGE = "results.html";
+/** The About page, which the toolbar icon's menu opens (background.ts). */
+export const ABOUT_PAGE = "about.html";
 /** The content script in the Anaplan tab's own world, as the manifest names it. */
 export const CONTENT_SCRIPT = "dist/content.js";
 /** The model's reader, as the manifest names it: Chrome puts it into the page's main world, in every frame, as a page
