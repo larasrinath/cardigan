@@ -38,7 +38,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Line Items", "Name and Module Name come first, then Format, Format type, Formula, Applies To, Time Scale, Versions, Summary, Referenced By, Cell Count, Calculation Effort, Page Filters and Notes. The other known columns start hidden. The table lists only line items, each beside its module under Module Name. Modules' own rows and the headings that divide modules are left out; a module's own settings are in Modules. Line items whose module is not known stay in the table. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format: untick No Data in its filter to leave out line items that are headings. Three added columns start hidden. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."],
   ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is the module's own: its driver is set on the module's own row. Controlled Module opens that module in Modules. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."],
   ["Processes, Exports and Other Actions", "The Actions list split at its headings. Processes starts with Name and Actions; Exports and Other Actions with Name, Action and Used in Processes, with Action List after Action in Other Actions. Start Date and Time, Most recent duration (ms) and Notes follow. Used in Dashboards starts hidden. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported. A process's details list its actions once, before All columns, in the order it runs them, as the process's own definition holds them: each with its kind, and each opening its own row."],
-  ["Imports", "Name, Source Type and Source Label come first, then Source Model, Source Module, Saved View, Target Type, Target Object, Used in Processes, Start Date and Time, Most recent duration (ms), Notes and Production Data. Used in Dashboards starts hidden. The source and target come from the Imports tab, joined to the Actions list by the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details keep Source Object under As read, folded at first. Any other Source Object stands as it is under Source Model. For an import of uploaded data, a row's details start with its Mapping, before All columns, as the import's own definition holds it: source columns first with the targets they feed, then constants, prompts and the header row. Unmapped targets are named below, along with which columns before the last one mapped are not used. Anaplan keeps the import's mapping, not the header row it was made from, so columns after the last one mapped are not known. Only headers mapped by hand are stored; headers matched to line items by name or code when the import runs are not stored or listed. The line items under the header row are those a header can match."],
+  ["Imports", "Name, Source Type and Source Label come first, then Source Model, Source Module, Saved View, Target Type, Target Object, Used in Processes, Start Date and Time, Most recent duration (ms), Notes and Production Data. Used in Dashboards starts hidden. The source and target come from the Imports tab, joined to the Actions list by the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details keep Source Object under As read, folded at first. Any other Source Object stands as it is under Source Model. For an import of uploaded data, a row's details start with its Mapping, before All columns, as the import's own definition holds it: source columns first with the targets they feed, then constants, prompts and the header row. Unmapped targets are named below, along with which columns before the last one mapped are not used. Anaplan keeps the import's mapping, not the header row it was made from, so columns after the last one mapped are not known. Targets and constants use this model's own names from the client and the grids already read; Time constants use the Model Calendar's period choices. Unknown names stay as IDs, with the client entity type in the diagnostic log. Stored hand mappings are listed under the header row, each header with its line item; more than 15 fold under Show all. Headers matched to line items by name or code when the import runs are not stored or listed. Where headers are matched at run time, the line items under the header row are those a header can match."],
   ["Import Data Sources", "Name, Source Type (Type where the grid calls it that), Source Model, Source Object Name and Imports (Used in Imports in some models), all shown."],
   ["Model Calendar", "Setting and Value are shown; Section and Allowed values start hidden. The rows about the model are left out; the Overview names the workspace and model under About this export. Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."],
   ["Source Models", "Name, Mapped Workspace, Mapped Model, Sources and Imports are shown in that order. Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details list Sources and Imports before All columns, without repeating their counts, and keep Mapped To under As read, folded at first. A Mapped To that cannot be read stands as it is under Mapped Workspace."],
@@ -249,21 +249,18 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   // result without them is one an earlier version made. Lists with unnamed property targets also have their properties
   // read once each, with the list as the grid's context; a failed read leaves those targets as IDs.
   let mappings: ImportMapping[] | undefined;
+  let importDefinitions: Grid | undefined;
   if (imports) {
     log(importsLine(imports));
     mappings = [];
   }
   if (imports && fileImports(imports).length) {
     progress.status("Reading Import mappings…");
-    let definitions: Grid | undefined;
     try {
-      definitions = await grid("Import mappings", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_PROPERTY"));
+      importDefinitions = await grid("Import mappings", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_PROPERTY"));
     } catch (error) {
       log(`Import mappings: ${message(error)}`);
     }
-    const column = native.constants.SYSTEM_PROPERTY_IMPORT_DEFINITION;
-    mappings = await readImportMappings(native, imports, definitions, importNames(native, { lists, lineItems }), log,
-      typeof column === "number" ? column : IMPORT_DEFINITION, stop);
   }
   await plain("Import Data Sources", () => axis(native, "IMPORT_DATA_SOURCE"), () => axis(native, "IMPORT_DATA_SOURCE_DETAILS_PROPERTY"));
   if (actions) {
@@ -281,8 +278,9 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   });
   await plain("Versions", () => axis(native, "VERSION_ALL"), () => axis(native, "VERSION_PROPERTY"));
   await plain("Source Models", () => axis(native, "REMOTE_MODEL"), () => axis(native, "REMOTE_MODEL_PROPERTY"));
+  const selectorNames = new Map<number, string>();
   await step("Model Calendar", async () => {
-    const calendar = await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true, stop);
+    const calendar = await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true, stop, [], selectorNames);
     const values = new Map(calendar.rows.map(row => [row.ids[0], row.cells.find(cell => cell !== "") ?? ""] as [number, string]));
     // Year to date and year to go show only when the time summary setting is on (TimeRangeEditor).
     const flag = native.constants.FEATURE_FLAGS?.TIME_SUMMARY;
@@ -290,6 +288,13 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
       ? native.cache.getApplicationPropertyEnabledOrNotSet(flag) !== false : undefined;
     add("Model Calendar", { headers: CALENDAR_HEADERS, rows: calendarRows({ workspace, model, capturedOn: new Date().toISOString().slice(0, 10), values, showsYearToDate }) });
   });
+
+  // Finish the mappings after the existing calendar read has supplied its period choices.
+  if (imports && fileImports(imports).length) {
+    const column = native.constants.SYSTEM_PROPERTY_IMPORT_DEFINITION;
+    mappings = await readImportMappings(native, imports, importDefinitions, importNames(native, { lists, lineItems, modules }, selectorNames), log,
+      typeof column === "number" ? column : IMPORT_DEFINITION, stop);
+  }
 
   if (!tables.length) throw new Failure(NOTHING_READ, notes.join(" ") || undefined);
 

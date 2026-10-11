@@ -164,9 +164,9 @@ describe("An import's mapping, in the drawer's words", () => {
       column("Price", undefined, "Price (EUR)")],
     headers: [{ header: "Price (EUR)", lineItem: "Price" }, { header: "Hours", lineItem: "Hours booked" }, { header: "Notes" }] };
     expect(mappingView(BY_HAND)).toEqual({
-      // Price (EUR) is said once, by Price's own column; the header ignored feeds nothing, and stands after the columns.
-      rows: [["Resource", "Resources #"], ["Price (EUR)", "Price"], ["Hours", "Hours booked"], ["Notes", "Ignored"],
-        [HEADER_ROW_BY_HAND, "Line Items", "Mapped by hand: 2 headers, 1 ignored"]],
+      // Stored headers stand once under the header row, including the pair also held in Price's own mapping.
+      rows: [["Resource", "Resources #"],
+        [HEADER_ROW_BY_HAND, "Line Items", undefined, undefined, ["Price (EUR) to Price", "Hours to Hours booked", "Notes: Ignored"]]],
       lines: ["Items of Resources # are matched on their names or codes when the import runs.",
         "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
   });
@@ -184,6 +184,14 @@ describe("An import's mapping, in the drawer's words", () => {
     expect(mappingView(MATCHED).rows[1]).toEqual([HEADER_ROW_MATCHED, "Line Items"]);
     // With no column but the header row, no line says that no column is mapped: the header row's columns are.
     expect(mappingView({ ...MATCHED, targets: [MATCHED.targets[1]] }).lines).toEqual([]);
+  });
+
+  it("keeps a date header's format visible beside its stored hand mapping", () => {
+    const mapping: ImportMapping = { id: "45", name: "Load outlook", importType: "MODULE_DATA", targets: [
+      { ...column("Start", undefined, "Start Date"), dateFormat: "DD/MM/YYYY" }, { target: "Line Items", source: "headerRow" },
+    ], headers: [{ header: "Start Date", lineItem: "Start" }] };
+    expect(mappingView(mapping).rows).toEqual([["Start Date", "Start", "Date format: DD/MM/YYYY"],
+      [HEADER_ROW_BY_HAND, "Line Items", undefined, undefined, ["Start Date to Start"]]]);
   });
 
   it("says under a source how it is read: items mapped by hand and ignored, Time's period format or names, a date line item's format", () => {
@@ -268,7 +276,7 @@ describe("The mapping of a row of a model's Imports", () => {
     expect(mappingOfRow(withLines, table, table.rows[2])?.rows).toEqual([[HEADER_ROW_MATCHED, "Line Items", "Line items a header can match: Price and Units"]]);
     // Where headers are mapped by hand, the line items are not said; nor where the result has no Line Items.
     const byHand: AnalysisResult = { ...withLines, importMappings: [withLines.importMappings![0], { ...HEADER_ROW, headers: [{ header: "Cost", lineItem: "Price" }] }] };
-    expect(mappingOfRow(byHand, table, table.rows[2])?.rows).toEqual([["Cost", "Price"], [HEADER_ROW_BY_HAND, "Line Items"]]);
+    expect(mappingOfRow(byHand, table, table.rows[2])?.rows).toEqual([[HEADER_ROW_BY_HAND, "Line Items", undefined, undefined, ["Cost to Price"]]]);
     expect(lineItemsOf(MODEL, table, table.rows[2])).toBeUndefined();
   });
 

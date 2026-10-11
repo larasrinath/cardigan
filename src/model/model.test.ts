@@ -965,9 +965,15 @@ describe("Model export: Model settings grids to tables", () => {
     // Actions.csv every line with that one cell more at its end, of Model Details.csv every line but those five, with the
     // three lines more, and the file in its place with the text it is to have.
     const [written, before] = [unzipText(zip), unzipText(ACCESS_ZIP_0_8_1)];
+    // Names now finish after the existing calendar read supplies its period choices. Only these four log lines move.
+    const afterCalendar = (lines: string[]): string[] => {
+      const finishesMapping = (line: string) => /Import mapping 112000000002:|Import mappings: 1 of 1 read;/.test(line);
+      return [...lines.filter(line => !finishesMapping(line)), ...lines.filter(finishesMapping)];
+    };
+    const calendarCsv = (csv: string): string => afterCalendar(csv.trimEnd().split("\r\n")).join("\r\n") + "\r\n";
     expect([...written.keys()]).toEqual([...before.keys()].flatMap(file => (file === ACCESS_FILE_ADDED.after ? [file, ACCESS_FILE_ADDED.file] : [file])));
     const since = (file: string, text: string): string =>
-      (file === ACCESS_FILE_ADDED.details ? withAccessRows(text) : file === MODEL_ACTIONS_COLUMN_ADDED.file ? withColumnAdded(text, MODEL_ACTIONS_COLUMN_ADDED) : text);
+      (file === ACCESS_FILE_ADDED.details ? calendarCsv(withAccessRows(text)) : file === MODEL_ACTIONS_COLUMN_ADDED.file ? withColumnAdded(text, MODEL_ACTIONS_COLUMN_ADDED) : text);
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
     // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file, the row on
@@ -992,7 +998,9 @@ describe("Model export: Model settings grids to tables", () => {
     expect(sameBytes(zipStore(golden, ZIPPED_AT), ACCESS_ZIP_0_8_1)).toBe(true);
     // So this run's zip is, byte for byte, 0.8.1's zip with that one file put in, that column added, those five rows
     // reworded and those rows added.
-    expect(sameBytes(zip, ACCESS_ZIP_WITH_FILE)).toBe(true);
+    const calendarZip = zipStore(zipEntries(ACCESS_ZIP_WITH_FILE).map(entry => entry.name === ACCESS_FILE_ADDED.details
+      ? { ...entry, data: new TextEncoder().encode(calendarCsv(new TextDecoder("utf-8", { ignoreBOM: true }).decode(entry.data))) } : entry), ZIPPED_AT);
+    expect(sameBytes(zip, calendarZip)).toBe(true);
 
     // Nothing is read for the file, and the export reports no step and no line more: the reads are 0.8.1's, in its order,
     // and so are the steps and the lines of the log, which the Diagnostics rows of Model Details.csv hold one by one, but
@@ -1000,7 +1008,7 @@ describe("Model export: Model settings grids to tables", () => {
     // imports' definitions, read and said right after the Imports tab (MAPPINGS_ADDED).
     expect(reads).toEqual(withMappingsRead(ACCESS_READS_0_8_1));
     const log = (zipped: Map<string, string>): string[] => parseCsv(zipped.get(ACCESS_FILE_ADDED.details)!).filter(row => row[0] === "Diagnostics").map(row => `${row[1]} ${row[2]}`);
-    expect(said).toEqual(withLinesSaid(log(before)));
+    expect(said).toEqual(afterCalendar(withLinesSaid(log(before))));
     expect([log(written), said.filter(line => line.includes("Dynamic Cell Access"))]).toEqual([said, []]);
 
     // The file has its place right after Line Items in the result too: among the tables, in the summary and among the
@@ -1032,7 +1040,7 @@ describe("Model export: Model settings grids to tables", () => {
     // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
     const received = JSON.parse(JSON.stringify(result)) as typeof result;
     expect(received).toEqual(result);
-    expect(sameBytes(resultZip(received, ZIPPED_AT), ACCESS_ZIP_WITH_FILE)).toBe(true);
+    expect(sameBytes(resultZip(received, ZIPPED_AT), calendarZip)).toBe(true);
   });
 
   it("writes Dynamic Cell Access.csv without rows for a model that drives no access, and does not write it when Line Items lacks one of the three columns it is made from", async () => {

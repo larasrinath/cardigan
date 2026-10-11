@@ -6783,13 +6783,33 @@ describe("The mapping of an import from a file, in its row's details", () => {
     expect([all?.localName, all?.children.map(child => child.localName), all?.children[1]?.textContent]).toEqual(["details", ["summary", "span"], "Cost, Hours, Rate, Start, End, Notes, Active"]);
   });
 
-  it("shows each header of the header row mapped by hand as a row of its own, with its line item, the one ignored after them", async () => {
+  it("lists stored headers under the header row, each with its line item or Ignored", async () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], { ...MATCHED, targets: [{ target: "Line Items", source: "headerRow", items: { byHand: 1, ignored: 1 } }],
       headers: [{ header: "Cost (EUR)", lineItem: "Cost" }, { header: "Comment" }] }] });
     goTo(3);
     openImport("Prices from prices.csv");
-    expect(mapping()[0]).toEqual([["Cost (EUR)", "Cost"], ["Comment", "Ignored"], ["Header row: each line item from the header mapped to itMapped by hand: 1 header, 1 ignored", "Line Items"]]);
-    expect(page.texts("#drawerMapping span.m-note")).toEqual(["Mapped by hand: 1 header, 1 ignored"]);
+    expect(mapping()[0]).toEqual([["Header row: each line item from the header mapped to itCost (EUR) to CostComment: Ignored", "Line Items"]]);
+    expect(page.texts("#drawerMapping .cell-list li")).toEqual(["Cost (EUR) to Cost", "Comment: Ignored"]);
+    expect(page.has("#drawerMapping .cell-more")).toBe(false);
+  });
+
+  it.each([15, 16])("lists %i hand mappings with the same fold as other long details lists", async count => {
+    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], { ...MATCHED, targets: [{ target: "Line Items", source: "headerRow" }],
+      headers: Array.from({ length: count }, (_, index) => ({ header: `Header ${index + 1} ${TAG}`, lineItem: `Line item ${index + 1} ${TAG}` })) }] });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    expect(page.texts("#drawerMapping .cell-list li")).toEqual(Array.from({ length: count }, (_, index) => `Header ${index + 1} ${TAG} to Line item ${index + 1} ${TAG}`));
+    expect(strayImg()).toBe(false);
+    if (count === 15) expect(page.has("#drawerMapping .cell-more")).toBe(false);
+    else {
+      const more = page.find("#drawerMapping .cell-more")!;
+      const rest = page.find("#drawerMapping .cell-rest")!;
+      expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual(["until-found", "Show all 16", "false"]);
+      more.press();
+      expect([rest.getAttribute("hidden"), more.getAttribute("aria-expanded")]).toEqual([null, "true"]);
+      more.press();
+      expect(rest.getAttribute("hidden")).toBe("until-found");
+    }
   });
 
   it("writes every name, heading and value of a mapping as text", async () => {

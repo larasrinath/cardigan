@@ -102,6 +102,12 @@ export interface ImportNames {
   property(id: number, list: number): string | undefined;
   /** Whether a list is numbered, where the names know it. */
   numbered?(list: number): boolean | undefined;
+  /** Last resort, from the client's entity class and labels already in memory. */
+  entity?(id: number, into: number, constant?: boolean): string | undefined;
+  describe?(id: number): string;
+  /** Period choices retained from the existing Model Calendar read. */
+  period?(id: number): string | undefined;
+  periodsAvailable?: boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -150,14 +156,18 @@ function identifierOf(mapping: Json): string | undefined {
   return undefined;
 }
 
-/** A constant's value: its label, as the dialog keeps it beside the item's identifier, or else the value itself, which
- * for an item of a list is said by the item's ID. */
-function constantOf(mapping: Json): string | undefined {
+/** A constant's value: its stored label, then a period choice or the client's entity name, with an ID left when unknown.
+ * Ordinary numeric and text values are kept as values. */
+function constantOf(mapping: Json, names: ImportNames, into: number): string | undefined {
   if (named(mapping.sourceValueLabel)) return mapping.sourceValueLabel;
   const value = mapping.sourceValue;
+  const id = idOf(value);
+  const time = mapping.targetType === "moduleDimension" && idOf(mapping.target) === TIME;
+  const identifier = typeof value === "string" && /^_\d+_$/.test(value.trim());
+  if (Number.isFinite(id) && (time || identifier)) return (time ? names.period?.(id) : undefined) ?? names.entity?.(id, into, true) ?? asId(id);
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   if (!named(value)) return undefined;
-  return /^_\d+_$/.test(value.trim()) && Number.isFinite(idOf(value)) ? asId(idOf(value)) : value;
+  return value;
 }
 
 /** A dimension's key among the parts of a definition that hold one entry for each dimension: its ID in digits, or "" for
@@ -210,7 +220,7 @@ function dateFormatsOf(definition: Json): Map<number, string> {
 }
 
 /** What feeds a target, as the definition says it. */
-function sourceOf(mapping: Json): Pick<MappedTarget, "source" | "column" | "text" | "id"> {
+function sourceOf(mapping: Json, names: ImportNames, into: number): Pick<MappedTarget, "source" | "column" | "text" | "id"> {
   const word = mapping.sourceType;
   const source = typeof word === "string" ? SOURCES.get(word) : undefined;
   if (source === "column") {
@@ -220,7 +230,7 @@ function sourceOf(mapping: Json): Pick<MappedTarget, "source" | "column" | "text
     return { source, ...(column !== undefined ? { column } : {}), ...(heading !== undefined ? { text: heading } : {}), ...(id !== undefined ? { id } : {}) };
   }
   if (source === "constant") {
-    const value = constantOf(mapping);
+    const value = constantOf(mapping, names, into);
     return { source, ...(value !== undefined ? { text: value } : {}) };
   }
   if (source) return { source };
@@ -237,15 +247,15 @@ function targetOf(mapping: Json, importType: string, into: number, names: Import
       if (!known) return "Line Items";
       if (id === TIME) return "Time";
       if (id === VERSIONS) return "Versions";
-      return names.list(id) ?? asId(id);
+      return names.list(id) ?? names.entity?.(id, into) ?? asId(id);
     case "moduleLineItem":
-      return known ? names.lineItem(id, into) ?? asId(id) : "Value";
+      return known ? names.lineItem(id, into) ?? names.entity?.(id, into) ?? asId(id) : "Value";
     case "hierarchyMemberEntityName":
       return names.list(into) ?? list ?? "Items";
     case "hierarchyProperty":
-      return known ? PROPERTY_WORDS.get(id) ?? names.property(id, into) ?? asId(id) : "Property";
+      return known ? PROPERTY_WORDS.get(id) ?? names.property(id, into) ?? names.entity?.(id, into) ?? asId(id) : "Property";
     default:
-      if (known) return (importType === MODULE_DATA ? names.lineItem(id, into) : names.property(id, into)) ?? names.list(id) ?? asId(id);
+      if (known) return (importType === MODULE_DATA ? names.lineItem(id, into) : names.property(id, into)) ?? names.list(id) ?? names.entity?.(id, into) ?? asId(id);
       return named(mapping.targetType) ? mapping.targetType : "Target";
   }
 }
@@ -373,7 +383,7 @@ function matchOf(definition: Json, mappings: readonly Json[], into: number, name
   if (keys.length === 1 && idOf(keys[0]) === CODE_KEY) return { by: "code", ...known };
   const properties = keys.map(entry => {
     const id = idOf(entry);
-    return Number.isFinite(id) ? PROPERTY_WORDS.get(id) ?? names.property(id, into) ?? asId(id) : named(entry) ? entry : "?";
+    return Number.isFinite(id) ? PROPERTY_WORDS.get(id) ?? names.property(id, into) ?? names.entity?.(id, into) ?? asId(id) : named(entry) ? entry : "?";
   });
   return { by: "properties", properties, ...known };
 }
@@ -416,7 +426,7 @@ export function readDefinition(text: string, names: ImportNames, list?: string):
     && mapping.sourceType === "undefined")) : (mappings as Json[]);
   const targets = kept.map((mapping): MappedTarget => {
     const target = targetOf(mapping, importType, into, names, list);
-    const source = sourceOf(mapping);
+    const source = sourceOf(mapping, names, into);
     if (numbers && mapping.targetType === "hierarchyMemberEntityName" && source.source === "none") return { target, source: "numbered" };
     const read: MappedTarget = { target, ...source };
     if (!module) return read;
@@ -432,10 +442,21 @@ export function readDefinition(text: string, names: ImportNames, list?: string):
     const ignored = byHand.filter(([, item]) => item === -1).length;
     // The line items from the header row: the source values mapped by hand are the headers, each with its line item.
     if (targetKey(mapping.target) === "" && source.source === "headerRow" && byHand.length) {
-      headers = byHand.map(([header, item]): ImportHeader => (item === -1 ? { header } : { header, lineItem: names.lineItem(item, into) ?? asId(item) }));
+      headers = byHand.map(([header, item]): ImportHeader => (item === -1 ? { header } : { header, lineItem: names.lineItem(item, into) ?? names.entity?.(item, into) ?? asId(item) }));
     }
     return { ...read, items: { byHand: byHand.length - ignored, ignored } };
   });
+  if (fromHeaderRow) {
+    headers ??= [];
+    for (const mapping of kept) {
+      const header = headingOf(mapping);
+      if (mapping.targetType !== "moduleLineItem" || targetKey(mapping.target) === "" || mapping.sourceType !== "column" || header === undefined) continue;
+      const lineItem = targetOf(mapping, importType, into, names, list);
+      // The value map and a line item's own mapping may store the same pair. Keep distinct stored mappings.
+      if (!headers.some(entry => entry.header.trim().toLowerCase() === header.trim().toLowerCase() && entry.lineItem === lineItem)) headers.push({ header, lineItem });
+    }
+    if (!headers.length) headers = undefined;
+  }
   return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}) }, shape, details };
 }
 
@@ -557,6 +578,7 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
   const byId = new Map((definitions?.rows ?? []).map(row => [row.ids[0], row]));
   if (definitions && at < 0) log(`Import mappings: no column of definitions among the ${definitions.columns.length} given`);
   let [found, read] = [0, 0];
+  let missingPeriodsLogged = false;
   const mappings = imports.map((row): ImportMapping => {
     const id = Number.isSafeInteger(row.ids[0]) && row.ids[0] > 0 ? String(row.ids[0]) : "";
     const known = { id, name: row.labels[0] ?? "" };
@@ -571,6 +593,22 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
       const { mapping, shape, details } = readDefinition(cell, names, target < 0 ? undefined : row.cells[target] || undefined);
       log(`Import mapping ${id || "?"}: ${shape}`);
       for (const detail of details) log(`Import mapping ${id || "?"}: ${detail}`);
+      const unnamed = new Set<number>();
+      const inspect = (value: string | undefined) => {
+        const match = /^ID (\d+)$/.exec(value ?? "");
+        if (match) unnamed.add(Number(match[1]));
+      };
+      for (const target of mapping.targets) {
+        inspect(target.target);
+        if (target.source === "constant") inspect(target.text);
+      }
+      for (const header of mapping.headers ?? []) inspect(header.lineItem);
+      for (const property of mapping.matchedBy?.properties ?? []) inspect(property);
+      if (unnamed.size && names.describe) log(`Import mappings: ${known.name}: ${[...unnamed].map(entity => names.describe!(entity)).join("; ")}`);
+      if (!missingPeriodsLogged && names.periodsAvailable === false && mapping.targets.some(target => target.target === "Time" && target.source === "constant" && /^ID \d+$/.test(target.text ?? ""))) {
+        log("Import mappings: Model Calendar supplied no period selector labels; unnamed Time constants keep their IDs.");
+        missingPeriodsLogged = true;
+      }
       if (mapping.note === undefined) read++;
       return { ...known, ...mapping };
     } catch (error) {
@@ -602,12 +640,28 @@ function labelIn(page: () => unknown, id: number): string | undefined {
   }
 }
 
+/** Optional memory access only: preserve the receiver, check the method, and contain a client's missing metadata or error. */
+function memory(owner: unknown, method: string, ...args: unknown[]): unknown {
+  try {
+    const read = isObject(owner) ? owner[method] : undefined;
+    return typeof read === "function" ? read.apply(owner, args) : undefined;
+  } catch { return undefined; }
+}
+
+const field = (value: unknown, key: string): unknown => isObject(value) ? value[key] : undefined;
+const infoName = (value: unknown): string | undefined => {
+  const name = field(value, "label") ?? field(value, "name");
+  return named(name) ? plainText(name) : undefined;
+};
+
 /** The names of a model's lists and line items, by the grids the export has read: General Lists (a list's own row) and
  * Line Items (a line item's own row). For one they do not have, as a list subset, the model page's own lists of names:
  * the lists, the list subsets and a module's line items, as the dialog looks them up (anaplan/widgets/Mapping.js
  * `_lookupHierarchyLabel`), and a list's properties, which no grid of the export lists. Whether a list is numbered is its
- * row's Numbered cell of General Lists, "true" or "false", and not known for a list the grid does not have. */
-export function importNames(native: Native, grids: { lists?: Grid; lineItems?: Grid }): ImportNames {
+ * row's Numbered cell of General Lists, "true" or "false", and not known for a list the grid does not have. Remaining IDs
+ * use getEntityTypeIndex and getEntityType, as Model Building does in anaplan-sam's authoring-core.ts. A dynamic type's
+ * hierarchyEntityLongId identifies its owning list; labels and metadata here are optional memory lookups, never reads. */
+export function importNames(native: Native, grids: { lists?: Grid; lineItems?: Grid; modules?: Grid }, periods: ReadonlyMap<number, string> = new Map()): ImportNames {
   const byId = (grid: Grid | undefined): Map<number, string> => {
     const names = new Map<number, string>();
     for (const row of grid?.rows ?? []) if (Number.isSafeInteger(row.ids[0]) && named(row.labels[0]) && !names.has(row.ids[0])) names.set(row.ids[0], row.labels[0]);
@@ -615,6 +669,7 @@ export function importNames(native: Native, grids: { lists?: Grid; lineItems?: G
   };
   const lists = byId(grids.lists);
   const lineItems = byId(grids.lineItems);
+  const modules = byId(grids.modules);
   const numberedAt = grids.lists ? columnAt(grids.lists, "Numbered") : -1;
   const numbered = new Map<number, boolean>();
   for (const row of numberedAt < 0 ? [] : grids.lists?.rows ?? []) {
@@ -622,10 +677,55 @@ export function importNames(native: Native, grids: { lists?: Grid; lineItems?: G
     if (Number.isSafeInteger(row.ids[0]) && (cell === "true" || cell === "false") && !numbered.has(row.ids[0])) numbered.set(row.ids[0], cell === "true");
   }
   const cache = native.cache;
-  return {
-    list: id => lists.get(id) ?? labelIn(() => cache.getHierarchiesLabelPage(), id) ?? labelIn(() => cache.getHierarchySubsetsLabelPage(), id),
-    lineItem: (id, module) => lineItems.get(id) ?? labelIn(() => cache.getLineItemsLabelPage(module), id),
-    property: (id, list) => labelIn(() => cache.getHierarchyInfo(list)?.propertiesLabelPage, id) ?? labelIn(() => cache.getHierarchySubsetsLabelPage(), id),
-    numbered: list => numbered.get(list),
+  const pageLabel = (method: string, id: number, ...args: unknown[]) => labelIn(() => memory(cache, method, ...args), id);
+  const hierarchy = (id: number) => memory(cache, "getHierarchyInfo", id);
+  const listName = (id: number): string | undefined => lists.get(id) ?? pageLabel("getHierarchiesLabelPage", id)
+    ?? pageLabel("getHierarchySubsetsLabelPage", id) ?? infoName(hierarchy(id));
+  const types = new Map<number, { index?: number; kind?: string; list?: number }>();
+  const entityInfo = (id: number) => {
+    const known = types.get(id);
+    if (known) return known;
+    const index = memory(native.ids, "getEntityTypeIndex", id);
+    const type = typeof index === "number" && Number.isSafeInteger(index) && index >= 0 ? memory(cache, "getEntityType", index) : undefined;
+    const list = idOf(field(type, "hierarchyEntityLongId"));
+    const kind = field(type, "entityTypeClass");
+    const info = { ...(typeof index === "number" && Number.isSafeInteger(index) && index >= 0 ? { index } : {}),
+      ...(named(kind) ? { kind } : {}), ...(Number.isSafeInteger(list) && list > 0 ? { list } : {}) };
+    types.set(id, info);
+    return info;
   };
+  const names: ImportNames = {
+    list: listName,
+    lineItem: (id, module) => lineItems.get(id) ?? pageLabel("getLineItemsLabelPage", id, module),
+    property: (id, list) => labelIn(() => field(hierarchy(list), "propertiesLabelPage"), id) ?? pageLabel("getHierarchySubsetsLabelPage", id),
+    numbered: list => numbered.get(list),
+    period: id => periods.get(id),
+    periodsAvailable: periods.size > 0,
+    entity: (id, into, constant = false) => {
+      const { index, kind, list } = entityInfo(id);
+      if (kind === "CUSTOM" && list !== undefined) {
+        const info = hierarchy(list);
+        const item = pageLabel("getHierarchyLabelPage", id, list)
+          ?? labelIn(() => field(info, "labelPage"), id) ?? labelIn(() => field(info, "itemsLabelPage"), id);
+        const owner = listName(list);
+        // A target can refer to the list's dynamic type. A constant must name the item itself.
+        return item ? `${item} (${owner ?? asId(list)})` : constant ? undefined : owner;
+      }
+      if (kind === "HIERARCHY" || kind === "LIST" || index === 101) return listName(id) ?? (list === undefined ? undefined : listName(list));
+      if (kind === "LINE_ITEM") {
+        const info = memory(native.helper, "getLineItemInfo", cache, id);
+        const module = idOf(field(info, "moduleEntityLongId"));
+        return names.lineItem(id, Number.isFinite(module) ? module : into) ?? infoName(info);
+      }
+      if (kind === "MODULE" || index === 102) return modules.get(id) ?? pageLabel("getModulesLabelPage", id) ?? infoName(memory(cache, "getModuleInfo", id));
+      // Subsets and properties also have label pages in models where their class is SYSTEM.
+      return names.list(id) ?? names.lineItem(id, into) ?? names.property(id, list ?? into)
+        ?? pageLabel("getLineItemSubsetsLabelPage", id);
+    },
+    describe: id => {
+      const { index, kind, list } = entityInfo(id);
+      return `${asId(id)} is entity type ${index ?? "unknown"} (class ${kind ?? "unknown"}${list === undefined ? "" : `, list ${list}`}) with no name in the client`;
+    },
+  };
+  return names;
 }

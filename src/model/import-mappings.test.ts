@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportModel } from "./export.js";
 import type { Grid } from "./grid.js";
 import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, readImportMappings, type ImportNames } from "./import-mappings.js";
-import type { Native } from "./native.js";
+import { readGrid, type Native } from "./native.js";
 
 // Import definitions as Anaplan's import dialog saves them (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
 // view/LineItemImportMapper.js, view/ImportDefinitionHierarchyMapping.js). Every name and ID is made up.
@@ -44,7 +44,7 @@ describe("An import's mapping, read out of its definition", () => {
       // A line item's column can be named by its heading alone, or by its place counted from 0, written as digits.
       { target: "Units", source: "column", text: "Units" },
       { target: "Price", source: "column", column: 6 },
-      { target: "ID 1901000000099", source: "none" }] });
+      { target: "ID 1901000000099", source: "none" }], headers: [{ header: "Units", lineItem: "Units" }] });
   });
 
   it("reads every way a definition writes a column and a constant, and keeps a source of another kind by its word", () => {
@@ -210,7 +210,8 @@ describe("An import's mapping, read out of its definition", () => {
       { target: "Units", source: "column", text: "Units" },
       { target: "Price", source: "column", text: "Price", dateFormat: "DD/MM/YYYY" }],
     // The headers mapped by hand, each with its line item, and the one ignored; a value that is no item's ID is no mapping.
-    headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Price (EUR)", lineItem: "Price" }, { header: "Notes" }] });
+    headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Price (EUR)", lineItem: "Price" }, { header: "Notes" },
+      { header: "Units", lineItem: "Units" }, { header: "Price", lineItem: "Price" }] });
     // The log says how each part is made, and no value of the import's source.
     expect(details[2]).toBe("valueMaps list of 3: 101000000001: 1 mapped, 1 ignored | 101000000002: 0 mapped, 0 ignored | line items: 2 mapped, 1 ignored, 2 of another kind "
       + "(text of 6 characters to an ID; text of 8 characters ignored); aliasMaps list of 1: line items: 0; "
@@ -610,5 +611,201 @@ describe("Missing import property names through Model Building", () => {
       ["Manager", "Active & available"], ["Manager", "Active & available"],
     ]);
     expect(requests.filter(request => request.params.viewDefinition.rowAxis === "customProperties")).toHaveLength(1);
+  });
+});
+
+describe("Mapping names from this model's entity information and calendar", () => {
+  // Deliberately unrelated ID digits and type indexes: only the fixture client knows their classes.
+  const [dynamic, missing, owner, item, period, unknownPeriod, module, lineItem] = [7300042, 8300053, 6500064, 7500075, 8600086, 9600097, 6700018, 7800029];
+  const page = (ids: number[], labels: string[]) => ({ entityLongIds: [ids], labels: [labels] });
+  const mappings = [
+    { targetType: "moduleDimension", target: id(dynamic), sourceType: "column", sourceColumnName: "Market" },
+    { targetType: "moduleDimension", target: "_9000000001_", sourceType: "constant", sourceValue: id(period) },
+    { targetType: "moduleDimension", target: "", sourceType: "headerRow" },
+    { targetType: "moduleLineItem", target: id(lineItem), sourceType: "column", sourceColumnName: "Planned units" },
+  ];
+  const tab = grid([[12, "Source Type"], [13, "Target Object"]], [[45, "Load outlook", "FILE", "Outlook"]]);
+  const definitions = (entries = mappings) => grid([[IMPORT_DEFINITION, "Import Definition"]], [[45, "Load outlook", definition("MODULE_DATA", module, entries)]]);
+
+  function client(type = 631) {
+    const requests: any[] = [];
+    const native: Native = {
+      workspaceId: "a".repeat(32), modelId: "b".repeat(32), axisHelper: {},
+      ids: { getEntityTypeIndex: vi.fn((id: number) => [dynamic, item, missing].includes(id) ? type : id === lineItem ? 817 : 923) },
+      cache: {
+        getModelName: () => "Invented outlook",
+        getEntityType: vi.fn((index: number) => index === type ? { entityTypeClass: "CUSTOM", hierarchyEntityLongId: owner }
+          : index === 817 ? { entityTypeClass: "LINE_ITEM" } : { entityTypeClass: "TIME" }),
+        getHierarchyInfo: vi.fn((id: number) => id === owner ? { name: "Markets", itemsLabelPage: page([item], ["North &amp; West"]) } : undefined),
+        getLineItemsLabelPage: vi.fn((id: number) => id === module ? page([lineItem], ["Units"]) : undefined),
+      },
+      constants: {
+        SYSTEM_AXIS_IDENTIFIER_IMPORT_ALL_IDENTIFIER: "imports", SYSTEM_AXIS_IDENTIFIER_IMPORT_DEFINITION_PROPERTY_IDENTIFIER: "tab",
+        SYSTEM_AXIS_IDENTIFIER_IMPORT_PROPERTY_IDENTIFIER: "definitions", SYSTEM_AXIS_IDENTIFIER_TIMESCALE_PROPERTY_IDENTIFIER: "calendar",
+        SYSTEM_AXIS_IDENTIFIER_EMPTY_1_0_IDENTIFIER: "empty",
+      },
+      helper: { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) },
+      RequestGenerator: class { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } },
+      DataPage: class {
+        constructor(private input: any) {}
+        contains(row: number, column: number) { return this.input.page.rows[row]?.[column] !== undefined; }
+        getIndex(row: number, column: number) { return row * this.input.page.rows[0].length + column; }
+        getOriginalText(index: number) { return this.input.page.rows.flat()[index]; }
+        getCellText(index: number) { return this.getOriginalText(index); }
+        getCellValue(index: number) { return this.getOriginalText(index); }
+        getFormat() { return this.input.page.calendar ? { dataType: "TIME_ENTITY", hierarchyEntityLongId: 5600031 } : { dataType: "TEXT" }; }
+      },
+      aggregator: { post(request: any, _flag: boolean, done: (response: unknown) => void) {
+        requests.push(request);
+        const calendar = request.params.viewDefinition.rowAxis === "calendar";
+        const read = calendar ? grid([[11, "Value"]], [[14, "Current Period", String(period + 1)]])
+          : request.params.viewDefinition.columnAxis === "tab" ? tab : definitions();
+        done({ result: { viewRequestResults: [{ rowCount: read.rows.length, columnCount: read.columns.length,
+          rowLabelPages: [page(read.rows.map(row => row.ids[0]), read.rows.map(row => row.labels[0]))],
+          columnLabelPages: [page(read.columns.map(column => column.ids[0]), read.columns.map(column => column.labels[0]))],
+          dataPages: [{ rows: read.rows.map(row => row.cells), calendar }],
+          ...(calendar ? { indexSelectorLabelPageMap: { 5600031: 0 }, selectorLabelPages: [page([period, period + 1], ["Jan 24", "Feb 24"])] } : {}),
+        }] } });
+      } },
+    };
+    return { native, requests };
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([631, 1457])("names a list's dynamic type %i from the hierarchy, and its item by its own label and list", async type => {
+    const { native, requests } = client(type);
+    const names = importNames(native, {});
+    const result = await readImportMappings(native, tab, definitions(), names, () => undefined);
+    expect(result[0].targets[0].target).toBe("Markets");
+    expect(names.entity?.(item, module, true)).toBe("North & West (Markets)");
+    expect(names.entity?.(dynamic, module, true)).toBeUndefined();
+    expect(native.ids.getEntityTypeIndex).toHaveBeenCalledWith(dynamic);
+    expect(native.cache.getEntityType).toHaveBeenCalledWith(type);
+    expect(requests).toEqual([]);
+    // A different model's name is read afresh; no ID-to-name data survives a run.
+    native.cache.getHierarchyInfo.mockReturnValue({ label: "Channels" });
+    expect(importNames(native, {}).entity?.(dynamic, module)).toBe("Channels");
+  });
+
+  it("logs each unnamed ID once per import with the client's type and class", () => {
+    const { native } = client();
+    native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    const log: string[] = [];
+    const entries = [mappings[0], { ...mappings[0], target: id(missing) }, mappings[0]];
+    const result = importMappings(tab, definitions(entries), importNames(native, {}), line => log.push(line));
+    expect(result[0].targets.map(target => target.target)).toEqual([`ID ${dynamic}`, `ID ${missing}`, `ID ${dynamic}`]);
+    expect(log.filter(line => line.startsWith("Import mappings: Load outlook:"))).toEqual([
+      "Import mappings: Load outlook: ID 7300042 is entity type 631 (class CUSTOM, list 6500064) with no name in the client; ID 8300053 is entity type 631 (class CUSTOM, list 6500064) with no name in the client",
+    ]);
+  });
+
+  it("uses the same memory fallback for list-property targets and constants without reading another grid", async () => {
+    const { native, requests } = client();
+    const text = definition("HIERARCHY_DATA", owner, [
+      { targetType: "hierarchyProperty", target: id(dynamic), sourceType: "constant", sourceValue: id(item) },
+    ]);
+    const result = await readImportMappings(native, tab, grid([[IMPORT_DEFINITION, "Import Definition"]], [[45, "Load outlook", text]]), importNames(native, {}), () => undefined);
+    expect(result[0].targets).toEqual([{ target: "Markets", source: "constant", text: "North & West (Markets)" }]);
+    expect(requests).toEqual([]);
+  });
+
+  it("uses hierarchy and module label pages and line-item ownership reported by the client", () => {
+    const { native } = client();
+    native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    native.cache.getHierarchiesLabelPage = () => page([owner], ["Districts"]);
+    expect(importNames(native, {}).entity?.(dynamic, module)).toBe("Districts");
+    native.cache.getEntityType = () => ({ entityTypeClass: "MODULE" });
+    native.cache.getModulesLabelPage = () => page([dynamic], ["Outlook"]);
+    expect(importNames(native, {}).entity?.(dynamic, module)).toBe("Outlook");
+    native.cache.getModulesLabelPage = undefined;
+    native.cache.getModuleInfo = () => ({ name: "Forecast" });
+    expect(importNames(native, {}).entity?.(dynamic, module)).toBe("Forecast");
+    native.cache.getEntityType = () => ({ entityTypeClass: "LINE_ITEM" });
+    native.helper.getLineItemInfo = () => ({ moduleEntityLongId: owner });
+    native.cache.getLineItemsLabelPage = (module: number) => module === owner ? page([dynamic], ["Demand"]) : undefined;
+    expect(importNames(native, {}).entity?.(dynamic, module)).toBe("Demand");
+    native.cache.getEntityType = () => ({ entityTypeClass: "SYSTEM" });
+    native.cache.getLineItemSubsetsLabelPage = () => page([missing], ["Selected measures"]);
+    expect(importNames(native, {}).entity?.(missing, module)).toBe("Selected measures");
+  });
+
+  it.each([false, true])("keeps an ID when entity methods are unavailable (throwing: %s)", throws => {
+    const { native } = client();
+    native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    native.ids.getEntityTypeIndex = throws ? () => { throw new Error("No entity information"); } : undefined;
+    const names = importNames(native, {});
+    const log: string[] = [];
+    const result = importMappings(tab, definitions([mappings[0]]), names, line => log.push(line));
+    expect(result[0].targets[0].target).toBe(`ID ${dynamic}`);
+    expect(log.filter(line => line.startsWith("Import mappings: Load outlook:"))).toEqual([
+      "Import mappings: Load outlook: ID 7300042 is entity type unknown (class unknown) with no name in the client",
+    ]);
+  });
+
+  it("names periods from all dropdown choices, including one not selected, through the existing export reads", async () => {
+    const { native, requests } = client();
+    vi.stubGlobal("window", { require: (_modules: string[], ready: (...args: unknown[]) => void) => ready(native.cache, native.aggregator, native.helper,
+      native.ids, native.constants, native.RequestGenerator, native.DataPage, native.axisHelper) });
+    vi.stubGlobal("location", { host: "example.test", pathname: "/model" });
+    const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
+    expect(result.importMappings?.[0].targets.slice(0, 3)).toEqual([
+      { target: "Markets", source: "column", text: "Market" }, { target: "Time", source: "constant", text: "Jan 24" }, { target: "Line Items", source: "headerRow" },
+    ]);
+    expect(result.importMappings?.[0].headers).toEqual([{ header: "Planned units", lineItem: "Units" }]);
+    expect(requests.map(request => request.params.viewDefinition.columnAxis)).toEqual(["tab", "definitions", "empty"]);
+    expect(requests.map(request => request.params.cellSelectorLabelsRequired)).toEqual([false, false, true]);
+    expect(requests.every(request => !request.submissions.length && !request.systemActions.length)).toBe(true);
+  });
+
+  it("keeps unknown periods as IDs and reports missing period choices once across imports", () => {
+    const { native } = client();
+    const entries = [{ ...mappings[1], sourceValue: id(unknownPeriod) }];
+    const log: string[] = [];
+    const result = importMappings(tab, definitions(entries), importNames(native, {}, new Map([[period, "Jan 24"]])), line => log.push(line));
+    expect(result[0].targets[0].text).toBe(`ID ${unknownPeriod}`);
+    expect(log.filter(line => line.startsWith("Import mappings: Load outlook:"))).toEqual([
+      "Import mappings: Load outlook: ID 9600097 is entity type 923 (class TIME) with no name in the client",
+    ]);
+    expect(log.some(line => line.includes("no period selector labels"))).toBe(false);
+    log.length = 0;
+    importMappings({ ...tab, rows: [...tab.rows, ...tab.rows] }, definitions(entries), importNames(native, {}), line => log.push(line));
+    expect(log.filter(line => line.includes("no period selector labels"))).toEqual([
+      "Import mappings: Model Calendar supplied no period selector labels; unnamed Time constants keep their IDs.",
+    ]);
+    expect(readDefinition(definition("MODULE_DATA", module, [{ ...mappings[1], sourceValue: String(period) }]), importNames(native, {}, new Map([[period, "Jan 24"]]))).mapping.targets[0].text).toBe("Jan 24");
+  });
+
+  it("keeps header mappings stored only on moduleLineItem entries, with no valueMaps and no duplicate pairs", () => {
+    const { native } = client();
+    const read = readDefinition(definition("MODULE_DATA", module, [...mappings, mappings[3],
+      { ...mappings[3], target: id(missing), sourceColumnName: "Other count" },
+      { targetType: "moduleLineItem", target: "", sourceType: "undefined" }]), importNames(native, {}));
+    expect(read.mapping.headers).toEqual([{ header: "Planned units", lineItem: "Units" }, { header: "Other count", lineItem: "Markets" }]);
+    expect(read.mapping.targets.some(target => target.target === "Value")).toBe(false);
+  });
+
+  const methods = ["getEntityType", "getHierarchyInfo", "getHierarchiesLabelPage", "getHierarchySubsetsLabelPage", "getHierarchyLabelPage",
+    "getLineItemsLabelPage", "getModulesLabelPage", "getModuleInfo", "getLineItemSubsetsLabelPage", "getEntityTypeIndex", "getLineItemInfo"];
+  it.each(methods.flatMap(method => ["missing", "throws"].map(failure => ({ method, failure }))))("guards $method when it $failure", ({ method, failure }) => {
+    const { native } = client();
+    const holder = method === "getEntityTypeIndex" ? native.ids : method === "getLineItemInfo" ? native.helper : native.cache;
+    holder[method] = failure === "missing" ? undefined : () => { throw new Error("Fixture metadata unavailable"); };
+    for (const kind of ["CUSTOM", "LINE_ITEM", "MODULE", "HIERARCHY", "SYSTEM"]) {
+      if (method !== "getEntityType") native.cache.getEntityType = () => ({ entityTypeClass: kind, hierarchyEntityLongId: owner });
+      const names = importNames(native, {});
+      expect(() => [names.entity?.(dynamic, module), names.entity?.(missing, module, true), names.describe?.(missing),
+        names.list(missing), names.lineItem(missing, module), names.property(missing, owner)]).not.toThrow();
+    }
+  });
+
+  it.each(["getFormat", "getCellValue"])("guards calendar %s when missing or throwing and preserves readable cells", async method => {
+    for (const replacement of [undefined, () => { throw new Error("Fixture selector unavailable"); }]) {
+      const { native } = client();
+      native.DataPage.prototype[method] = replacement;
+      const periods = new Map<number, string>();
+      const result = await readGrid(native, "calendar", "empty", "Model Calendar", () => undefined, undefined, true, undefined, [], periods);
+      expect(result.rows[0].cells).toEqual([String(period + 1)]);
+      expect(periods.size).toBe(method === "getFormat" ? 0 : 2);
+    }
   });
 });

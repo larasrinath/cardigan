@@ -27,13 +27,13 @@ import { cellText, type Row } from "./table-engine.js";
  *
  * Of an import into a module the definition holds more, and the rows say it under their sources: a dimension's items
  * mapped by hand or ignored, the format of Time's periods, a date line item's format. Where the line items come from the
- * header row, each header the modeller mapped by hand is a row of its own, with its line item, and each one ignored a
- * row that says so, after the other columns. A header the import matches on a line item's name or code when it runs is
+ * header row, each header the modeller mapped by hand is listed beneath it with its line item, and each ignored header
+ * says so. A header the import matches on a line item's name or code when it runs is
  * stored nowhere, and the page says so rather than list what it cannot know: with the line items such a header can be. */
 
 /** A row of a mapping: its source, the target it feeds, and where there is more to say of how the source is read, a line
  * under the source; with the names that line lists in full, where it shows the first of them. */
-export type MappingRow = [source: string, target: string, note?: string, all?: readonly string[]];
+export type MappingRow = [source: string, target: string, note?: string, all?: readonly string[], headers?: readonly string[]];
 
 /** A mapping as the drawer shows it: for an import into a list, how it tells the list's items apart, above; a row of Source
  * and Target for each source and a target it feeds; then lines under them. */
@@ -45,7 +45,7 @@ export interface MappingView {
 
 /** The source of the line items from the header row, where nothing is mapped by hand: the dialog's "Match on names or codes". */
 export const HEADER_ROW_MATCHED = "Header row: each column whose header is a line item's name or code";
-/** The same where headers are mapped by hand: each is a row of its own, above this one. */
+/** The same where headers are mapped by hand: each pair is listed beneath this source. */
 export const HEADER_ROW_BY_HAND = "Header row: each line item from the header mapped to it";
 /** How many names a line under a source shows before it says how many more there are. */
 const FIRST_NAMES = 5;
@@ -166,11 +166,12 @@ const rowOf = (source: string, target: MappedTarget, lineItems: readonly string[
  * the columns with a place in their order, then the others in the definition's. A column kept by its heading alone is the
  * column of that heading where another target gives its place, and stands with it. Each row of a column says it as the
  * best of its targets does: by the header a target with its place keeps, else by any header kept for it. Then each
- * header of the header row mapped to a line item by hand that no column above already feeds it from, then each header
- * ignored, which feeds nothing. Then the constants, the prompts, the header row and any source of another kind, each kind
- * in the definition's order. A target that nothing feeds has no row. */
+ * constant, prompt, header row and source of another kind, each kind in the definition's order. Stored header pairs
+ * stand beneath the header row. A target that nothing feeds has no row. */
 function sourceRows(targets: readonly MappedTarget[], headers: readonly ImportHeader[] = [], lineItems?: readonly string[]): MappingRow[] {
-  const columns = targets.filter(target => target.source === "column");
+  const underHeader = targets.some(target => target.source === "headerRow") && headers.length > 0;
+  const columns = targets.filter(target => target.source === "column" && !(underHeader && target.dateFormat === undefined && headers.some(entry =>
+    entry.lineItem === target.target && said(target.text) && headingKey(entry.header) === headingKey(target.text))));
   const placeOf = new Map<string, number>();
   for (const target of columns) {
     if (target.column !== undefined && said(target.text) && !placeOf.has(headingKey(target.text))) placeOf.set(headingKey(target.text), target.column);
@@ -193,11 +194,18 @@ function sourceRows(targets: readonly MappedTarget[], headers: readonly ImportHe
   });
   // A header mapped by hand that a line item's own column above already gives is not said twice.
   const fed = new Set(columns.filter(target => said(target.text)).map(target => `${headingKey(target.text!)}\n${target.target}`));
-  for (const { header, lineItem } of headers) if (lineItem !== undefined && !fed.has(`${headingKey(header)}\n${lineItem}`)) rows.push([header, lineItem]);
-  for (const { header, lineItem } of headers) if (lineItem === undefined) rows.push([header, "Ignored"]);
+  if (!underHeader) {
+    for (const { header, lineItem } of headers) if (lineItem !== undefined && !fed.has(`${headingKey(header)}\n${lineItem}`)) rows.push([header, lineItem]);
+    for (const { header, lineItem } of headers) if (lineItem === undefined) rows.push([header, "Ignored"]);
+  }
   for (const kind of NOT_COLUMNS) {
     for (const target of targets) {
       if (target.source !== kind) continue;
+      if (kind === "headerRow" && underHeader) {
+        rows.push([HEADER_ROW_BY_HAND, target.target, undefined, undefined,
+          headers.map(({ header, lineItem }) => lineItem === undefined ? `${header}: Ignored` : `${header} to ${lineItem}`)]);
+        continue;
+      }
       rows.push(rowOf(kind === "headerRow" && headers.length ? HEADER_ROW_BY_HAND : sourceWords(target), target, lineItems));
     }
   }

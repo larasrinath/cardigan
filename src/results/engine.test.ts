@@ -365,7 +365,12 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(settings.reads).toEqual(withMappingsRead(ACCESS_READS_0_8_1));
     const { result } = page.held();
     const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
-    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(withLinesSaid(steps(ACCESS_ZIP_0_8_1)));
+    // Import definitions are still read in place; naming finishes after the calendar supplies its period choices.
+    const expectedLog = withLinesSaid(steps(ACCESS_ZIP_0_8_1));
+    const finishesMapping = (line: string) => /Import mapping 112000000002:|Import mappings: 1 of 1 read;/.test(line);
+    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual([
+      ...expectedLog.filter(line => !finishesMapping(line)), ...expectedLog.filter(finishesMapping),
+    ]);
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
     // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
     // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), with the column of Other Actions.csv
