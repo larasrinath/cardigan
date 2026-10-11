@@ -295,36 +295,36 @@ export function navItems(entries: readonly NavEntry[], grouped: boolean): NavIte
   return items.map(item => (isGroup(item) && item.entries.length === 1 ? item.entries[0] : item));
 }
 
-/** An item's words, which keep the room of themselves in bold: the stylesheet sets them again under themselves, unseen,
- * in bold and of no height (results.css `data-room`), so that the mark of the view shown, which sets them in bold, does
- * not widen the item, and the items after it never move. */
+/** A menu entry's words, which keep the room of themselves in bold: the stylesheet sets them again under themselves,
+ * unseen, in bold and of no height (results.css `data-room`), so that the mark of the view shown, which sets them in
+ * bold, does not widen the entry, nor the menu with it. */
 const wordsHtml = (words: string): string => `<span data-room="${esc(words)}">${esc(words)}</span>`;
 
 /** An entry: a button with its icon and its words, marked where it is the view shown. How many rows a table has is the
- * overview's to say, on the table's tile. */
-const entryHtml = (entry: NavEntry, current: string): string =>
-  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}${fullAttrs(entry.full)}>${entryIcon(entry)}${wordsHtml(entry.label)}</button>`;
+ * overview's to say, on the table's tile. An entry of a menu keeps the room of its words in bold (`wordsHtml`); one of the
+ * line keeps none, for the line keeps each item's slot itself (nav-spread.ts). */
+const entryHtml = (entry: NavEntry, current: string, inMenu = true): string =>
+  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}${fullAttrs(entry.full)}>${entryIcon(entry)}`
+  + `${inMenu ? wordsHtml(entry.label) : `<span>${esc(entry.label)}</span>`}</button>`;
 
 /** A button that opens a menu, and the menu, which follows it on the page, so that Tab goes from the button into it: the
  * disclosure pattern. The button says whether its menu is open (main.ts opens and closes it), and names the menu it
  * controls by the menu's ID, which is the page's own. `here` marks the button of a group that holds the view shown.
- * Where `room` holds the texts the button can show, what it shows, `button` and the chevron, is one row, which stands in
- * the middle of the room of the widest of them in bold (results.css `data-room`), so that the button is as wide
- * whichever it shows and the items after it never move. */
-const menuHtml = (id: string, button: string, here: boolean, menu: string, room: readonly string[] = [], full?: string): string =>
+ * `labels` are the texts a group's button of the line can show, its name first, one to a line, which the line measures
+ * to keep the button's slot (nav-spread.ts); the one menu of a narrow window has none. */
+const menuHtml = (id: string, button: string, here: boolean, menu: string, labels: readonly string[] = [], full?: string): string =>
   `<div class="nav-group"><button type="button" class="nav-group-btn" aria-expanded="false" aria-controls="${id}"${here ? ' aria-current="true"' : ""}${fullAttrs(full)}`
-  + (room.length ? ` data-room="${room.map(esc).join("\n")}"><span class="nav-row">${button}${NAV_CHEVRON}</span>` : `>${button}${NAV_CHEVRON}`)
-  + `</button><div class="nav-menu" id="${id}" hidden>${menu}</div></div>`;
+  + `${labels.length ? ` data-labels="${labels.map(esc).join("\n")}"` : ""}>${button}${NAV_CHEVRON}</button><div class="nav-menu" id="${id}" hidden>${menu}</div></div>`;
 
 /** The navigation as one line of items, in the order given: the overview, a model's groups among its tables, and a
  * model's map last (main.ts `navEntries`). A group is a button with an icon, a name and a chevron: the group's own, or,
- * where the group holds the view shown, that entry's, so that the bar says which table is shown. It keeps the room of
- * the widest of those names, so that no item of the bar changes its width as a table is chosen. The entry of the view
- * shown is marked as the page, in its group's menu where it has one, and the button of the group that holds it as
- * current. */
+ * where the group holds the view shown, that entry's, so that the bar says which table is shown. Its button carries its
+ * name and each of those labels, from which the line keeps it a slot that no table chosen changes (nav-spread.ts). The
+ * entry of the view shown is marked as the page, in its group's menu where it has one, and the button of the group that
+ * holds it as current. */
 export function navHtml(items: readonly NavItem[], current: string): string {
   return items.map(item => {
-    if (!isGroup(item)) return entryHtml(item, current);
+    if (!isGroup(item)) return entryHtml(item, current, false);
     const shown = item.entries.find(entry => entry.id === current);
     const button = shown ? `${entryIcon(shown)}<span>${esc(shown.label)}</span>` : `${item.group.icon}<span>${item.group.label}</span>`;
     return menuHtml(item.group.id, button, shown !== undefined, item.entries.map(entry => entryHtml(entry, current)).join(""),
