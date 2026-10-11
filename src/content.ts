@@ -1,7 +1,8 @@
 import { analyseApp } from "./analyse.js";
 import { greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { readPolarisModel, startModelPages } from "./model-pages.js";
-import { detectModelEngine } from "./model-engine.js";
+import { engineCrossCheck, engineLine, parseEngine, POLARIS_FULL_NOTE } from "./model-engine.js";
+import { readModelNames } from "./model-names.js";
 import { diagnosticRows, stampLine } from "./details.js";
 import { firstLine, ModelUnavailable, type Progress } from "./progress.js";
 import type { AnalysisResult } from "./result-types.js";
@@ -93,9 +94,7 @@ if (window.top === window) {
     const ids = { customerId: seen.customer, workspaceId: WORKSPACE_PATH.exec(location.pathname)?.[1], modelId: seen.id };
     const began = stampLine(firstLine("model", seen.id, location.host));
     const engineLog: string[] = [];
-    const engine = await detectModelEngine(ids, {
-      status: value => progress.status(value), log: value => { engineLog.push(stampLine(value)); progress.log(value); },
-    }, signal);
+    const logEngine = (line: string) => { engineLog.push(stampLine(line)); progress.log(line); };
     const keepEngineLog = (result: AnalysisResult) => {
       const details = result.tables.find(table => table.details);
       if (details) {
@@ -111,16 +110,21 @@ if (window.top === window) {
     } catch (error) {
       if (!(error instanceof ModelUnavailable)) throw error;
       signal.throwIfAborted();
+      logEngine(engineLine(undefined));
       const fallback = "Classic reader: no frame answered within the wait; reading a partial result without it";
       progress.log(fallback);
       engineLog.push(stampLine(fallback));
       engineLog.unshift(began);
-      const result = await readPolarisModel(ids, engine, progress, signal);
+      const names = await readModelNames(ids, { ...progress, log: logEngine }, signal);
+      const result = await readPolarisModel(ids, { engine: "unknown", ...names }, progress, signal);
       const note = "The model's Classic client didn't answer, so Cardigan read what it could without it.";
       result.summary.unshift(note);
       result.tables.find(table => table.details)?.rows.push(["Notes", "Classic client", note]);
       return { ...keepEngineLog(withVersion(result)), ...(site ? { site } : {}) };
     }
+    const engine = parseEngine(found.dataEngineType);
+    logEngine(engineLine(found.dataEngineType));
+    progress.log("Classic reader: answered; starting model settings");
     const pages = startModelPages({ ...ids, frameHost }, progress, signal);
     let exported: AnalysisResult;
     try {
@@ -130,6 +134,15 @@ if (window.top === window) {
       throw error;
     }
     const { lineItemIds, ...result } = exported;
+    const crossCheck = engineCrossCheck(engine, result.tables.find(table => table.file === "Line Items.csv")?.headers ?? []);
+    if (crossCheck) {
+      progress.log(crossCheck);
+      result.tables.find(table => table.details)?.rows.push(...diagnosticRows(stampLine(crossCheck)));
+    }
+    if (engine === "polaris") {
+      result.summary.push(POLARIS_FULL_NOTE);
+      result.tables.find(table => table.details)?.rows.push(["Notes", "Engine", POLARIS_FULL_NOTE]);
+    }
     const read = keepEngineLog(await pages.finish(withVersion(result), lineItemIds));
     return seen.origin && seen.customer ? { ...read, site: { origin: seen.origin, customer: seen.customer } } : read;
   };

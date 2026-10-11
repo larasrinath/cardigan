@@ -38,7 +38,7 @@ describe("Page analyzer REST reads", () => {
       await expect(getJson(PATH)).rejects.toMatchObject({ code, status });
     });
 
-  it("allows only the platform engine detail GET routes, with the page's session headers", async () => {
+  it("allows only the two platform name GET routes used without a client", async () => {
     const base = `/a/springboard-platform-gateway-service/customers/${"A".repeat(32)}/workspaces`;
     const model = `${base}/${"B".repeat(32)}/models/${"C".repeat(32)}`;
     await getJson(model);

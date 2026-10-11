@@ -95,6 +95,22 @@ function stepped() {
 describe("Model export bridge between the Model Building page and the model's core frame", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "future_engine", 1, { engine: "HYPERBLOCK" }])("carries only a known dataEngineType in the check-in, before running: %j", async value => {
+    const shell = new FakeWindow(SHELL), core = new FakeWindow(CORE);
+    const exporter = vi.fn(async () => exported());
+    let found: CoreHandle | undefined;
+    watchCore(shell, handle => { found = handle; });
+    const stop = serveCore(core, shell.seenBy(core), () => MODEL, exporter, 5, undefined, undefined, () => value);
+    await settle();
+    expect(found?.dataEngineType).toBe(value === "HYPERBLOCK" || value === "CALCULATION_ENGINE" ? value : undefined);
+    expect(exporter).not.toHaveBeenCalled();
+    // Even a raw message cannot carry arbitrary data into the remembered engine.
+    shell.receive({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType: { private: "invented" } }, CORE, core.seenBy(shell));
+    await settle();
+    expect(found?.dataEngineType).toBeUndefined();
+    stop();
+  });
+
   it("shows the core frame to the page, runs the export there and brings the result back", async () => {
     let runs = 0;
     const sent = exported();
