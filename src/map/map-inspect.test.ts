@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence } from "./map-inspect.js";
 import { indexModel } from "./map-model.js";
-import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, ownFilteredModel } from "./map-fakes.test-support.js";
 
 function sample() {
   const make = new GraphMaker();
@@ -364,5 +364,20 @@ describe("What the details say of the pages' filters", () => {
     expect([by?.title, by?.links.map(link => [link.raw, link.name, link.sub, link.caption])]).toEqual(["Filtered on pages by · 1", [[show, "Show?", "FLT01 - Filters", "Planning · Demand · Card 4 · by Products"]]]);
     // A module no filter names lists none.
     expect(inspect(model, modules, byName(modules, "FLT01 - Filters"), false).lists.some(list => list.key === "filteredBy")).toBe(false);
+  });
+
+  it("list a module's own line items among those that filter it, and the line item's own module among those it filters, though no link shows them", () => {
+    const { graph, cust, incomplete, missing } = ownFilteredModel();
+    const model = indexModel(graph);
+    const modules = modulesGraph(model, undefined, false, true);
+    const module = inspect(model, modules, byName(modules, "MDM380 - Customer Entity #"), false);
+    const by = module.lists.find(list => list.key === "filteredBy");
+    expect([by?.title, by?.links.map(link => [link.raw, link.name, link.sub, link.caption])]).toEqual(["Filtered on pages by · 2", [
+      [incomplete, "Incomplete Records", "MDM380 - Customer Entity #", "Data Hub · Admin · Card 1"], [missing, "Missing DisplayName", "MDM380 - Customer Entity #", "Data Hub · Admin · Card 2"]]]);
+    const own = moduleGraph(model, cust, false, false, true);
+    const filters = inspect(model, own, byName(own, "Incomplete Records"), false).lists.find(list => list.key === "filters");
+    expect([filters?.title, filters?.links.map(link => [link.name, link.caption])]).toEqual(["Modules it filters on pages · 1", [["MDM380 - Customer Entity #", "Data Hub · Admin · Card 1"]]]);
+    // A module nothing filters lists none, though it reads a line item that filters its own module.
+    expect(inspect(model, modules, byName(modules, "REP01 - Report"), false).lists.some(list => list.key === "filteredBy")).toBe(false);
   });
 });
