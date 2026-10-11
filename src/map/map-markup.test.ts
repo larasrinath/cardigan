@@ -424,7 +424,11 @@ describe("The map's own markup", () => {
     expect(buttons.map(button => [button.getAttribute("class"), button.getAttribute("aria-label"), button.getAttribute("title")]))
       .toEqual([["map-btn map-icon", "Legend", "Legend"], ["map-btn map-icon", "About this map", "About this map"]]);
     const aboutIcon = buttons[1].querySelector("svg")!;
-    expect(aboutIcon.querySelectorAll("path")).toHaveLength(2);
+    // Only the question mark and its short, round-capped dot: no enclosing circle, even as a closed path.
+    expect(aboutIcon.children.map(child => child.localName)).toEqual(["path"]);
+    const question = aboutIcon.querySelector("path")!.getAttribute("d")!;
+    expect(question).not.toMatch(/[zZ]/);
+    expect(question.match(/M/g)).toHaveLength(2);
     expect(aboutIcon.getAttribute("stroke-width")).toBe("1.5");
     expect(aboutIcon.outerHTML).not.toBe(shell.querySelector('[data-map-act="grouping-info"] svg')?.outerHTML);
     expect([shell.querySelector(".map-legend")?.id, shell.querySelector(".map-legend")?.hidden]).toEqual(["map-legend-1", true]);
