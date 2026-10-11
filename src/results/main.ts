@@ -628,13 +628,10 @@ function renderAll(): void {
   if (!onMap) leaveMap();
   if (entry) renderTable(entry);
   else if (onMap) enterMap(result);
-  // Each tile opens its table: the tiles are in the navigation's order, which `listedTables` gives.
   else {
-    // Each tile opens its table, and has the table's icon from the navigation: both by the table's file, in the tiles' order.
     // A model's name and its apps' under About this export open them in Anaplan, where the page knows where they are.
-    const listed = listedTables(result);
     const overview = overviewOf(result);
-    el("view").innerHTML = overviewHtml(overview, keptCopy, listed.map(({ index }) => index), listed.map(({ table }) => table.file), aboutLinks(overview.about));
+    el("view").innerHTML = overviewHtml(overview, keptCopy, aboutLinks(overview.about));
   }
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.

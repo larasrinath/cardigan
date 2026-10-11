@@ -412,10 +412,9 @@ export function keptCopyHtml(copy: KeptCopy): string {
  *
  * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
-/** `views`: for each tile, the place in the result of the table it counts. A tile with one opens that table, as the table's
- * entry of the navigation does; one without stays a tile to read. `links`: the names under About this export that open
+/** Each tile carries the index and file of the table it opens. `links`: the names under About this export that open
  * what they name in Anaplan (`aboutRows`). */
-export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views: readonly number[] = [], tileFiles: readonly string[] = [], links: readonly AboutLink[] = []): string {
+export function overviewHtml(overview: Overview, copy: KeptCopy = "none", links: readonly AboutLink[] = []): string {
   const about = overview.about.length ? `
     <div class="d-sec" id="ovAbout"><h2>About this export</h2>
       <dl class="dl">${aboutRows(overview.about, links)}</dl></div>` : "";
@@ -445,26 +444,23 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
     </section>` : "";
   return `
     <h1 class="view-title">Overview</h1>
-    <div class="ov-grid">
-      ${overview.tiles.map((tile, at) => {
+    ${overview.tiles.length ? `<div class="ov-grid">
+      ${overview.tiles.map(tile => {
         // The table's icon, the one its entry of the navigation has, then its name, and under that the number of rows the
         // table lists, without a word: only a screen reader is told that they are rows. A name too long for the tile ends
         // in an ellipsis, and its title holds it whole. A file with no icon of its own has none here, and no stand-in.
         // A Model Calendar says what its calendar is in the number's place, and its current year under that: its title
         // holds it all, and a screen reader is told the same.
-        const file = tileFiles[at];
-        const icon = file === undefined ? "" : FILE_ICONS.get(file) ?? "";
+        const icon = FILE_ICONS.get(tile.file) ?? "";
         // A short name is said in full to a screen reader, and as the name's title.
         const name = tile.full ? `<span aria-hidden="true">${esc(tile.label)}</span><span class="sr-only">${esc(tile.full)}</span>` : esc(tile.label);
         const parts = `<span class="s-lab" title="${esc(tile.full ?? tile.label)}">${icon}${name}</span><span class="s-num${numberSize(tile)}">${esc(tile.value ?? tile.count)}</span>`
           + (tile.value === undefined ? `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>` : "")
           + (tile.detail === undefined ? "" : `<span class="s-detail">${esc(tile.detail)}</span>`);
         const named = tile.title === undefined ? "" : ` title="${esc(tile.title)}"`;
-        const view = views[at];
-        return view === undefined ? `<div class="stat"${named}>${parts}</div>`
-          : `<button type="button" class="stat stat-open" data-nav="${view}"${named}${tile.title === undefined ? "" : ` aria-label="${esc(tile.title)}"`}>${parts}</button>`;
+        return `<button type="button" class="stat stat-open" data-nav="${tile.index}"${named}${tile.title === undefined ? "" : ` aria-label="${esc(tile.title)}"`}>${parts}</button>`;
       }).join("")}
-    </div>${about}
+    </div>` : ""}${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${files}${howToRead}${log}`;
 }
 

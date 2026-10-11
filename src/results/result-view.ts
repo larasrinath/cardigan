@@ -620,12 +620,11 @@ export const MODEL_FILE_ORDER: readonly string[] = [
   "Processes.csv", IMPORTS_FILE, "Import Data Sources.csv", "Exports.csv", OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
 ];
 
-/** The result's files as the page lists them, in the navigation and as the overview's tiles: every file but the Details
+/** The result's files as the page lists them in the navigation: every file but the Details
  * file, each with its place in the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`.
  * Only this list is ordered: the result keeps its own order. */
 export function listedTables(result: AnalysisResult): { index: number; table: ResultTable }[] {
-  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true
-    && ((result.engine !== "polaris" && (result.kind !== "model" || table.file !== LINE_ITEM_SUBSETS_FILE)) || table.rows.length > 0));
+  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true);
   if (result.kind !== "model") return tables;
   const rank = (table: ResultTable): number => {
     const place = MODEL_FILE_ORDER.indexOf(table.file);
@@ -769,12 +768,12 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
   [APP_FILES.Formatting, "Formatting rules"], [APP_FILES.Actions, "Action buttons"], [APP_FILES["Where used"], "Model objects"],
 ]);
 
-/** One tile of the overview: its table's name, the number of rows the table lists, and for a Model Calendar what its
+/** One tile of the overview: its table's index in the result, file, name, number of rows, and for a Model Calendar what its
  * calendar is, where its table tells (calendar-tile.ts). `full` is what a short name stands for (`tableFullLabel`). */
-export interface OverviewTile { label: string; count: number; full?: string; value?: string; detail?: string; title?: string }
+export interface OverviewTile { index: number; file: string; label: string; count: number; full?: string; value?: string; detail?: string; title?: string }
 
 export interface Overview {
-  /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
+  /** Tables with at least one row after their rule, in the navigation's order (`listedTables`), with their row counts.
    * A tile says that one number: where a table leaves rows of its file out, as a Model Calendar's does, the line under the
    * table's name says how many and why. A model's Model Calendar says what its calendar is instead, where its table tells
    * (calendar-tile.ts): `value` in the number's place, `detail` under it, and `title` the tile in full. */
@@ -822,14 +821,15 @@ function aboutOf(read: readonly (readonly [string, string])[], facts: readonly (
 export function overviewOf(result: AnalysisResult): Overview {
   // A tile counts the rows the file's table lists, and nothing more. The words change no row, so the count needs the
   // file's rule only.
-  // In the order of `listedTables`, which is the navigation's: the page opens a tile's table by that order.
-  const tiles = listedTables(result).map(({ table }): OverviewTile => {
+  // Each tile keeps its own table's index and file when empty tables are left out.
+  const tiles = listedTables(result).flatMap(({ index, table }): OverviewTile[] => {
     const count = ruledView(result, table).table.rows.length;
+    if (count === 0) return [];
     const label = TILE_LABELS.get(table.file) ?? tableLabel(table);
     const full = tableFullLabel(table);
     // A calendar is said by its kind and its current year, not by how many of the template's settings hold a value.
     const calendar = result.kind === "model" && table.file === MODEL_CALENDAR_FILE ? calendarTile(table, label) : undefined;
-    return { label, count, ...(full ? { full } : {}), ...calendar };
+    return [{ index, file: table.file, label, count, ...(full ? { full } : {}), ...calendar }];
   });
 
   const sections = detailSections(detailsOf(result));

@@ -135,7 +135,7 @@ describe("The results page's escaping", () => {
     const pieces = [
       headerMetaHtml({ name: QUOTED }),
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, file: QUOTED }], "1"),
-      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], notes: [QUOTED], about: [[QUOTED, QUOTED]], files: [[QUOTED, QUOTED]], howToRead: [[QUOTED, QUOTED]], log: [QUOTED] }),
+      overviewHtml({ tiles: [{ index: 0, file: "Table.csv", label: QUOTED, count: 1 }], notes: [QUOTED], about: [[QUOTED, QUOTED]], files: [[QUOTED, QUOTED]], howToRead: [[QUOTED, QUOTED]], log: [QUOTED] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
       rowDrawerSubHtml(QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
@@ -263,7 +263,7 @@ describe("The results page's escaping", () => {
 
   it("lets no text change the overview, which holds what the Details file says as well", () => {
     expectInert(text => overviewHtml({
-      tiles: [{ label: text(0), count: 3 }, { label: text(1), count: 1 }], notes: [text(2), text(3), text(4)], about: [[text(5), text(6)], [text(7), text(8)]],
+      tiles: [{ index: 0, file: "Table.csv", label: text(0), count: 3 }, { index: 0, file: "Table.csv", label: text(1), count: 1 }], notes: [text(2), text(3), text(4)], about: [[text(5), text(6)], [text(7), text(8)]],
       files: [[text(9), text(10)]], howToRead: [[text(11), text(12)], [text(13), text(14)]], log: [text(15), text(16), text(17)],
     }), 7);
     // Each part alone, with each of the texts in turn: the notes, what the export is about, its files, how to read them, the log.
@@ -278,9 +278,9 @@ describe("The results page's escaping", () => {
   it("lets no text change a name under About this export that opens what it names: the name is the link's text, and said in its title and its label", () => {
     // The model's name, and the first and the last of three apps, the one between them plain.
     const links: AboutLink[] = [{ row: 0, line: 0, kind: "model" }, { row: 1, line: 0, kind: "app" }, { row: 1, line: 2, kind: "app" }];
-    expectInert(text => overviewHtml(overviewWith({ about: [[text(0), text(1)], [text(2), `${text(3)}\n${text(4)}\n${text(5)}`]] }), "none", [], [], links), 6);
-    expectInertInTurn(text => overviewHtml(overviewWith({ about: [["Model", text(0)], ["Apps", `${text(1)}\n${text(2)}\n${text(3)}`]] }), "none", [], [], links), 4);
-    const view = parseMarkup(overviewHtml(overviewWith({ about: [["Model", QUOTED], ["Apps", `${IMG}\nPlain app\n${SCRIPT}`]] }), "none", [], [], links));
+    expectInert(text => overviewHtml(overviewWith({ about: [[text(0), text(1)], [text(2), `${text(3)}\n${text(4)}\n${text(5)}`]] }), "none", links), 6);
+    expectInertInTurn(text => overviewHtml(overviewWith({ about: [["Model", text(0)], ["Apps", `${text(1)}\n${text(2)}\n${text(3)}`]] }), "none", links), 4);
+    const view = parseMarkup(overviewHtml(overviewWith({ about: [["Model", QUOTED], ["Apps", `${IMG}\nPlain app\n${SCRIPT}`]] }), "none", links));
     // Each is a button of the page's links, named by its place among them, with a drawn icon after the name; its title and
     // its label say what it opens, by the name as it was typed.
     expect(view.querySelectorAll('[data-act="ov-open"]').map(link => [link.localName, link.getAttribute("type"), link.getAttribute("class"), link.dataset.ovOpen, link.textContent,
@@ -293,13 +293,13 @@ describe("The results page's escaping", () => {
     // The value keeps its lines as they were read, the plain one among them.
     expect(view.querySelectorAll("#ovAbout dd").map(value => value.textContent)).toEqual([QUOTED, `${IMG}\nPlain app\n${SCRIPT}`]);
     // Without links, as for an app's result, every value is as it ever was.
-    expect(overviewHtml(overviewWith({ about: [["Model", QUOTED]] }), "none", [], [], [])).toBe(overviewHtml(overviewWith({ about: [["Model", QUOTED]] })));
+    expect(overviewHtml(overviewWith({ about: [["Model", QUOTED]] }), "none", [])).toBe(overviewHtml(overviewWith({ about: [["Model", QUOTED]] })));
   });
 
   it("puts nothing of a result into what the overview says about the copy kept for a refresh: its words are the page's own", () => {
     /** An overview whose every text is one of `text`'s. */
     const full = (text: Texts): Overview => ({
-      tiles: [{ label: text(0), count: 3 }], notes: [text(5), text(6)], about: [[text(0), text(1)], [text(2), text(3)]], files: [[text(4), text(5)]], howToRead: [[text(6), text(0)]], log: [text(1), text(2)],
+      tiles: [{ index: 0, file: "Table.csv", label: text(0), count: 3 }], notes: [text(5), text(6)], about: [[text(0), text(1)], [text(2), text(3)]], files: [[text(4), text(5)]], howToRead: [[text(6), text(0)]], log: [text(1), text(2)],
     });
     const words: Record<KeptCopy, string[]> = { none: [], keeping: ["Forget this result"],
       kept: ["Forget this result"], "not-removed": [NOT_REMOVED_LINE, "Forget this result"], forgotten: [FORGOTTEN_LINE] };
@@ -764,7 +764,7 @@ describe("A result whose every text is hostile, through every view of the page",
       overviewHtml(overviewOf(result), "kept"),
       overviewHtml(overviewOf(result), "forgotten"),
       // With its first and its last name under About this export opening what they name, as a model's own and an app's do.
-      overviewHtml(overviewOf(result), "none", [], [], [{ row: 0, line: 0, kind: "model" }, { row: overviewOf(result).about.length - 1, line: 0, kind: "app" }]),
+      overviewHtml(overviewOf(result), "none", [{ row: 0, line: 0, kind: "model" }, { row: overviewOf(result).about.length - 1, line: 0, kind: "app" }]),
       // The run's own view and its banner hold no text of a result, but they are the page's markup too. So is the view
       // of a model's map, shown and not drawn: the map itself is not the page's markup.
       runHtml(),
