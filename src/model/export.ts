@@ -177,6 +177,9 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   /** The IDs of the Line Items table's rows, where the table was made: the pages built on the model are read with them. */
   let lineItemIds: [string, string][] | undefined;
   if (lineItems) {
+    if (lineItems.columns.some(column => column.labels.some(label => label === "Populated Cell Count" || label === "Calculation Complexity"))) {
+      log("Engine: Polaris, read through the Classic client");
+    }
     // A table that cannot be made is its file's failure, as it was while the table was made in the file's own step.
     try {
       add("Line Items", lineItemsTable(lineItems, lists), undefined, lineItemsAt);
