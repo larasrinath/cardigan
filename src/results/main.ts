@@ -1050,8 +1050,8 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   el("drawerTitle").textContent = title;
   el("drawerSub").innerHTML = subHtml;
   el("drawerBody").innerHTML = bodyHtml;
-  // Where the row leads, at the top right: its box on the map, its module, its app and its page, as far as each is known;
-  // and under the header, why a way to open it that the result keeps from every row is not there.
+  // Where the row leads, in one row under its name: its box on the map, its module, its app and its page, as far as each
+  // is known; and under the header, why a way to open it that the result keeps from every row is not there.
   const { opens, why } = drawerRow ? opensOf(drawerRow.entry, drawerRow.row) : { opens: [], why: undefined };
   drawerOpens = opens;
   el("drawerOpens").innerHTML = opensHtml(opens);
@@ -1258,7 +1258,7 @@ const SETTINGS_PAGES: ReadonlyMap<string, { id: string; page: string }> = new Ma
   ["Import Data Sources.csv", ACTIONS_PAGE], ["Source Models.csv", { id: "-13", page: "Source Models" }],
 ]);
 
-/** A button at the top right of a row's details, with where it leads: a box of the model map; a module, a list or a
+/** A button under the name in a row's details, with where it leads: a box of the model map; a module, a list or a
  * settings page in Model Building, which the model's tab opens (`openInModel`), inside its page by the object's ID where
  * it can; or an app or a
  * page, which the tab of apps and pages opens (`openInAppTab`). `what` names it in the run's log. */
@@ -1322,7 +1322,7 @@ function listOfDimension(name: string): string | undefined {
   }
 }
 
-/** The ways a row of a model's tables leads elsewhere, as the buttons at the top right of its details show them, and why
+/** The ways a row of a model's tables leads elsewhere, as the buttons under its name in its details show them, and why
  * one that the result keeps from every row is not there. Model Building opens modules and lists, not line items: a line
  * item opens its module. The button that opens a row's one object in Model Building is Model, as the user named it (9 and
  * 10 Oct 2026); a row with several says which each is.
