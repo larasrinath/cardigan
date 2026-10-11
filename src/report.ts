@@ -375,6 +375,9 @@ function formattingRows(page: string, order: number, card: Obj, regions: Obj[], 
   return cfTexts;
 }
 
+/** What Name source says of a button whose import, export or process the model's actions of its type do not list. */
+export const NAME_NOT_FOUND = "Card label (not found in the model)";
+
 /** Actions and links. Returns the Cards row's text for each button and for a title link. */
 function actionRows(page: string, order: number, card: Obj, failedActionTypes: readonly string[] | undefined, rows: Record<TabName, Cell[][]>,
   use: Use): string[] {
@@ -385,7 +388,7 @@ function actionRows(page: string, order: number, card: Obj, failedActionTypes: r
     const actionType = ACTION_TYPE[nativeType] ?? (nativeType || NONE);
     const modelAction = MODEL_ACTIONS.has(nativeType);
     const nameFrom = !modelAction ? "Card label (not a model object)" : action.name ? "Model"
-      : failedActionTypes?.includes(nativeType) ? "Card label (model lookup failed)" : "Card label (not found in the model)";
+      : failedActionTypes?.includes(nativeType) ? "Card label (model lookup failed)" : NAME_NOT_FOUND;
     const modelName = nameFrom === "Model" ? String(action.name) : NONE;
     const label = typeof button.name === "string" ? button.name : NONE;
     actionTexts.push(`${actionType}: ${label}`);

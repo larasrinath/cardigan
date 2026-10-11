@@ -195,7 +195,7 @@ describe("The pages built on a model", () => {
     expect(detailsOf(withoutLog(result)).map(row => row.slice(0, 2).join(" / "))).toEqual(["Model / Model", "Model / Workspace", "Model / Model ID", "Model / Apps",
       "Model / Workspace ID", "Export / Exported at", "Files / Modules.csv", "Files / Line Items.csv", `Files / ${MODULE_USAGE_FILE}`, `Files / ${PAGE_FILTERS_FILE}`,
       `Files / ${PAGE_ACTIONS_FILE}`, "Notes / Source Models", "How to read / Modules", "How to read / Module Usage", "How to read / Page Filters",
-      "How to read / Page Actions", "Diagnostics / 10:00:00"]);
+      "How to read / Page Actions", "How to read / Missing", "Diagnostics / 10:00:00"]);
     expect(detailsOf(result)[3][2]).toBe("Another app\nPlanning app");
     expect(detailsOf(result).slice(8, 11).map(row => row[2])).toEqual(["4 rows", "2 rows", "2 rows"]);
     expect(result.summary).toEqual(["Modules: 4 rows", "Line Items: 6 rows", "Module Usage: 4 rows", "Page Filters: 2 rows", "Page Actions: 2 rows"]);
@@ -223,8 +223,14 @@ describe("The pages built on a model", () => {
     expect(cellsOf(same, PAGE_FILTERS_FILE, "Page", "Card #")).toEqual([["Demand board", 1], ["Demand board", 3]]);
     expect(cellsOf(same, PAGE_ACTIONS_FILE, "Page", "Card #", "Button label")).toEqual([["Demand board", 2, "Reload plan"], ["Demand board", 2, "Run nightly"],
       ["Demand board", 4, "Load elsewhere"]]);
-    // A module the model does not have comes after the Modules table's, by its ID, as the app's own tables show it.
-    expect(rowsOf(same, MODULE_USAGE_FILE)!.at(-1)).toEqual([`${OTHER_MODULE} (not in the model)`, "Planning app", "Demand board", "Board", APP_A, PAGE_A]);
+    // A module the model does not have comes after the Modules table's, named Missing with its ID, and the filter of its
+    // grid names it so, as a button names an import that the model's imports do not list. The Overview says how many cards
+    // point at such things.
+    expect(rowsOf(same, MODULE_USAGE_FILE)!.at(-1)).toEqual([`Missing module (ID ${OTHER_MODULE})`, "Planning app", "Demand board", "Board", APP_A, PAGE_A]);
+    expect(cellsOf(same, PAGE_FILTERS_FILE, "Card #", "Filtered module")).toEqual([[1, `Missing module (ID ${OTHER_MODULE})`], [3, "Demand"]]);
+    expect(cellsOf(same, PAGE_ACTIONS_FILE, "Card #", "Model action name")[2]).toEqual([4, "Missing import (ID 112000000977)"]);
+    expect(same.summary).toContain("Pages built on the model: 2 cards on pages built on this model point at things the model doesn't have: deleted since the page "
+      + "was built, or hidden from you. Module Usage, Page Filters and Page Actions say Missing, with the ID.");
 
     // A page built on another model: only its card that names this model is kept.
     const mixed = board(PAGE_C, APP_B, "Mixed board", OTHER_MODEL, [grid(1, "Theirs", OTHER_MODULE, [leaf(["1901000000077"])]),
@@ -393,6 +399,84 @@ describe("The pages built on a model", () => {
       .toEqual([[1, "1901000000077", "-", "-"], [2, "Territory demand", "Factors", LI(9)]]);
     // Volume and Note may be the condition of the first filter: their counts are not known. Territory demand's is.
     expect(filterUses(result)).toEqual([["Demand", ""], ["Volume", ""], ["Factors", ""], ["Territory demand", 1], ["Unused", ""], ["Note", ""]]);
+  });
+
+  describe("what a page points at that the model does not have", () => {
+    const [GONE, GONE_2, GONE_3, GONE_4, GONE_IMPORT] = ["1916000000014", "1916000000015", "1916000000016", "1916000000017", "112000000977"];
+    /** The names this model gives, with the line items of every one of its modules read, as the export reads them. */
+    const everyLineItem = () => {
+      const named = catalog();
+      addLineItems(named, "102000000903", { data: [{ lineItemId: LI(12), lineItemLabel: "Note" }] });
+      return named;
+    };
+    /** A board whose cards point at a module, line items and an import the model does not have, and one card that does not. */
+    const oldBoard = (cards: Obj[] = []) => board(PAGE_C, APP_B, "Old board", MODEL, [
+      grid(1, "Gone", OTHER_MODULE, [leaf([GONE])]),
+      grid(2, "Demand by product", MODULE, [leaf([LIST_2, GONE_2], "NOT_EQUALS", ["0"])]),
+      actions(3, [button(GONE_IMPORT, "IMPORT", "Load old"), button("118000000901", "PROCESS", "Run nightly")]),
+      grid(4, "Fine", MODULE, [leaf([LI(1)])]),
+      ...cards,
+    ]);
+    const runOld = (names = everyLineItem(), failedActionTypes: string[] = [], cards: Obj[] = []) => {
+      const use = fake([{ guid: PAGE_C, name: "Old board", appGuid: APP_B }], { [PAGE_C]: oldBoard(cards) });
+      use.reads.loadCatalog = vi.fn(async () => ({ catalog: names, notes: [], failedActionTypes })) as unknown as typeof loadCatalog;
+      return run(exported(), CUSTOMER, use);
+    };
+    const where = ["Another app", "Old board"];
+    const place = ["Board", APP_B, PAGE_C];
+
+    it("names each plainly in the three tables, by its kind and ID, and keeps the ID in its hidden column", async () => {
+      const result = await runOld();
+      // A filter rule whose one item nothing names has that item for its line item, as no module of the model lists it:
+      // its module is not known. Its context stays the context. The ID stays in the hidden Line item ID.
+      expect(rowsOf(result, PAGE_FILTERS_FILE)).toEqual([
+        ["Missing line item: module not known", `Missing line item (ID ${GONE})`, `Missing module (ID ${OTHER_MODULE})`, "Product", "is equal to", "true", "All", "1", "-", "Rows",
+          ...where, 1, "1", ...place, guid(1), GONE],
+        ["Missing line item: module not known", `Missing line item (ID ${GONE_2})`, "Demand", "Product", "is not equal to", "0", "All", "1", "Territory = current", "Rows",
+          ...where, 2, "1", ...place, guid(2), GONE_2],
+        ["Demand", "Volume", "Demand", "Product", "is equal to", "true", "All", "1", "-", "Rows", ...where, 4, "1", ...place, guid(4), LI(1)]]);
+      // A button whose import the model's imports do not list names it by its type and ID; Name source says so as before.
+      expect(rowsOf(result, PAGE_ACTIONS_FILE)).toEqual([
+        [`Missing import (ID ${GONE_IMPORT})`, "Import", ...where, 3, "Load old", "Yes (default)", "n/a", "Card label (not found in the model)", ...place, guid(3), GONE_IMPORT],
+        ["Nightly process", "Process", ...where, 3, "Run nightly", "Yes (default)", "Cancel allowed", "Model", ...place, guid(3), "118000000901"]]);
+      // A module the model does not have comes after the Modules table's.
+      expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", ...where, ...place], ["Factors", "-", "Not on any page", "-", "-", "-"],
+        ["Unused", "-", "Not on any page", "-", "-", "-"], [`Missing module (ID ${OTHER_MODULE})`, ...where, ...place]]);
+    });
+
+    it("counts in Line Items no filter whose condition line item the model does not have", async () => {
+      // Every page was read, and every filter's line item is known: one of the model's, or one the model does not have.
+      expect(filterUses(await runOld())).toEqual([["Demand", ""], ["Volume", 1], ["Factors", ""], ["Territory demand", 0], ["Unused", ""], ["Note", 0]]);
+    });
+
+    it("says on the Overview how many cards point at such things, once, with the other notes", async () => {
+      const result = await runOld();
+      const note = "3 cards on pages built on this model point at things the model doesn't have: deleted since the page was built, or hidden from you. "
+        + "Module Usage, Page Filters and Page Actions say Missing, with the ID.";
+      expect(result.summary.slice(-1)).toEqual([`Pages built on the model: ${note}`]);
+      expect(detailsOf(result).filter(row => row[0] === "Notes")).toEqual([["Notes", "Source Models", "none"], ["Notes", "Pages built on the model", note]]);
+      // Without such a card, no such note.
+      const fine = await run(exported(), CUSTOMER, fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard }));
+      expect([...fine.summary, ...detailsOf(fine).filter(row => row[0] === "Notes").map(row => String(row[2]))].filter(line => line.includes("doesn't have"))).toEqual([]);
+    });
+
+    it("leaves as IDs what nothing proves the model does not have", async () => {
+      // A rule with two items that nothing names: either may be its line item, and both keep their IDs.
+      const twice = [grid(5, "Unsure", MODULE, [leaf([GONE_3, GONE_4])])];
+      const result = await runOld(everyLineItem(), [], twice);
+      expect(cellsOf(result, PAGE_FILTERS_FILE, "Card #", "Condition line item's module", "Condition line item", "Line item ID").at(-1))
+        .toEqual([5, "-", `${GONE_3}, ${GONE_4}`, "-"]);
+      // Where the line items of a module were not read, an item that nothing names may be one of its line items.
+      const unread = await runOld(catalog());
+      expect(cellsOf(unread, PAGE_FILTERS_FILE, "Card #", "Condition line item's module", "Condition line item", "Filtered module")).toEqual([
+        [1, "-", GONE, `Missing module (ID ${OTHER_MODULE})`], [2, "-", `Territory, ${GONE_2}`, "Demand"], [4, "Demand", "Volume", "Demand"]]);
+      // Where the model's imports could not be read, the button keeps its label alone.
+      const failed = await runOld(everyLineItem(), ["IMPORT"]);
+      expect(cellsOf(failed, PAGE_ACTIONS_FILE, "Model action name", "Name source")[0]).toEqual(["-", "Card label (model lookup failed)"]);
+      // The Overview counts the cards whose things are proven: the grid of the module, and the button.
+      expect(unread.summary.at(-1)).toMatch(/^Pages built on the model: 2 cards on pages built on this model point at things /);
+      expect(failed.summary.at(-1)).toMatch(/^Pages built on the model: 2 cards on pages built on this model point at things /);
+    });
   });
 });
 

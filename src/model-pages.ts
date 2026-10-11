@@ -1,11 +1,12 @@
-import { declaredType, loadCatalog, loadCatalogWhen, nameDetails, readPublished, type CatalogInputs, type ModelScope } from "./analyse.js";
+import { declaredType, loadCatalog, loadCatalogWhen, readPublished, type CatalogInputs, type ModelScope } from "./analyse.js";
 import { describePageCards } from "./card-reader/card-details.js";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog, type ExportedLineItems, type ModelCatalog } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
-import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
+import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
+import { missingCards, missingNote, namePlainly, sayMissing } from "./page-missing.js";
 import type { Progress } from "./progress.js";
 import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
@@ -57,22 +58,27 @@ export const PAGE_ACTIONS_HEADERS: readonly string[] = ["Model action name", "Ac
 /** The three files, each with the label the page shows it under: its name without the extension, as the export's are. */
 const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Module Usage"], [PAGE_FILTERS_FILE, "Page Filters"], [PAGE_ACTIONS_FILE, "Page Actions"]];
 
-/** How to read the three tables, as the overview lists them. */
+/** How to read the three tables, and what they name Missing, as the overview lists them. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Module Usage", "Not a Model settings grid: the pages built on this model that use each module. One row for each module and page, in the Modules "
     + "table's order, then by app and page. A page uses a module when a card on it that works on this model shows the module, a saved view of it or "
     + `one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, which says ${NOT_ON_A_PAGE}. `
-    + "After them come the modules a page uses that the Modules table does not list, by their IDs: one marked (not in the model) is one a card "
+    + "After them come the modules a page uses that the Modules table does not list: one that reads Missing module, with its ID, is one a card "
     + "still points at that the model no longer has, or that you cannot see. Only published pages are read, and only those you can open."],
   ["Page Filters", "The card filters on the pages built on this model, with the columns of an app's Filters table: those of the cards that work on "
     + "this model, by app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
     + "filters, the module and the dimension, then the condition, and then where the filter is: its app, page, card and section. "
     + `The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
     + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
-    + "may be the condition of that filter."],
+    + "may be the condition of that filter. A condition line item the model doesn't have is none of them."],
   ["Page Actions", "The action buttons on the pages built on this model, with the columns of an app's Action Buttons table: those of the cards that "
     + "work on this model, by app, page and card. Each row says first the model's action a button runs, by name and type, then where the button "
     + "is, by app, page, card and label, and then how it behaves."],
+  ["Missing", "A module, a line item, or an import, export or process that a card on a page built on this model points at, and the model doesn't "
+    + "have: deleted since the page was built, or hidden from you. Module Usage, Page Filters and Page Actions name it Missing, with its ID, such as "
+    + `Missing module (ID 102000000556), so a search for the ID finds it. Where a filter's condition line item is missing, its module reads ${MISSING_LINE_ITEMS_MODULE}: `
+    + "nothing says which module it was in. Open the page with the row's App or Page button to fix the card. A dimension or a list that no read "
+    + "names shows as its ID."],
 ];
 
 /** What the work reads through: a test passes its own. `loadCatalogWhen` reads a model's names before the pages and the
@@ -93,8 +99,8 @@ interface PagesRead {
 type Named = { catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] };
 const NO_NAMES = (): Named => ({ catalog: emptyCatalog(), notes: [], failedActionTypes: [] });
 /** What a page gives the tables: its app and name, where it is (`PAGE_PLACE_HEADERS`, in their order), its rows of the two
- * tables, and the modules it uses. */
-interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string> }
+ * tables, the modules it uses, and its cards that point at something the model does not have (page-missing.ts). */
+interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string>; missing: Map<string, Set<string>> }
 
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const isObj = (value: unknown): value is Obj => !!value && typeof value === "object" && !Array.isArray(value);
@@ -513,10 +519,10 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
       state: native.currentDraftVersionGuid === native.currentPublishedVersionGuid ? "Published (no unpublished changes)" : "Published, draft differs",
       modelName: text(info.modelName) ?? NONE, workspaceName: text(info.workspaceName) ?? NONE, modelId: text(native.modelId) ?? NONE,
       publishedAt: typeof native.publishedAt === "number" || typeof native.publishedAt === "string" ? native.publishedAt : undefined,
-      details: nameDetails(details, named.catalog), dimensionNames: named.catalog.dimensions, failedActionTypes: named.failedActionTypes,
+      details: namePlainly(details, named.catalog), dimensionNames: named.catalog.dimensions, failedActionTypes: named.failedActionTypes,
     };
     // Every card is reported, so that each keeps the number the app's own tables give it; only this model's rows are kept.
-    const report = buildReport([input]);
+    const report = sayMissing(buildReport([input]));
     const pageModel = (details.modelId ?? "").toLowerCase();
     const ours = new Set(details.cards.filter(card => {
       const its = (card.modelId ?? pageModel).toLowerCase();
@@ -544,7 +550,8 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
       const module = String(kind === "Module" ? row[nameAt] : kind === "Saved view" || kind === "Line item" ? row[moduleAt] : NONE).trim();
       if (module !== "" && module !== NONE) modules.add(module);
     }
-    return { app, page, place, filters: kept(PAGE_FILTERS_HEADERS, HEADERS.Filters, report.Filters.rows), actions: kept(PAGE_ACTIONS_HEADERS, HEADERS.Actions, report.Actions.rows), modules };
+    return { app, page, place, filters: kept(PAGE_FILTERS_HEADERS, HEADERS.Filters, report.Filters.rows), actions: kept(PAGE_ACTIONS_HEADERS, HEADERS.Actions, report.Actions.rows), modules,
+      missing: missingCards(report, ours) };
   }).sort((a, b) => byText(a.app, b.app) || byText(a.page, b.page));
 
   const usage = moduleUsageRows(exportedModules(result), built);
@@ -556,7 +563,9 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
   addFilterUses(result, filters, unread.length === 0);
 
   // The model's name starts a note of the name reads: here it is this model's.
+  const missing = missingNote(built.map(page => page.missing));
   const notes: string[] = [
+    ...(missing ? [missing] : []),
     ...(unpublished ? [`${unpublished} of the ${items.length} pages built on this model ${unpublished === 1 ? "has" : "have"} no published version, so ${unpublished === 1 ? "it is" : "they are"} not in these tables.`] : []),
     ...(unread.length ? [`${unread.length} ${unread.length === 1 ? "page" : "pages"} could not be read, so a module on ${unread.length === 1 ? "it" : "one of them"} may show as ${NOT_ON_A_PAGE.toLowerCase()}: `
       + `${unread.slice(0, NAMED_UNREAD).join("; ")}${unread.length > NAMED_UNREAD ? `; and ${unread.length - NAMED_UNREAD} more` : ""}.`] : []),
