@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Map controls together.** Zoom out, Zoom in, Fit, Minimap, Legend and About share one row at the bottom left, followed by counts that fit their words; the minimap opens at the right, and panels stay apart on narrow maps.
 
+## 0.34.3 (11 October 2026)
+
+- **One way to tick all values.** Value filters drop Show all; ticking every value with the checkbox or one by one clears the filter and its saved choice. (#115)
+
 ## 0.34.2 (11 October 2026)
 
 - **Line items only.** Line Items leaves out modules' own rows and module headings, keeps inherited dimensions, and counts only line items; module links open Modules, while the result and map keep the full grid. (#114)

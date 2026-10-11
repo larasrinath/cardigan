@@ -879,7 +879,7 @@ export function colFilterHtml(column: Column, values: FilterValues, selected: Re
   const mixed = !checked && values.some(([value]) => !selected || selected.has(value));
   const action = filterTickWords("")[checked ? 1 : 0];
   return `
-    <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="all">Show all</button></div>
+    <div class="pop-hd"><span>Filter: ${esc(column.label)}</span></div>
     <div class="pop-find"><input type="search" data-ffind data-first autocomplete="off" spellcheck="false" placeholder="Find a value" aria-label="Find a value of ${esc(column.label)}">
       <label class="pop-toggle" title="${action}"><input type="checkbox" data-ftoggle aria-label="${action}" title="${action}" aria-checked="${mixed ? "mixed" : checked}" ${checked ? "checked" : ""} ${values.length ? "" : "disabled"}></label></div>
     ${list ? '<div class="pop-note">Each item is listed on its own: a row shows when any of its items is ticked.</div>' : ""}
