@@ -16,7 +16,7 @@ export interface ModelCatalog {
   lineItemFormats: Map<string, LineItemFormat>;
   actions: Map<string, string>;
   pages: Map<string, string>;
-  /** Modules whose line items were read. */
+  /** Modules whose line items were read. Export coverage is withdrawn when a filter ID needs a live search. */
   lineItemModules: Set<string>;
   /** Modules whose line items could not be read, so a second pass does not ask again. */
   unreadableModules: Set<string>;
@@ -135,14 +135,21 @@ function lineItemFormat(format: Obj, catalog: ModelCatalog): LineItemFormat {
   return { ...(dataType ? { dataType } : {}), ...(listId ? { listId } : {}), keys };
 }
 
-/** `core://{ws}:{model}/modules/{moduleId}/lineItems`: `data[] = {lineItemId, lineItemLabel, lineItemInfo: {format}}`. */
+/** `core://{ws}:{model}/modules/{moduleId}/lineItems`: `data[] = {lineItemId, lineItemLabel, lineItemInfo: {format}}`.
+ * A live listing replaces that module's earlier names and formats, including items it no longer lists. */
 export function addLineItems(catalog: ModelCatalog, moduleId: string, json: unknown): void {
+  for (const [id, item] of catalog.lineItems) {
+    if (item.moduleId !== moduleId) continue;
+    catalog.lineItems.delete(id);
+    catalog.lineItemFormats.delete(id);
+  }
   catalog.lineItemModules.add(moduleId);
   for (const item of list((json as Obj | undefined)?.data)) {
     const id = idText(item.lineItemId);
     const label = text(item.lineItemLabel);
     if (!id || !label) continue;
     catalog.lineItems.set(id, { name: label, moduleId });
+    catalog.lineItemFormats.delete(id);
     const format: unknown = item.lineItemInfo?.format;
     if (format && typeof format === "object" && !Array.isArray(format)) catalog.lineItemFormats.set(id, lineItemFormat(format as Obj, catalog));
   }
@@ -485,6 +492,8 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
   const typeOf = new Map<string, string>();
   let own = true;
   for (const [id, { moduleId }] of catalog.lineItems) {
+    // Names kept from the export can resolve a rule, but cannot rule out an ID absent from that export.
+    if (!catalog.lineItemModules.has(moduleId)) continue;
     const type = entityType(id);
     own &&= LONG_ID.test(id) && (moduleOf.get(type) ?? moduleId) === moduleId && (typeOf.get(moduleId) ?? type) === type;
     moduleOf.set(type, moduleId);

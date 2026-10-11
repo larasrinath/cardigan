@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
-  addActions, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, CURRENT_USER,
+  addActions, addExportedLineItems, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, CURRENT_USER,
   describeFormat, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, moduleViewsShape, nameFilterValues, resolveFromCatalog, selectionShape,
   unnamedDimensionIds, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
 } from "./catalog.js";
@@ -57,6 +57,26 @@ describe("Page analyzer names from the model data service", () => {
       "unknown:1901000000001": { moduleId: MODULE, moduleName: "Demand" } });
     expect(resolved.unresolved).toEqual([{ kind: "listItem", id: "201000000001", reason: "List item names are not looked up." },
       { kind: "action", id: "118000000999", reason: "Not found in the model's metadata." }]);
+  });
+
+  it("replaces all of a live module's exported names and formats, while keeping other modules", () => {
+    const catalog = emptyCatalog();
+    const [renamed, removed, elsewhere] = [ITEM(1901, 1), ITEM(1901, 2), ITEM(1902, 1)];
+    addExportedLineItems(catalog, { modules: [MODULE, MODULE_2], lineItems: [
+      { id: renamed, name: "Old name", moduleId: MODULE, format: { dataType: "BOOLEAN" } },
+      { id: removed, name: "Removed", moduleId: MODULE, format: { dataType: "TEXT" } },
+      { id: elsewhere, name: "Elsewhere", moduleId: MODULE_2, format: { dataType: "NUMBER" } },
+    ] });
+    addLineItems(catalog, MODULE, { data: [{ lineItemId: renamed, lineItemLabel: "New name" }] });
+    expect([...catalog.lineItems]).toEqual([[elsewhere, { name: "Elsewhere", moduleId: MODULE_2 }], [renamed, { name: "New name", moduleId: MODULE }]]);
+    expect([...catalog.lineItemFormats.keys()]).toEqual([elsewhere]);
+    addLineItems(catalog, MODULE, { data: [] });
+    expect([...catalog.lineItems.keys()]).toEqual([elsewhere]);
+    expect(catalog.lineItemModules.has(MODULE)).toBe(true);
+    // A live listing can place an exported ID in another module; an absent format must not keep the old one.
+    addLineItems(catalog, MODULE, { data: [{ lineItemId: elsewhere, lineItemLabel: "Moved" }] });
+    expect(catalog.lineItems.get(elsewhere)).toEqual({ name: "Moved", moduleId: MODULE });
+    expect(catalog.lineItemFormats.has(elsewhere)).toBe(false);
   });
 
   it("labels a module or line item that is not in the model, and leaves merely unread ones as IDs", () => {
@@ -218,7 +238,7 @@ describe("Page analyzer names from the model data service", () => {
       const two = read([10, 300], [20, 310], [30, 320]);
       addLineItems(two, module(40), { data: [{ lineItemId: ITEM(300, 9), lineItemLabel: "Elsewhere" }] });
       const both = read([10, 300], [20, 310], [30, 320]);
-      addLineItems(both, module(10), { data: [{ lineItemId: ITEM(305, 0), lineItemLabel: "Another type" }] });
+      addLineItems(both, module(10), { data: [{ lineItemId: ITEM(300, 0), lineItemLabel: "Original type" }, { lineItemId: ITEM(305, 0), lineItemLabel: "Another type" }] });
       const short = read([10, 300], [20, 310], [30, 320]);
       addLineItems(short, module(40), { data: [{ lineItemId: "12", lineItemLabel: "Short" }] });
       for (const catalog of [two, both, short]) {

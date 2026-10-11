@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
-import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
+import { addActions, addExportedLineItems, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
 import { NOT_PLACED } from "./filtered-line-items.js";
 import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, readPolarisModel, startModelPages, type PageReads } from "./model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
@@ -285,6 +285,35 @@ describe("The pages built on a model", () => {
     const none = fake([], {});
     await addModelPages(result, CUSTOMER, { status: () => undefined, log: () => undefined }, undefined, none.reads, ids);
     expect(none.reads.loadCatalog).not.toHaveBeenCalled();
+  });
+
+  it("keeps Line Items, Page Filters, Module Usage and Missing wording the same with exported names and live overrides", async () => {
+    const result = exported();
+    const UNUSED = "102000000903";
+    const ids: [string, string][] = [[MODULE, ""], [LI(1), MODULE], [MODULE_2, ""], [LI(9), MODULE_2], [UNUSED, ""], [LI(12), UNUSED]];
+    const seed = exportedLineItems(result, ids, () => undefined)!;
+    const full = catalog();
+    addLineItems(full, UNUSED, { data: [{ lineItemId: LI(12), lineItemLabel: "Note" }] });
+    const mixed = catalog();
+    mixed.lineItems.clear();
+    mixed.lineItemModules.clear();
+    // The sample's live name replaces an older exported name; the other modules keep the export's names.
+    addExportedLineItems(mixed, { ...seed, lineItems: seed.lineItems.map(item => ({ ...item, name: item.id === LI(1) ? "Old volume" : item.name })) });
+    addLineItems(mixed, MODULE, { data: [{ lineItemId: LI(1), lineItemLabel: "Volume" }] });
+    const published = board(PAGE_A, APP_A, "Demand board", MODEL, [
+      grid(1, "Demand", MODULE, [leaf([LI(1)]), leaf([LI(9)])]),
+      grid(2, "Missing module", OTHER_MODULE, [leaf([LI(9)])]),
+    ]);
+    const build = async (names: ReturnType<typeof catalog>) => {
+      const use = fake([{ guid: PAGE_A, name: "Demand board", appGuid: APP_A }], { [PAGE_A]: published });
+      use.reads.loadCatalog = vi.fn(async () => ({ catalog: names, notes: [], failedActionTypes: [] })) as unknown as typeof loadCatalog;
+      return run(result, CUSTOMER, use);
+    };
+    const [fromListing, fromExport] = await Promise.all([build(full), build(mixed)]);
+    for (const file of ["Line Items.csv", PAGE_FILTERS_FILE, MODULE_USAGE_FILE]) expect(rowsOf(fromExport, file)).toEqual(rowsOf(fromListing, file));
+    expect(filterUses(fromExport)).toEqual([["Demand", ""], ["Volume", 1], ["Factors", ""], ["Territory demand", 2], ["Unused", ""], ["Note", 0]]);
+    expect(rowsOf(fromExport, MODULE_USAGE_FILE)!.at(-1)?.[0]).toBe(`Missing module (ID ${OTHER_MODULE})`);
+    expect(fromExport.summary).toEqual(fromListing.summary);
   });
 
   it(`reads at most ${AT_A_TIME} pages at a time, starting them in the list's order`, async () => {
