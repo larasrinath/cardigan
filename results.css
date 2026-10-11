@@ -131,10 +131,15 @@ input,select{font:inherit;color:inherit}
    entry of the view shown is marked as it always was, in the accent's colours with its words in bold, and so is the
    button of the group that holds it, which names that entry. Its icon takes its colour; the others' are quieter. */
 .topnav{background:var(--panel);border-bottom:1px solid var(--border)}
-/* An item that does not fit goes to the next line rather than out of the bar, and keeps its place there whatever the
-   view: every item keeps one width (below). A model's line with every file the export writes needs about 1,170px of the
-   column, which a window about 1,300px wide has, scrollbar and all; a narrower column has it on two lines. */
-.nav-list{display:flex;flex-wrap:wrap;align-items:center;gap:4px 1px;padding:6px var(--gutter)}
+/* Where the items fit on one line they are spread evenly over its whole width: the space the line has beyond them is
+   shared out between them, as the gaps (the page tells the line the items' widths in all, --nav-need, and the gaps
+   between them, --nav-gaps: nav-spread.ts). Each item keeps its own width, its mark included. Where they do not fit,
+   the gaps are 1px, and an item that does not fit goes to the next line, the lines packed at the line's start, rather
+   than out of the bar. Every item keeps one width whatever the view (below), so where each stands depends only on the
+   line's width: nothing moves as the view changes. A model's line with every file the export writes needs about 1,285px
+   of the column, which a window about 1,410px wide has, scrollbar and all; a narrower column has it on two lines. Until
+   the line is measured, its gaps are 1px. */
+.nav-list{display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;column-gap:max(1px,calc((100% - var(--nav-need,9999px) - 1px) / var(--nav-gaps,1)));padding:6px var(--gutter)}
 .nav-compact{display:none;padding:6px var(--gutter)}
 .nav-item,.nav-group-btn{
   display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;
@@ -168,10 +173,10 @@ input,select{font:inherit;color:inherit}
 }
 .nav-group-btn[data-room]::after{grid-area:1/1;padding:0 12px 0 18px}
 /* The items of the line itself stand closer than the menus' entries, so that a model's line with every table, its groups
-   each as wide as their longest table's name on the line (markup.ts `NAV_SHORT_LABELS`), stands on one line in a window
-   about 1,300px wide, scrollbar and all: 1px between items, 6px at each side of one (9px at a group's chevron), 4px
-   between an icon and its words, and a smaller chevron, 1px into its gap. The room of a group's icon, chevron and gaps
-   (above) follows these. The menus, and the one menu of a narrow window, keep the spacing of the rules above. */
+   each as wide as their longest table's name, stands on one line in a window 1,440px wide, scrollbar and all: 6px at
+   each side of one (9px at a group's chevron), 4px between an icon and its words, a smaller chevron, 1px into its gap,
+   and at least 1px between items (above). The room of a group's icon, chevron and gaps (above) follows these. The menus,
+   and the one menu of a narrow window, keep the spacing of the rules above. */
 .nav-list>.nav-item,.nav-list>.nav-group>.nav-group-btn{padding-left:6px;padding-right:6px;gap:4px}
 .nav-list>.nav-group>.nav-group-btn{padding-right:9px}
 .nav-list>.nav-group>.nav-group-btn .nav-chevron{width:9px;height:9px;margin-left:-1px}

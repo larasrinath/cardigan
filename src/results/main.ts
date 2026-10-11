@@ -11,6 +11,7 @@ import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
+import { spreadLine } from "./nav-spread.js";
 import { itemRows, type NamedRows } from "./item-links.js";
 import { processOfRow, type StepView } from "./process-actions-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
@@ -598,6 +599,7 @@ function renderAll(): void {
   // for. Each is drawn with its menus closed.
   const items = navItems(navEntries(), result.kind === "model");
   el("navList").innerHTML = navHtml(items, String(state.view));
+  spreadLine(el("navList"));
   el("navCompact").innerHTML = navMenuHtml(items, String(state.view), entry ? cellText(entry.table.label) : onMap ? MAP_LABEL : "Overview");
   // The map gives its room back before another view is drawn, which measures the room it has.
   if (!onMap) leaveMap();
@@ -2089,6 +2091,9 @@ el("timesSwitch").addEventListener("click", event => {
   if (mode === "local" || mode === "utc") setTimeMode(mode);
 });
 el("runAgain").addEventListener("click", () => client.runAgain());
+// The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
+// for it widens: it is measured only where it is laid out (nav-spread.ts).
+if (typeof ResizeObserver === "function") new ResizeObserver(() => spreadLine(el("navList"))).observe(el("navList"));
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", event => {
   let stored: string | null = null;
   try { stored = localStorage.getItem("cardigan-theme"); } catch { /* no storage: follow the system */ }
