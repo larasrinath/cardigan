@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.22.0 (10 October 2026)
+
+A model's tables follow a reading order, with fewer columns shown at first.
+
+- **The columns in reading order.** Each model table starts with what its rows are, then what they use or do. Anaplan's names stay as they are, including the names that differ between models. A column the model lacks is skipped; a new column follows the named ones and starts shown. (#71)
+- **Hidden columns can be added back.** Line Items starts with its name and module, format, formula, dimensions, summary, references, counts and notes. Its other known columns start hidden, as do a list's references, a module's line items and references, and an action's dashboards. Every hidden column stays in the chooser and the row's details. **Defaults** restores the layout, and column choices kept for the tab still apply by name. (#71)
+- **Rows keep their place.** Anaplan's order and headings stay. Module Usage follows Modules, then app and page. Page Filters follows the condition line item's module and name, then app, page and card; Page Actions follows the model action's name, then app and page. These orders start with no sort mark and no **Reset**. (#71)
+- **Less repeated text.** Model Calendar, Line Items, DCA, Imports and Source Models leave their explanations to **How to read**. Missing notes and warning counts remain under the tables. (#71)
+
 ## 0.21.0 (10 October 2026)
 
 Page filters run from a filter's line item to the line items it filters, and Page Filters says which those are.

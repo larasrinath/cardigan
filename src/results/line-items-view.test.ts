@@ -673,10 +673,10 @@ describe("The Line Items table as the results page shows it", () => {
     const view = lineItemsView(table(HEADERS, MODEL));
     const columns = columnsOf(view.table);
     // The unnamed first column is the row's name on the page, and the module stands next to it.
-    expect(columns.map(shown => shown.label)).toEqual(["Name", ...VIEW_HEADERS.slice(1)]);
-    expect(columns.map(shown => shown.index)).toEqual(VIEW_HEADERS.map((_, index) => index));
+    expect(columns.filter(shown => !shown.hidden).map(shown => shown.label)).toEqual(["Name", "Module Name", "Format", "Format type", "Formula", "Applies To", "Time Scale", "Versions", "Summary", "Referenced By", "Cell Count", "Calculation Effort", "Notes"]);
+    expect(columns.map(shown => shown.index).sort((a, b) => a - b)).toEqual(VIEW_HEADERS.map((_, index) => index));
     expect(columns.filter(shown => [MODULE_NAME, FORMAT_TYPE, APPLIES_TO, APPLIES_TO_FROM].includes(shown.label)).map(shown => [shown.label, shown.kind, shown.filter, shown.hidden]))
-      .toEqual([["Module Name", "text", true, false], ["Format type", "text", true, false], ["Applies To", "text", true, false], ["Applies To from", "text", true, false]]);
+      .toEqual([["Module Name", "text", true, false], ["Format type", "text", true, false], ["Applies To", "text", true, false], ["Applies To from", "text", true, true]]);
     const from = VIEW_HEADERS.indexOf(APPLIES_TO_FROM);
     const type = VIEW_HEADERS.indexOf(FORMAT_TYPE);
     expect(valueCounts(view.table.rows, from)).toEqual([["Line item", 2], ["Module", 14]]);

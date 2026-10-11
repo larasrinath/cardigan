@@ -1,4 +1,4 @@
-import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** A made-up model whose line items drive who may read and write one another, and the zip exactly as version 0.8.1
@@ -412,14 +412,14 @@ export const ACCESS_ROWS_FOR_THE_PAGE = [
  * the row on the Actions list's files, which says what the column Other Actions.csv has gained holds
  * (`MODEL_ACTIONS_ROW_REWORDED` in golden-0.6.1.test-support.ts), and the row on Imports, which says how the page shows
  * an import's Source Object (`IMPORTS_ROW_REWORDED` there). 0.8.1 wrote both as 0.6.1 did. */
-export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FOR_THE_PAGE[1], MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, ACCESS_ROWS_FOR_THE_PAGE[2]] as const;
+export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FOR_THE_PAGE[1], MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, DATA_SOURCES_ROW_REWORDED, ACCESS_ROWS_FOR_THE_PAGE[2]] as const;
 
 /** 0.8.1's text of this model's Model Details.csv as the file is written now: those five rows in their present words,
  * the two rows about the file added, the row on Source Models, and the Diagnostics rows on the modules' IDs
  * (`MODULE_IDS_ADDED`) and the lists' (`LIST_IDS_ADDED`), on the imports' definitions (`MAPPINGS_ADDED`) and on the time
  * each grid's page took (`withPageTimeRows`). */
 export const withAccessRows = (csv: string): string =>
-  withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows,
+  withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, MODULE_IDS_ADDED.rows,
     LIST_IDS_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines

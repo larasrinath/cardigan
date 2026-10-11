@@ -141,8 +141,8 @@ describe("What the results page's markup shows", () => {
     // A sort on a column that is not shown marks none of the ones that are.
     expect(heads(viewOf(CARDS, LINKS, { columns: some, sort: { column: 0, dir: "asc" } })).map(heading => heading[2])).toEqual(["none", "none", "none"]);
     // A model's file: the unnamed columns get the page's names, and each sort button its place among the file's headers.
-    expect(heads(viewOf(LINES, NO_LINKS)).map(heading => heading.slice(0, 2))).toEqual([["Name", "0"], ["Formula", "1"], ["Column 3", "2"], ["Format", "3"]]);
-    expect(heads(viewOf(LINES, NO_LINKS, { columns: columnsOf(LINES).slice(2) })).map(heading => heading.slice(0, 2))).toEqual([["Column 3", "2"], ["Format", "3"]]);
+    expect(heads(viewOf(LINES, NO_LINKS)).map(heading => heading.slice(0, 2))).toEqual([["Name", "0"], ["Format", "3"], ["Formula", "1"], ["Column 3", "2"]]);
+    expect(heads(viewOf(LINES, NO_LINKS, { columns: columnsOf(LINES).slice(2) })).map(heading => heading.slice(0, 2))).toEqual([["Formula", "1"], ["Column 3", "2"]]);
   });
 
   it("gives a filter button to the columns that offer a filter, each carrying its own column", () => {
@@ -153,8 +153,8 @@ describe("What the results page's markup shows", () => {
     expect(filters(viewOf(CARDS, LINKS, { columns: offering(CARDS, [1, 2, 4]) }))).toEqual([null, "1", "2", null, "4"]);
     // With columns hidden, a filter button still carries its own column, not its place among the ones shown.
     expect(filters(viewOf(CARDS, LINKS, { columns: offering(CARDS, [0, 3]).filter(entry => [2, 3].includes(entry.index)) }))).toEqual([null, "3"]);
-    expect(filters(viewOf(LINES, NO_LINKS, { columns: offering(LINES, [3]) }))).toEqual([null, null, null, "3"]);
-    expect(filters(viewOf(LINES, NO_LINKS, { columns: offering(LINES, [2, 3]).slice(2) }))).toEqual(["2", "3"]);
+    expect(filters(viewOf(LINES, NO_LINKS, { columns: offering(LINES, [3]) }))).toEqual([null, "3", null, null]);
+    expect(filters(viewOf(LINES, NO_LINKS, { columns: offering(LINES, [2, 3]).slice(2) }))).toEqual([null, "2"]);
     expect(filters(viewOf(LINES, NO_LINKS, { columns: offering(LINES, []) }))).toEqual([null, null, null, null]);
   });
 
@@ -169,8 +169,8 @@ describe("What the results page's markup shows", () => {
     const picked = [CARDS.rows[2], CARDS.rows[0]];
     expect(cells(tableHtml(viewOf(CARDS, LINKS, { rows: picked })))).toEqual(expected(picked, [0, 1, 2, 3, 4]));
     // A model's file, with a row that is shorter than the headers: the cells it lacks are empty.
-    expect(cells(tableHtml(viewOf({ ...LINES, rows: [...LINES.rows, ["Short"]] }, NO_LINKS)))).toEqual([["Revenue", "Units * Price", "x1", "Number"], ["Units", "", "x2", "Number"],
-      ["Price", "12.5", "x3", "Text"], ["Short", "", "", ""]]);
+    expect(cells(tableHtml(viewOf({ ...LINES, rows: [...LINES.rows, ["Short"]] }, NO_LINKS)))).toEqual([["Revenue", "Number", "Units * Price", "x1"], ["Units", "Number", "", "x2"],
+      ["Price", "Text", "12.5", "x3"], ["Short", "", "", ""]]);
     // A number's column is marked in every row as in its heading.
     const numbers = parseMarkup(tableHtml(viewOf(CARDS, LINKS))).querySelectorAll("tbody tr").map(row => row.children.map(cell => cell.classList.contains("num")));
     expect(numbers).toEqual(Array(3).fill([false, true, false, false, false]));
