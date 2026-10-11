@@ -6,6 +6,15 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - Fix every Line Item Subset showing the same line items. Membership is now read one subset at a time, as Model Building's editor reads it.
 
+## 0.31.6 (11 October 2026)
+
+- **How the map groups.** The (i) sits inside Group by and explains how the shown grouping files modules and which grouping best fits the model, with its own figures and prefixes. Both parts have bold headings; the list marks **Best fit**, and the words stay the same after a manual pick. (#102)
+- **Map corners.** Round Legend and About buttons sit at the bottom left, with a question mark for About and a highlight while open. Counts sit beside zoom at the right, keeping their width while panning and ending with an ellipsis on narrow maps; Fit keeps boxes clear of both corners. (#102)
+
+## 0.31.5 (11 October 2026)
+
+- **Tiles for tables with rows.** Model and app Overviews show tiles only for tables that list rows, on both engines. Every table stays in the menu bar, including empty Line Item Subsets under Lists; each tile opens its own table. (#101)
+
 ## 0.31.4 (11 October 2026)
 
 - **Subset modules by name.** Line Item Subsets resolves module IDs from the names already read, in model order. Raw IDs stay hidden; an unknown ID stays visible and the diagnostic log names it. (#100)

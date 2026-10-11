@@ -520,12 +520,22 @@ describe("What the results page's markup shows", () => {
     expect([text(popover.querySelector(".pop-hd span")), popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])]).toEqual(["Show / hide columns", [["defaults", "Defaults"]]]);
   });
 
+  it("leaves no tile grid when empty and keeps every other Overview section", () => {
+    const view = parseMarkup(overviewHtml(overviewWith({
+      about: [["Model", "Practice plan"]], notes: ["A note."], files: [["Imports", "Not exported"]],
+      howToRead: [["Layout", "Table guidance."]], log: ["A diagnostic line."],
+    })));
+    expect(view.querySelector(".ov-grid")).toBeNull();
+    expect(view.children.map(child => child.id || (child.classList.contains("panel") ? "notes" : child.localName)))
+      .toEqual(["h1", "ovAbout", "ovKept", "notes", "ovFiles", "ovHowTo", "ovLog"]);
+  });
+
   it("shows the overview's tiles and the notes, and no panel of an app's cards by type or of its models", () => {
     const view = parseMarkup(overviewHtml(overviewWith({
-      tiles: [{ label: "Pages", count: 7 }, { label: "Cards", count: 1 }, { label: "Filters", count: 0 }],
+      tiles: [{ index: 0, file: "Pages.csv", label: "Pages", count: 7 }, { index: 0, file: "Cards.csv", label: "Cards", count: 1 }],
       notes: ["A first note.", "A second note."],
     })));
-    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Pages", "7", "rows"], ["Cards", "1", "row"], ["Filters", "0", "rows"]]);
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Pages", "7", "rows"], ["Cards", "1", "row"]]);
     // The notes are the overview's one panel. An app's cards by type have none, and nor have its models, which the
     // details of the export name.
     expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Notes"], ["A first note.", "A second note."]]);
@@ -533,24 +543,23 @@ describe("What the results page's markup shows", () => {
     // A result may have no notes: then there is no panel at all, and without a Details file nothing else stands under the
     // tiles but the place for what the page keeps of the result, which holds nothing.
     // Given the place of each tile's table, a tile is a button that opens it, as the table's entry of the navigation does.
-    const ways = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }, { label: "Modules", count: 1 }] }), "none", [3, 5]));
+    const ways = parseMarkup(overviewHtml(overviewWith({ tiles: [{ index: 3, file: "Line Items.csv", label: "Line Items", count: 120 }, { index: 5, file: "Modules.csv", label: "Modules", count: 1 }] })));
     expect(ways.querySelectorAll(".stat").map(tile => [tile.localName, tile.getAttribute("type"), tile.dataset.nav, tile.textContent])).toEqual([
       ["button", "button", "3", "Line Items120rows"], ["button", "button", "5", "Modules1row"]]);
-    const bare = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }] })));
+    const bare = parseMarkup(overviewHtml(overviewWith({ tiles: [{ index: 0, file: "Line Items.csv", label: "Line Items", count: 120 }] })));
     expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.children.map(child => child.localName),
       bare.querySelector("#ovKept")?.innerHTML]).toEqual([[["Line Items", "120", "rows"]], 0, ["h1", "div", "p"], ""]);
   });
 
   it("says on a tile the one number of rows its table lists, with the word for a screen reader only, and the table's icon before its name", () => {
-    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511 }, { label: "Model Calendar", count: 21 }, { label: "Odd", count: 1 }, { label: "Bare", count: 2 }] }),
-      "none", [], ["Line Items.csv", "Model Calendar.csv", "Odd.csv"]));
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ index: 0, file: "Line Items.csv", label: "Line Items", count: 3511 }, { index: 0, file: "Model Calendar.csv", label: "Model Calendar", count: 21 }, { index: 0, file: "Odd.csv", label: "Odd", count: 1 }, { index: 0, file: "Bare.csv", label: "Bare", count: 2 }] })));
     // The name, the number, and the word "rows" or "row", which only a screen reader is given: no line of how many there are in all.
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(child => [...["s-lab", "s-num", "sr-only"]].find(name => child.classList.contains(name))))).toEqual([
       ["s-lab", "s-num", "sr-only"], ["s-lab", "s-num", "sr-only"], ["s-lab", "s-num", "sr-only"], ["s-lab", "s-num", "sr-only"]]);
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows"], ["Model Calendar", "21", "rows"], ["Odd", "1", "row"], ["Bare", "2", "rows"]]);
     expect(view.querySelectorAll(".stat").some(tile => /in all/.test(tile.textContent))).toBe(false);
     // The icon is the one the navigation has for the table's file, before its name. A file with no icon of its own has none,
-    // and a tile that names no file has none either: no stand-in.
+    // with no stand-in for an unknown file.
     const icons = view.querySelectorAll(".stat").map(tile => tile.querySelector(".s-lab svg")?.outerHTML);
     expect(icons.map(Boolean)).toEqual([true, true, false, false]);
     expect([icons[0] === parseMarkup(FILE_ICONS.get("Line Items.csv")!).querySelector("svg")?.outerHTML,
@@ -561,14 +570,14 @@ describe("What the results page's markup shows", () => {
 
   it("sizes a tile's number by its length: full size up to four figures, and a longer count and the calendar's word by the tile's width", () => {
     const counts = [7, 5279, 15389, 153890, 1538900, 15389000];
-    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [...counts.map(count => ({ label: "Line Items", count })), { label: "Model Calendar", count: 21, value: "Monthly" }] })));
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [...counts.map(count => ({ index: 0, file: "Line Items.csv", label: "Line Items", count })), { index: 0, file: "Model Calendar.csv", label: "Model Calendar", count: 21, value: "Monthly" }] })));
     expect(view.querySelectorAll(".s-num").map(number => [number.getAttribute("class"), number.textContent])).toEqual([["s-num", "7"], ["s-num", "5279"], ["s-num s-n5", "15389"],
       ["s-num s-n6", "153890"], ["s-num s-n7", "1538900"], ["s-num s-n8", "15389000"], ["s-num s-word", "Monthly"]]);
   });
 
   it("says on a Model Calendar's tile what its calendar is in the number's place, its current year under that, and the whole in its title", () => {
-    const calendar = { label: "Model Calendar", count: 21, value: "Weekly", detail: "4-4-5 · FY24", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY24" };
-    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar, { label: "Modules", count: 2 }] }), "none", [3, 4], ["Model Calendar.csv", "Modules.csv"]));
+    const calendar = { index: 3, file: "Model Calendar.csv", label: "Model Calendar", count: 21, value: "Weekly", detail: "4-4-5 · FY24", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY24" };
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar, { index: 4, file: "Modules.csv", label: "Modules", count: 2 }] })));
     const [tile, other] = view.querySelectorAll(".stat");
     // The kind in the number's place, sized as a word, and under it the year: no word for a screen reader that it is a
     // count, for it is none.
@@ -577,10 +586,10 @@ describe("What the results page's markup shows", () => {
     expect([tile.getAttribute("title"), tile.getAttribute("aria-label"), tile.dataset.nav, other.getAttribute("title"), other.getAttribute("aria-label")])
       .toEqual([calendar.title, calendar.title, "3", null, null]);
     expect(other.children.map(child => child.textContent)).toEqual(["Modules", "2", "rows"]);
-    // A tile that opens nothing keeps its title, and no name that would stand for what it holds.
+    // A calendar without a detail line still opens its table and keeps its full title.
     const still = parseMarkup(overviewHtml(overviewWith({ tiles: [{ ...calendar, detail: undefined }] }))).querySelector(".stat");
     expect([still?.localName, still?.getAttribute("title"), still?.getAttribute("aria-label"), still?.children.map(child => child.textContent)])
-      .toEqual(["div", calendar.title, null, ["Model Calendar", "Weekly"]]);
+      .toEqual(["button", calendar.title, calendar.title, ["Model Calendar", "Weekly"]]);
   });
 
   it("shows in a row's drawer, after a cell that is said in words, the text that was read in its place, named as that", () => {
@@ -950,7 +959,7 @@ describe("What the results page's markup shows", () => {
 
   it("shows on the overview what the Details file says: what was read first, then the tables that say more than their tile, and two sections that start closed", () => {
     const view = parseMarkup(overviewHtml(overviewWith({
-      tiles: [{ label: "Pages", count: 7 }], notes: ["A note."],
+      tiles: [{ index: 0, file: "Pages.csv", label: "Pages", count: 7 }], notes: ["A note."],
       about: [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]],
       files: [["Imports", "Not exported: the grid did not load"]],
       howToRead: [["Layout", "Each table is laid out as the grid of the same name."], ["Line Items", "Line items only: each names its module."]],
@@ -985,11 +994,11 @@ describe("What the results page's markup shows", () => {
     // Each part is there only when it has something to say: without a log there is no Diagnostics section, and nothing to copy.
     const bare = parseMarkup(overviewHtml(overviewWith({ about: [["Model", "Model one"]] })));
     expect([bare.children.map(child => child.id || child.localName), bare.querySelectorAll("details").length, bare.querySelectorAll("[data-act]").length, text(bare.querySelector("h1"))])
-      .toEqual([["h1", "div", "ovAbout", "ovKept"], 0, 0, "Overview"]);
+      .toEqual([["h1", "ovAbout", "ovKept"], 0, 0, "Overview"]);
   });
 
   it("says under the details of the export what the page keeps of the result for a refresh: the button that forgets a kept copy, one line once it is forgotten, and the button still when the copy could not be removed", () => {
-    const parts: Partial<Overview> = { tiles: [{ label: "Pages", count: 7 }], about: [["App", "Demo app"], ["Exported on", "2026-10-03 14:02 UTC"]], notes: ["A note."] };
+    const parts: Partial<Overview> = { tiles: [{ index: 0, file: "Pages.csv", label: "Pages", count: 7 }], about: [["App", "Demo app"], ["Exported on", "2026-10-03 14:02 UTC"]], notes: ["A note."] };
     const overview = (copy?: KeptCopy) => parseMarkup(copy === undefined ? overviewHtml(overviewWith(parts)) : overviewHtml(overviewWith(parts), copy));
     /** The place: what it is, where it stands in the overview, and what it holds, element by element. */
     const place = (copy?: KeptCopy) => {
