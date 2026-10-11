@@ -66,9 +66,10 @@ export interface GraphNode {
   lastRun?: string;
   durationMs?: number;
   /** For a line item: the filters on the pages built on the model that have it as their condition, as the Page Filters
-   * table lists them (model-pages.ts), each by its app, its page and its card's number, with the modules it filters and
-   * the dimension it filters by. A filtered module of the map other than the line item's own is linked from the line
-   * item by a `page_filter` link; the line item's own module is no link, and the map marks the module for it instead. */
+   * table lists them (model-pages.ts), each by its app, its page and its card's number, with the modules it filters, the
+   * dimension it filters by and the line items it filters. The line item is linked to each line item it filters but
+   * itself by a `page_filter` link, and to a module whose line items it filters are not known, but its own. The map marks
+   * a module that its own line items filter, and among its line items one that filters itself (map-model.ts). */
   pageFilters?: PageFilter[];
   /** A module's Functional Area, as the Modules file has it: Anaplan's own grouping of modules, which a model's builders
    * set. None where the module has none. */
@@ -79,8 +80,13 @@ export interface GraphNode {
 
 /** A filter of a card on a page, by where it is: the app, the page and the card's number on the page; and what it
  * filters: the modules of the map the card's filtered module names (`modules`, by their places in `ModelGraph.nodes`,
- * none where the map has none of them), and the dimension it filters, as the table writes it ("" for none). */
-export interface PageFilter { app: string; page: string; card: string; modules?: number[]; dimension?: string }
+ * none where the map has none of them), the dimension it filters, as the table writes it ("" for none), and the line
+ * items of the map it filters (`lineItems`): those the grid shows in each of those modules, by the table's Filtered line
+ * items (filtered-line-items.ts), in the graph's order. A heading, a line item of the format No Data, has nothing to
+ * filter and is never among them. The condition line item is, where its grid shows it as well. A module of `modules` with
+ * none of its line items among them is one whose grid does not say which line items it shows, or names none the map has,
+ * as a table made before it said so: the filter filters that module, line items unknown. */
+export interface PageFilter { app: string; page: string; card: string; modules?: number[]; dimension?: string; lineItems?: number[] }
 
 /** What a link says, read from its first node to its second:
  * - `reference`: the second's formula refers to the first (the first's Referenced By names the second).
@@ -90,8 +96,9 @@ export interface PageFilter { app: string; page: string; card: string; modules?:
  * - `format`: the list or subset is the format of the line item.
  * - `read_access`, `write_access`: the first drives who may read or write the second.
  * - `page_filter`: the first, a line item, is the condition of a filter on a page built on the model, and the filter
- *   narrows a card of the second, a module (the Page Filters table's Filtered module). Not what a formula reads: the map
- *   draws it only where asked to, as it does the links of access drivers.
+ *   narrows a grid that shows the second, a line item (the Page Filters table's Filtered line items); or, where the grid
+ *   does not say which line items it shows, the second is the module it filters (Filtered module). Not what a formula
+ *   reads: the map draws it only where asked to, as it does the links of access drivers.
  * - `subset`: the list has the subset. `parent`: the first is the parent of the second (list hierarchy).
  * - `process_action`: the process runs the action.
  * - `import_target`: the import loads into the module or list. `export_source`: the module or list is what the export
@@ -146,7 +153,10 @@ export interface ModelGraph {
  * is a line item of the map, and of them those that filter only that line item's own module, those that filter another
  * module of the map, and those that filter no module of the map; those that name no condition line item; and those
  * whose condition is no line item of the map, with each such one named once by its module and its own name
- * ("Module · Line item"), in the table's order. */
+ * ("Module · Line item"), in the table's order. Then whether the table says which line items a filter filters (`said`:
+ * its Filtered line items column, which a table made before it lacks); of the rows found, those that say it for every
+ * module of the map they filter (`shown`); and the names of line items those rows give that are no line item of their
+ * module on the map, each counted once (`unmatched`). */
 export interface PageFilterCheck {
   rows: number;
   found: number;
@@ -156,6 +166,9 @@ export interface PageFilterCheck {
   unnamed: number;
   notFound: number;
   missing: string[];
+  said: boolean;
+  shown: number;
+  unmatched: number;
 }
 
 /** What the map made of the Modules file's Functional Area (`ModelGraph.areaCheck`). */

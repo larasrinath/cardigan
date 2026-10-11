@@ -134,12 +134,29 @@ export function components(out: readonly (readonly number[])[]): { of: Int32Arra
   return { of, count };
 }
 
+/** The links the places of a graph's boxes are worked out from. Among a module's line items those of the pages' filters
+ * are left out: a filter's line item points at the line items its grid shows, among them often what its own formula
+ * reads, and such a link would close a circle of formulas and fold them into one rank. The filters are drawn over the
+ * places the formulas give, so that ticking them keeps the line items where they stood. Elsewhere every link counts. */
+interface Flow { out: readonly (readonly number[])[]; in: readonly (readonly number[])[]; edges: ViewGraph["edges"] }
+function flowOf(graph: ViewGraph): Flow {
+  if (graph.kind !== "drill" || !graph.edges.some(edge => edge.filter)) return graph;
+  const edges = graph.edges.filter(edge => !edge.filter);
+  const out: number[][] = graph.nodes.map(() => []);
+  const into: number[][] = graph.nodes.map(() => []);
+  for (const edge of edges) {
+    out[edge.s].push(edge.t);
+    into[edge.t].push(edge.s);
+  }
+  return { out, in: into, edges };
+}
+
 /** Each node's rank: 0 for what reads nothing, and one more than the highest rank it reads. A circle has one rank. */
-function ranksOf(graph: ViewGraph): { rank: Int32Array; highest: number } {
-  const { of, count } = components(graph.out);
+function ranksOf(graph: ViewGraph, flow: Flow): { rank: Int32Array; highest: number } {
+  const { of, count } = components(flow.out);
   const next: Set<number>[] = Array.from({ length: count }, () => new Set<number>());
   const waiting = new Int32Array(count);
-  for (const edge of graph.edges) {
+  for (const edge of flow.edges) {
     const from = of[edge.s];
     const to = of[edge.t];
     if (from !== to && !next[from].has(to)) {
@@ -170,13 +187,16 @@ function ranksOf(graph: ViewGraph): { rank: Int32Array; highest: number } {
  * graph reads from outside stands before the first rank and what it feeds outside after the last; a node with no link
  * at all stands at the very end, with the others like it. */
 function rankedBands(graph: ViewGraph): ViewNode[][] {
-  const { rank, highest } = ranksOf(graph);
+  const flow = flowOf(graph);
+  const { rank, highest } = ranksOf(graph, flow);
   const bands = new Map<number, ViewNode[]>();
   for (const node of graph.nodes) {
     let at = rank[node.index];
     if (node.external && node.side === "in") at = -1;
     if (node.external && node.side === "out") at = highest + 1;
-    if (!graph.out[node.index].length && !graph.in[node.index].length) at = highest + 2;
+    // A box beside the module's own stands there for a link, whichever kind it is.
+    const links = node.external ? graph : flow;
+    if (!links.out[node.index].length && !links.in[node.index].length) at = highest + 2;
     const band = bands.get(at);
     if (band) band.push(node); else bands.set(at, [node]);
   }
@@ -185,7 +205,7 @@ function rankedBands(graph: ViewGraph): ViewNode[][] {
   for (const band of bands.values()) band.forEach((node, index) => { place[node.index] = index; });
   for (let pass = 0; pass < ORDER_PASSES; pass++) {
     const backwards = pass % 2 === 1;
-    const links = backwards ? graph.out : graph.in;
+    const links = backwards ? flow.out : flow.in;
     const centre = (node: ViewNode): number => {
       const linked = links[node.index];
       return linked.length ? linked.reduce((sum, other) => sum + place[other], 0) / linked.length : place[node.index];

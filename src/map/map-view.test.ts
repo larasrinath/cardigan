@@ -4,8 +4,8 @@ import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-typ
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, PICKER_CAP, type MapEnvironment } from "./map-view.js";
-import { FakePen, filteredModel, GraphMaker, HOSTILE, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
-import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
+import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
+import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -3146,6 +3146,29 @@ describe("The links of the pages' filters on the map", () => {
     // A model with both kinds says it draws both.
     openWith(ownFilteredModel(true).graph);
     expect([part(".map-filters").disabled, note()]).toEqual([false, FILTERS_BOTH_SAY]);
+  });
+
+  it("draws a module's own filters among its line items, marks the one that filters itself, and says in the hover card where each filters", () => {
+    const heard: MapView[] = [];
+    openWith(lineFilteredModel().graph, heard, { view: "drill", module: "MDM380 - Customer Entity #", filters: true });
+    // The switch says what it shows: links among line items and between modules, and funnels on modules their own line
+    // items filter. The legend says what the dashed line and the mark mean among a module's line items.
+    expect([part(".map-filters").checked, note(), heard[0]]).toEqual([true, FILTERS_BOTH_SAY, { view: "drill", module: "MDM380 - Customer Entity #", filters: true }]);
+    expect([parts(".map-legend-filter").map(line => line.textContent), parts(".map-legend-mark").map(line => line.textContent)]).toEqual([[FILTER_LINK_SAYS.drill],
+      [FILTER_MARK_SAYS.drill]]);
+    env.settle();
+    // Six dashed lines: four from Incomplete Records, two from Missing DisplayName.
+    expect(linksDrawn().filter(call => call.dash.join(",") === "5,3.5").length).toBe(6);
+    // The hover card of a filter line item says where it filters, and of a line item filtered, what filters it.
+    const tip = (name: string): string => {
+      pointer("pointermove", ...at(name));
+      return part(".map-tip-meta").textContent;
+    };
+    expect([tip("Incomplete Records"), tip("Name")]).toEqual([expect.stringContaining("Page filter on Data Hub · Admin · Card 1 · by Customers"),
+      expect.stringContaining("Filtered on pages by Incomplete Records, and 1 more")]);
+    // Where the filters are not drawn, the hover card does not say them.
+    tickFilters();
+    expect([part(".map-filters").checked, tip("Incomplete Records").includes("Page filter"), tip("Name").includes("Filtered on pages")]).toEqual([false, false, false]);
   });
 
   it("says why it cannot be ticked where the table's filters name no line item of the map", () => {

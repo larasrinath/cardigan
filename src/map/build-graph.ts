@@ -1,3 +1,4 @@
+import { FILTERED_LINE_ITEMS, readFilteredLineItems } from "../filtered-line-items.js";
 import { MODULE_USAGE_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { textOf as plainText } from "../result-plain.js";
 import type { Cell, ResultTable } from "../result-types.js";
@@ -95,12 +96,12 @@ const PROCESSES = { file: PROCESSES_FILE, objects: "processes", columns: [["Note
 
 /** The filters on the pages built on the model, which a model's run reads from those pages (model-pages.ts): no settings
  * grid of the model. A line item's details list those that have it as their condition, and the map draws a link from
- * the line item to each module it filters where asked to (`page_filter`). Each column is read by its name: the file's
- * order is the results page's. */
+ * the line item to each line item it filters where asked to (`page_filter`). Each column is read by its name: the file's
+ * order is the results page's. A table made before it said which line items a filter filters has no such column. */
 const PAGE_FILTERS = {
   file: PAGE_FILTERS_FILE, objects: "page filters", rowNames: false,
   columns: [["App", null], ["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null],
-    ["Filtered module", null], ["Filtered dimension", null]],
+    ["Filtered module", null], ["Filtered dimension", null], [FILTERED_LINE_ITEMS, null]],
 } as const satisfies Reads<string>;
 
 /** The Modules file read for what it says of each module beyond Line Items: its Functional Area, Anaplan's own grouping
@@ -882,20 +883,34 @@ function lineItemNamer(draft: Draft): (module: number, name: string) => number |
 const MODULES_JOINED = "; ";
 
 /** Each line item's page filters: the rows of Page Filters that have it as their condition, found by the names of its
- * module and its own (`moduleNamer`, `lineItemNamer`), each with the modules of the map it filters and the dimension it
- * filters by. The line item is linked to each of those modules but its own (`page_filter`), once however many cards it
- * filters there: a link from a line item to its own module is no link between two modules. Such a filter is the
- * module's own, and the map marks the module for it where it draws the pages' filters (map-graphs.ts `filterMark`); the
- * details say it all the same. A row whose line item the map does not have says nothing on the map, and neither does an
- * export without the file. Gives back how the table's rows met the map, where the export has the file
- * (`PageFilterCheck`). */
+ * module and its own (`moduleNamer`, `lineItemNamer`), each with the modules of the map it filters, the dimension it
+ * filters by, and the line items it filters: those the grid shows in each of those modules, as Filtered line items says
+ * (filtered-line-items.ts), found by their names among the module's (`lineItemNamer`), but its headings, which hold
+ * nothing to filter. The line item is linked to each of those line items but itself (`page_filter`), once however many
+ * cards it filters there: so a filter on its own module's grid is drawn among that module's line items, and between
+ * modules as a link from one to the other. A module whose grid does not say which line items it shows, or names none
+ * the map has, as a table made before it said so, is linked as a whole, as it was before; but for the line item's own
+ * module, since a link from a line item to its own module is no link between two modules. A filter on its own module is
+ * the module's own, and the map marks the module for it where it draws the pages' filters (map-graphs.ts `filterMark`),
+ * and among its line items the line item that filters itself, which no link shows either; the details say it all the
+ * same. A row whose line item the map does not have says nothing on the map, and neither does an export without the
+ * file. Gives back how the table's rows met the map, where the export has the file (`PageFilterCheck`). */
 function readPageFilters(draft: Draft, tables: readonly ResultTable[]): PageFilterCheck | undefined {
   const table = tableOf(tables, PAGE_FILTERS);
   if (!table) return undefined;
   const moduleNamed = moduleNamer(draft);
   const lineItemNamed = lineItemNamer(draft);
-  const check: PageFilterCheck = { rows: table.rows.length, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 0, missing: [] };
+  const said = table.has(FILTERED_LINE_ITEMS);
+  const check: PageFilterCheck = { rows: table.rows.length, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 0, missing: [], said, shown: 0, unmatched: 0 };
   const missing = new Set<string>();
+  const unmatched = new Set<string>();
+  // Each module's line items that a filter can filter, in the graph's order: all but its headings.
+  const filterable = new Map<number, number[]>();
+  for (const node of draft.nodes) {
+    if (node.kind !== "lineItem" || node.module === undefined || node.format?.toUpperCase() === "NONE") continue;
+    const items = filterable.get(node.module);
+    if (items) items.push(node.id); else filterable.set(node.module, [node.id]);
+  }
   for (const row of table.rows) {
     const [module, lineItem] = [table.cell(row, "Condition line item's module"), table.cell(row, "Condition line item")];
     if (nothing(lineItem)) {
@@ -919,25 +934,54 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): PageFilt
     if (modules.some(filtered => filtered !== own)) check.other++;
     else if (modules.length) check.own++;
     else check.nowhere++;
+    // The line items it filters, module by module: those of each part of the cell that is that module's, or every
+    // module's. A module that a part does not say of, or names no line item of the map in, is filtered as a whole.
+    const parts = said ? readFilteredLineItems(table.cell(row, FILTERED_LINE_ITEMS)) : [];
+    const lineItems = new Set<number>();
+    const whole: number[] = [];
+    for (const filtered of modules) {
+      const ofIt = parts.filter(part => part.module === undefined || moduleNamed(part.module) === filtered);
+      const all = filterable.get(filtered) ?? [];
+      const found = new Set<number>();
+      const named = (names: readonly string[]): Set<number> => new Set(names.flatMap(name => {
+        const item = lineItemNamed(filtered, name);
+        if (item === undefined) unmatched.add(`${draft.nodes[filtered].name}\n${name.trim()}`);
+        return item === undefined ? [] : [item];
+      }));
+      for (const { shown } of ofIt.every(part => part.shown) ? ofIt : []) {
+        const those = !shown || "all" in shown ? undefined : named("only" in shown ? shown.only : shown.except);
+        for (const item of all) if (!those || those.has(item) === ("only" in shown!)) found.add(item);
+      }
+      if (found.size) found.forEach(item => lineItems.add(item));
+      else whole.push(filtered);
+    }
+    if (modules.length && !whole.length) check.shown++;
     const dimension = table.cell(row, "Filtered dimension").trim();
     (draft.nodes[id].pageFilters ??= []).push({
       app: table.cell(row, "App"), page: table.cell(row, "Page"), card: table.cell(row, "Card #"),
       ...(modules.length ? { modules } : {}), ...(nothing(dimension) ? {} : { dimension }),
+      ...(lineItems.size ? { lineItems: [...lineItems].sort((a, b) => a - b) } : {}),
     });
-    for (const filtered of modules) if (filtered !== own) draft.link(id, filtered, "page_filter");
+    for (const item of lineItems) if (item !== id) draft.link(id, item, "page_filter");
+    for (const filtered of whole) if (filtered !== own) draft.link(id, filtered, "page_filter");
   }
   check.missing = [...missing];
+  check.unmatched = unmatched.size;
   return check;
 }
 
 /** The run's log line for how the Page Filters table met the map's line items (`PageFilterCheck`): how many rows, how
  * many of them have their condition line item on the map, and of those how many filter only that line item's own module,
- * how many another module of the map and how many no module of the map; then the rows that name no line item, and those
- * that name one the map does not have, by module and line item, the first five. */
+ * how many another module of the map and how many no module of the map, and how many say which line items they filter,
+ * with the names among those that the map does not have; then the rows that name no line item, and those that name one
+ * the map does not have, by module and line item, the first five. A table that does not say which line items a filter
+ * filters says so. */
 export function pageFilterCheckLine(check: PageFilterCheck): string {
   const names = (list: readonly string[]): string => (list.length === 0 ? "" : `: ${list.slice(0, NAMES_SAID).join("; ")}${list.length > NAMES_SAID ? `; and ${list.length - NAMES_SAID} more` : ""}`);
   const found = check.found === 0 ? "" : ` (${check.own} on its own module, ${check.other} on another module${check.nowhere ? `, ${check.nowhere} on no module of the map` : ""})`;
-  return `Page filters: ${count(check.rows, "row", "rows")}; ${check.found} with the condition line item on the map${found}; `
+  const shown = !check.said ? "the table does not say which line items they filter; "
+    : check.found === 0 ? "" : `${check.shown} say which line items they filter${check.unmatched ? `, naming ${count(check.unmatched, "line item", "line items")} the map does not have` : ""}; `;
+  return `Page filters: ${count(check.rows, "row", "rows")}; ${check.found} with the condition line item on the map${found}; ${shown}`
     + `${check.unnamed ? `${check.unnamed} with no condition line item; ` : ""}`
     + `${check.notFound} with a line item the map does not have${names(check.missing)}.`;
 }

@@ -16,12 +16,13 @@ const ACCESS: ReadonlySet<EdgeKind> = new Set<EdgeKind>(["read_access", "write_a
 export const isFormula = (kind: EdgeKind): boolean => FORMULA.has(kind);
 /** Whether a link says who may read or write, and not what a formula reads. */
 export const isAccess = (kind: EdgeKind): boolean => ACCESS.has(kind);
-/** Whether a link is a page's filter, from its condition line item to the module it filters (graph-types.ts
- * `page_filter`): no formula reads it, and the map draws it only where asked to, as it does the links of access. */
+/** Whether a link is a page's filter, from its condition line item to a line item it filters, or to the module it
+ * filters where which line items is not known (graph-types.ts `page_filter`): no formula reads it, and the map draws it
+ * only where asked to, as it does the links of access. */
 export const isFilter = (kind: EdgeKind): boolean => kind === "page_filter";
 
-/** A line item that filters cards of a module on the pages built on the model, with those filters (graph-types.ts
- * `PageFilter`), in the Page Filters table's order. */
+/** A line item that filters cards of a module on the pages built on the model, or a line item they show, with those
+ * filters (graph-types.ts `PageFilter`), in the Page Filters table's order. */
 export interface ModuleFilter { item: GraphNode; uses: readonly PageFilter[] }
 
 /** An action that loads into a module, works on it or takes it, and which of the three. */
@@ -54,13 +55,21 @@ export interface MapModel {
   /** The line items whose page filters filter a module, each with those of its filters, in the order of the line items:
    * its own line items among them, which have no link to it. */
   filtersOf(module: number): readonly ModuleFilter[];
-  /** How many of a module's own line items filter it on the pages: a filter that no link can show, for its line item and
-   * the module it filters are one module. The map marks the module with it where it draws the pages' filters. */
+  /** The line items whose page filters filter a line item, as the grid they narrow shows it, each with those of its
+   * filters, in the order of the line items. A line item that filters itself is not among its own. */
+  filtersOfItem(lineItem: number): readonly ModuleFilter[];
+  /** How many of a module's own line items filter it on the pages: a filter that no link between modules can show, for
+   * its line item and the module it filters are one module. The map marks the module with it where it draws the pages'
+   * filters. */
   ownFiltersOf(module: number): number;
-  /** Whether a line item filters its own module on the pages. */
-  filtersOwnModule(lineItem: number): boolean;
+  /** Whether a line item filters itself on the pages, which no link shows: a grid of its own module that it filters
+   * shows it too, or does not say which line items it shows. The map marks the line item for it among its module's. */
+  filtersItself(lineItem: number): boolean;
   /** How many modules their own line items filter on the pages. */
   readonly ownFiltered: number;
+  /** How many of the pages' filters' links join line items, or a line item and a module, of two modules: those the map
+   * draws between modules. */
+  readonly filtersBetween: number;
   unresolvedOf(id: number): readonly Unresolved[];
   /** How the modules are filed into the sections, where the map chose a grouping (`withGrouping`); none where the
    * sections are the heading rows the graph gives. */
@@ -151,15 +160,35 @@ export function indexModel(graph: ModelGraph): MapModel {
     }
   }
 
-  // Each module's filters by its own line items, which no link shows: how many of its line items, and which.
+  // Each module's filters by its own line items, which no link between modules shows: how many of its line items.
   const ownFilters = new Map<number, number>();
-  const filtersOwn = new Set<number>();
   for (const [module, listed] of filters) {
-    const own = listed.filter(({ item }) => item.module === module);
-    if (!own.length) continue;
-    ownFilters.set(module, own.length);
-    for (const { item } of own) filtersOwn.add(item.id);
+    const own = listed.filter(({ item }) => item.module === module).length;
+    if (own) ownFilters.set(module, own);
   }
+
+  // Each line item's filters by the line items they filter, and the line items that filter themselves: those that a grid
+  // of their own module shows as well, and those that filter their own module where it is not known which line items.
+  const itemFilters = new Map<number, ModuleFilter[]>();
+  const itself = new Set<number>();
+  for (const item of lineItems) {
+    const byItem = new Map<number, PageFilter[]>();
+    for (const use of item.pageFilters ?? []) {
+      const shown = use.lineItems ?? [];
+      const known = new Set(shown.map(id => byId.get(id)?.module));
+      if (shown.includes(item.id) || (use.modules?.includes(item.module!) && !known.has(item.module))) itself.add(item.id);
+      for (const id of shown) {
+        if (id === item.id || byId.get(id)?.kind !== "lineItem") continue;
+        const uses = byItem.get(id);
+        if (uses) uses.push(use); else byItem.set(id, [use]);
+      }
+    }
+    for (const [id, uses] of byItem) {
+      const listed = itemFilters.get(id);
+      if (listed) listed.push({ item, uses }); else itemFilters.set(id, [{ item, uses }]);
+    }
+  }
+  const filtersBetween = filterEdges.filter(([from, to]) => moduleOf(byId.get(from)) !== moduleOf(byId.get(to))).length;
 
   const unresolved = new Map<number, Unresolved[]>();
   for (const entry of graph.unresolved) {
@@ -176,9 +205,11 @@ export function indexModel(graph: ModelGraph): MapModel {
     outgoing: id => outOf.get(id) ?? NONE,
     actionsOf: module => actions.get(module) ?? NONE,
     filtersOf: module => filters.get(module) ?? NONE,
+    filtersOfItem: lineItem => itemFilters.get(lineItem) ?? NONE,
     ownFiltersOf: module => ownFilters.get(module) ?? 0,
-    filtersOwnModule: lineItem => filtersOwn.has(lineItem),
+    filtersItself: lineItem => itself.has(lineItem),
     ownFiltered: ownFilters.size,
+    filtersBetween,
     unresolvedOf: id => unresolved.get(id) ?? NONE,
   };
 }
