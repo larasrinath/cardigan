@@ -6,10 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 A row's buttons stand in one row under its name.
 
-- **One row under the name.** The buttons that open a row elsewhere, **Model map**, **Model**, **App**, **Page** and the others a table has, stood one under another at the top right of the row's details. They now stand side by side on a line of their own under the row's name and the line under it, across the details' width, in the same order, each with its icon and its words. (#PR)
-- **The close button stays alone at the top right.** It comes before the buttons for the keyboard as it does on screen. (#PR)
-- **They fit.** The buttons are drawn a little smaller than the page's other buttons, so the most a row has, a page filter's five (**Condition module**, **Filtered module**, **Filtered list**, **App** and **Page**), fit on one row in the details' usual width. Only a narrower window wraps them onto a second row. (#PR)
-- **What stays the same.** What each button opens, its title and its icon; the line that says why a button is missing, still under the header; and everything below it. (#PR)
+- **One row under the name.** The buttons that open a row elsewhere, **Model map**, **Model**, **App**, **Page** and the others a table has, stood one under another at the top right of the row's details. They now stand side by side on a line of their own under the row's name and the line under it, across the details' width, in the same order, each with its icon and its words. (#55)
+- **The close button stays alone at the top right.** It comes before the buttons for the keyboard as it does on screen. (#55)
+- **They fit.** The buttons are drawn a little smaller than the page's other buttons, so the most a row has, a page filter's five (**Condition module**, **Filtered module**, **Filtered list**, **App** and **Page**), fit on one row in the details' usual width. Only a narrower window wraps them onto a second row. (#55)
+- **What stays the same.** What each button opens, its title and its icon; the line that says why a button is missing, still under the header; and everything below it. (#55)
 
 ## 0.18.2 (10 October 2026)
 
