@@ -21,6 +21,7 @@ import { ABOUT_SHOWN } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
+import { WORD_POOLS } from "./spinner-words.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -318,10 +319,10 @@ beforeEach(() => {
     location.hash = hash;
   } });
   vi.stubGlobal("window", {
-    // What the page asks of the window's media is whether the system's theme is dark. Each query is noted: a test can say
-    // that the page asks nothing else, such as how wide the window is.
+    // Theme and motion preferences are separate. Each query is noted, including any question about window width.
     matchMedia: (query: string) => {
       mediaAsked.push(query);
+      if (query === "(prefers-reduced-motion: reduce)") return { matches: false, addEventListener: () => undefined };
       return { get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } };
     },
     scrollTo: () => undefined, addEventListener: vi.fn(), innerWidth: 1280, innerHeight: 800,
@@ -545,6 +546,62 @@ describe("The results page's script, on the page", () => {
     expect(page.id("runLog").hasAttribute("open")).toBe(false);
   });
 
+  it("rotates only the silent phrase, switches pools immediately, and preserves the real live status", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    ports[0].send({ type: "status", text: "Reading Line Items…" });
+    const word = page.find(".run-word");
+    const first = word.textContent;
+    expect(WORD_POOLS.modules).toContain(first);
+    expect(word.getAttribute("aria-hidden")).toBe("true");
+    vi.advanceTimersByTime(2999);
+    expect(word.textContent).toBe(first);
+    vi.advanceTimersByTime(1);
+    const second = word.textContent;
+    expect(second).not.toBe(first);
+    vi.advanceTimersByTime(3000);
+    expect([first, second]).not.toContain(word.textContent);
+    expect(page.id("runStatus").textContent).toBe("Reading Line Items…");
+    expect(page.id("live").textContent).toBe("");
+    ports[0].send({ type: "status", text: "Reading page 2 of 40: Demand board" });
+    expect(WORD_POOLS.pages).toContain(word.textContent);
+    expect(page.id("runStatus").textContent).toBe("Reading page 2 of 40: Demand board");
+  });
+
+  it("uses the browser's reduced motion preference and follows a change to it", async () => {
+    const media = { matches: true, addEventListener: vi.fn() };
+    const matchMedia = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation(query => query.includes("reduced-motion") ? media as unknown as MediaQueryList : matchMedia(query));
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    ports[0].send({ type: "status", text: "Reading Modules…" });
+    const word = page.find(".run-word");
+    const first = word.textContent;
+    vi.advanceTimersByTime(9000);
+    expect(word.textContent).toBe(first);
+    ports[0].send({ type: "status", text: "Reading Line Items…" });
+    const next = word.textContent;
+    expect(next).not.toBe(first);
+    media.matches = false;
+    media.addEventListener.mock.calls[0][1]();
+    vi.advanceTimersByTime(3000);
+    expect(word.textContent).not.toBe(next);
+  });
+
+  it.each(["Classic", "Polaris"])("hears the %s engine line during the run and never draws a map for an app", async engine => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    ports[0].send({ type: "status", text: "Building the report…" });
+    const word = page.find(".run-word");
+    expect(word.textContent).toBe("Connecting the plans…");
+    vi.advanceTimersByTime(9000);
+    expect(word.textContent).toBe("Connecting the plans…");
+    ports[0].send({ type: "log", text: `14:02:05 Engine: ${engine} (from the Line Items columns)` });
+    vi.advanceTimersByTime(3000);
+    expect(word.textContent).toBe(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
+  });
+
   it("keeps progress in the card until a result arrives, then keeps the header run control through another run and failure", async () => {
     await open("?tab=42");
     expect(page.id("runIcon").hidden).toBe(true);
@@ -575,10 +632,14 @@ describe("The results page's script, on the page", () => {
     await open("?tab=42");
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
     const timer = page.find(".run-elapsed");
+    const word = page.find(".run-word");
+    expect(word.textContent).toBe("");
+    expect(page.id("runCard").classList.contains("reading")).toBe(false);
     vi.advanceTimersByTime(500);
     expect(timer.textContent).toBe("");
     page.id("runRetry").press();
     expect(timer.textContent).toBe("0.0s");
+    expect(word.textContent).not.toBe("");
     vi.advanceTimersByTime(100);
     expect(timer.textContent).toBe("0.1s");
     const grid = page.find("#runCard .pixel-grid");
@@ -595,8 +656,12 @@ describe("The results page's script, on the page", () => {
     else if (ending === "failed") ports[0].send({ type: "error", message: "The connection stopped." });
     else ports[0].drop();
     expect(clear).toHaveBeenCalled();
+    expect(word.textContent).toBe("");
     vi.advanceTimersByTime(1000);
     expect(timer.textContent).toBe("1.2s");
+    expect(word.textContent).toBe("");
+    if (ending === "done") expect(page.has(".run-word")).toBe(false);
+    else expect(page.id("runCard").classList.contains("reading")).toBe(false);
     expect(page.id("runAgain").classList.contains("reading")).toBe(false);
     expect(page.id("live").getAttribute("role")).toBe("status");
     if (ending !== "failed") return;
@@ -4271,7 +4336,7 @@ describe("The navigation bar of the results page", () => {
     // Nothing slides in over the page, at any width: the page asks the window nothing of its width, nothing is put out of
     // reach, and there is no scrim.
     goTo(1);
-    expect([[...new Set(mediaAsked)], page.all("[inert]"), page.has("#scrim")]).toEqual([["(prefers-color-scheme: dark)"], [], false]);
+    expect([[...new Set(mediaAsked)].sort(), page.all("[inert]"), page.has("#scrim")]).toEqual([["(prefers-color-scheme: dark)", "(prefers-reduced-motion: reduce)"], [], false]);
   });
 
   it("marks the entry of the view shown and the button of the group that holds it; the line's buttons are in the Tab key's reach, a menu's entries once it is open, and the view takes the focus on a choice", async () => {

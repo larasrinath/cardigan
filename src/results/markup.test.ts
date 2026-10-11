@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ALL_WORDS } from "./spinner-words.js";
 import { DETAILS_HEADERS } from "../details.js";
 import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
@@ -630,7 +631,7 @@ describe("The results page's escaping", () => {
     const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
     const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
     expect(ids(runHtml())).toEqual(["runCard", "runIcon", "runTitle", "runStatus", "runHint", "runRefresh", "runRetry", "runCopy", "runLog", "diagLog"]);
-    expect(words(runHtml())).toEqual(["Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Show diagnostics", "Hide diagnostics"]);
+    expect(words(runHtml())).toEqual([...ALL_WORDS, "Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Show diagnostics", "Hide diagnostics"]);
     expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerRefresh", "bannerCopy"]);
     expect(words(runBannerHtml())).toEqual(["The results below are from the earlier run.", "Refresh the Anaplan tab and run", "Copy diagnostic log"]);
     // The note above a result is the same: a place for one line, and the button, which waits hidden for a reason to copy.
@@ -974,6 +975,9 @@ describe("A result whose every text is hostile, through every view of the page",
     expect([status.getAttribute("role"), status.getAttribute("aria-live")]).toEqual(["status", "polite"]);
     expect(run.querySelector(".pixel-grid")?.getAttribute("aria-hidden")).toBe("true");
     expect(run.querySelector(".run-elapsed")?.getAttribute("aria-hidden")).toBe("true");
+    expect(run.querySelector(".run-word")?.getAttribute("aria-hidden")).toBe("true");
+    expect(run.querySelector(".run-words")?.getAttribute("aria-hidden")).toBe("true");
+    expect(status.parentElement?.children.map(child => child.id || child.getAttribute("class"))).toEqual(["run-word-row", "runStatus"]);
     expect(status.children).toHaveLength(0);
   });
 
