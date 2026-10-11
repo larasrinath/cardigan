@@ -169,6 +169,49 @@ export async function reloadTab(tabs: Pick<typeof chrome.tabs, "reload" | "get">
   }
 }
 
+/** How long the page waits for a tab to say what it shows (`askShown`): its content script says it as soon as a port opens,
+ * and a tab without one has the port closed at once. */
+export const SHOWN_WAIT_MS = 1000;
+
+/** What a tab shows now, as its content script says it the moment a port to it opens (protocol.ts "subject"), on a port
+ * opened for that alone: it asks for nothing, and is let go as soon as the tab has said it. What a tab said when the page
+ * first connected may be out of date: the tab may have moved on since. `closeReason` reads why Chrome closed the port,
+ * which it says only while the port's disconnect event runs. Nothing where the tab cannot be reached, where the port closes
+ * first, as to a tab without the content script, or where the tab says nothing within `waitMs`. */
+export function askShown(connect: () => TabPort, closeReason?: () => unknown, waitMs = SHOWN_WAIT_MS): Promise<Subject | undefined> {
+  return new Promise(resolve => {
+    let over = false;
+    let port: TabPort | undefined;
+    const answered = (subject: Subject | undefined) => {
+      if (over) return;
+      over = true;
+      clearTimeout(timer);
+      try { port?.disconnect(); } catch { /* it had closed already */ }
+      resolve(subject);
+    };
+    const timer = setTimeout(() => answered(undefined), waitMs);
+    try {
+      port = connect();
+      // Only a subject the page can read is taken: an app or a model with its ID, and with its site where it says both
+      // parts of it; or neither.
+      port.onMessage.addListener(received => {
+        const message = received as { type?: unknown; subject?: { kind?: unknown; id?: unknown; origin?: unknown; customer?: unknown } | null } | null;
+        const subject = message?.type === "subject" ? message.subject : undefined;
+        if (subject?.kind === "none") answered({ kind: "none" });
+        else if ((subject?.kind === "app" || subject?.kind === "model") && text(subject.id)) {
+          answered({ kind: subject.kind, id: subject.id, ...(text(subject.origin) && text(subject.customer) ? { origin: subject.origin, customer: subject.customer } : {}) });
+        }
+      });
+      port.onDisconnect.addListener(() => {
+        closeReason?.();
+        answered(undefined);
+      });
+    } catch {
+      answered(undefined);
+    }
+  });
+}
+
 /** A "result" message's result, as far as putting it together needs: its tables with headers and rows, and its summary. */
 function isResult(value: unknown): value is AnalysisResult {
   if (!value || typeof value !== "object") return false;

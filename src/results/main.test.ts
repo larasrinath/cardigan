@@ -8,7 +8,7 @@ import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.
 import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
-import { OPEN_WAIT_MS } from "./connection.js";
+import { OPEN_WAIT_MS, SHOWN_WAIT_MS } from "./connection.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
@@ -5399,6 +5399,107 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     goTo(2);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.id("drawer").classList.contains("show"), opens(), page.id("drawerOpens").hidden, why()]).toEqual([true, [], true, undefined]);
+  });
+
+  describe("The names under About this export that open what they name in Anaplan", () => {
+    const TWINS = ["44444444-5555-4666-8777-888888888888", "55555555-6666-4777-8888-999999999999"];
+    /** WITH_PAGES as a run writes it now, with the model's apps under Apps (model-pages.ts): one whose pages the tables
+     * list, one they do not, and two apps of one name. */
+    const WITH_APPS: AnalysisResult = { ...WITH_PAGES, tables: WITH_PAGES.tables.map(table => {
+      if (table.details) return { ...table, rows: [...table.rows, ["Model", "Apps", `Planning ${TAG}\nNo rows app\nTwin app`]] };
+      if (table.file !== MODULE_USAGE_FILE) return table;
+      return { ...table, rows: [...table.rows, ...TWINS.map(id => pageRow(MODULE_USAGE_HEADERS, { Module: "COST01 Costs", App: "Twin app", Page: "Twin page", "Page type": "Board", "App ID": id, "Page ID": BOARD }))] };
+    }) };
+    /** The model's own address in Model Building, as Model Building's own links to a model write it. */
+    const HOME = `${ORIGIN}/a/modeling/customers/${CUSTOMER}/workspaces/${WORKSPACE}/models/${OPENS.id}`;
+    const IN_MODEL_BUILDING = { kind: "model", id: OPENS.id, origin: ORIGIN, customer: CUSTOMER };
+    const links = () => page.all('#ovAbout [data-act="ov-open"]');
+    /** Clicks the link of this name, then has the tab answer the port the page opens to ask it what it shows, if it opens
+     * one: with what `shows` says, by closing it at once as a tab without the content script does ("gone"), or not at all
+     * ("silent"). Then lets what the click started come to its end. */
+    const follow = async (name: string, shows: object | "gone" | "silent" = IN_MODEL_BUILDING) => {
+      const before = ports.length;
+      links().find(link => link.textContent === name)!.press();
+      for (let turn = 0; turn < 50 && ports.length === before; turn++) await Promise.resolve();
+      for (const port of ports.slice(before)) {
+        if (shows === "gone") port.drop();
+        else if (shows !== "silent") port.send({ type: "subject", subject: shows as Extract<TabMessage, { type: "subject" }>["subject"] });
+      }
+      for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+    };
+
+    it("opens the model from its name in the model's tab: only brought to the front where that tab shows it in Model Building already, and otherwise at Model Building's own address for it", async () => {
+      await openModel(WITH_APPS);
+      // The model's name and the one app that one ID alone goes with are links, which say what they open.
+      expect(links().map(link => [link.textContent, link.title, link.getAttribute("aria-label")])).toEqual([["Model one", "Open Model one in Model Building", "Open Model one in Model Building"],
+        [`Planning ${TAG}`, `Open Planning ${TAG} in Anaplan`, `Open Planning ${TAG} in Anaplan`]]);
+      await follow("Model one");
+      // The tab is asked what it shows now, on a port of the ask's own, which asks for nothing and is let go: it shows the
+      // model in Model Building, so it is only brought to the front, with its window, and nothing is loaded.
+      expect([connects.at(-1), ports.at(-1)!.posted]).toEqual([[7, { name: PORT_NAME }], []]);
+      expect([tabUpdates, windowUpdates, tabCreates]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], []]);
+      // Anything else: the model's address is loaded in that tab, whatever it shows, and the log says why.
+      for (const shows of [{ ...IN_MODEL_BUILDING, id: "FEDCBA9876543210FEDCBA9876543210" }, { kind: "model", id: OPENS.id.toLowerCase() }, { kind: "app", id: APP }, { kind: "none" }, "gone"]) {
+        await follow("Model one", shows);
+      }
+      links()[0].press();
+      await vi.advanceTimersByTimeAsync(SHOWN_WAIT_MS);
+      for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+      expect(tabUpdates.slice(1)).toEqual(Array(6).fill([7, { url: HOME, active: true }]));
+      const loaded = (why: string) => `Opened the model Model one by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: ${why}.`;
+      expect(await openedLines()).toEqual(["Opened the model Model one in the Anaplan tab Cardigan read, which shows it in Model Building already: the tab is only brought to the front.",
+        loaded("the tab shows another model"), loaded("the tab shows the model outside Model Building"), loaded("the tab shows an app"), loaded("the tab shows no model"),
+        loaded("the tab did not say what it shows"), loaded("the tab did not say what it shows")]);
+      // Nothing is asked to open inside the page, and no tab of apps is used.
+      expect([asks(), tabCreates]).toEqual([[], []]);
+    });
+
+    it("asks the tab that took the closed Anaplan tab's place what it shows, and opens the model there", async () => {
+      await openModel(WITH_APPS);
+      tabClosed = true;
+      await follow("Model one", "gone");
+      expect([tabUpdates, tabCreates]).toEqual([[[7, { url: HOME, active: true }]], [[{ url: HOME, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]]);
+      await follow("Model one");
+      expect([connects.at(-1), tabUpdates.at(-1), tabCreates.length]).toEqual([[101, { name: PORT_NAME }], [101, { active: true }], 1]);
+      await follow("Model one", { kind: "app", id: APP });
+      expect([tabUpdates.at(-1), tabCreates.length]).toEqual([[101, { url: HOME, active: true }], 1]);
+    });
+
+    it("opens an app from its name in the tab of apps and pages, every time the same one, never the model's; an app of no row, or of a name two apps share, stays plain", async () => {
+      await openModel(WITH_APPS);
+      const apps = page.all("#ovAbout dd").find(value => value.textContent.includes("Twin app"))!;
+      // The value keeps its lines, one app to a line, with the one link among them.
+      expect([apps.textContent, apps.querySelectorAll('[data-act="ov-open"]').map(link => link.textContent)]).toEqual([`Planning ${TAG}\nNo rows app\nTwin app`, [`Planning ${TAG}`]]);
+      const app = `${ORIGIN}/a/apps/app/${APP}`;
+      await follow(`Planning ${TAG}`);
+      expect([tabCreates, tabUpdates, windowUpdates, ports.length]).toEqual([[[{ url: app, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]], [], [[3, { focused: true }]], 1]);
+      await follow(`Planning ${TAG}`);
+      expect([tabCreates.length, tabUpdates]).toEqual([1, [[101, { url: app, active: true }]]]);
+      // The model goes to the model's tab, which the tab of apps and pages leaves alone.
+      await follow("Model one", { kind: "app", id: APP });
+      expect(tabUpdates.map(([tab]) => tab)).toEqual([101, 7]);
+      expect((await openedLines()).slice(0, 2)).toEqual([`Opened the app Planning ${TAG} in a new tab: later apps and pages open there.`, `Opened the app Planning ${TAG} in the tab of apps and pages.`]);
+    });
+
+    it("leaves every name plain where the page does not know where the model is: neither the tab nor the result says its site", async () => {
+      await openModel(WITH_APPS, { kind: "model", id: OPENS.id });
+      expect([links(), page.all("#ovAbout dd").some(value => value.textContent === "Model one")]).toEqual([[], true]);
+    });
+
+    it("leaves the apps plain for a result an earlier version read, whose tables have no app's ID: the model's name alone opens", async () => {
+      const earlier: AnalysisResult = { ...WITH_APPS, tables: WITH_APPS.tables.map(table => {
+        const at = table.headers.indexOf("App ID");
+        return at < 0 ? table : { ...table, headers: table.headers.filter((_, index) => index !== at), rows: table.rows.map(row => row.filter((_, index) => index !== at)) };
+      }) };
+      await openModel(earlier);
+      expect(links().map(link => link.textContent)).toEqual(["Model one"]);
+    });
+
+    it("has none for an app's result", async () => {
+      await openWith(RESULT);
+      await letKeep();
+      expect([page.has("#ovAbout"), links()]).toEqual([true, []]);
+    });
   });
 });
 

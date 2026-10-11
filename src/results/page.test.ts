@@ -212,10 +212,19 @@ describe("The results page's files", () => {
       [0, ["2 of 2 (published versions)", "1 unpublished, not analysed"]], [0, ["Model one (Workspace one)", "Model two (Workspace two)"]], [0, ["6"]]]);
     // The stylesheet shows those lines as the value has them, by one rule, which names what the markup writes: the values
     // of that list, and of no other list of details. No rule keeps the lines of a value under Tables or of how to read
-    // the tables, which are shown as they always were.
-    expect(rules("#ovAbout")).toEqual([["#ovAbout .dl dd", "white-space:pre-line"]]);
+    // the tables, which are shown as they always were. The list's other rules are for its links (below).
+    expect(rules("#ovAbout")).toEqual([["#ovAbout .dl dd", "white-space:pre-line"], ["#ovAbout .ov-lines", "min-width:0"],
+      ["#ovAbout .ov-open", "display:inline-flex;align-items:center;gap:5px"], ["#ovAbout .ov-open svg", "flex:none;width:12px;height:12px"]]);
     expect([written.querySelectorAll(".dl dd").length, values.length]).toEqual([6, 4]);
     expect(rules(".dl dd").filter(([, body]) => body.includes("white-space"))).toEqual([["#ovAbout .dl dd", "white-space:pre-line"]]);
+    // A value with a link among its lines, as a model's apps are, keeps them in one element of their own, its text still
+    // the value's, line for line: the row lays out its value's parts side by side, and the lines are one part. A value
+    // that is one link is the link alone. The rules for the links name what the markup writes.
+    const linked = parseMarkup(overviewHtml({ tiles: [], notes: [], about: [["Model", "Model one"], ["Apps", "App one\nApp two\nApp three"]], files: [], howToRead: [], log: [] },
+      "none", [], [], [{ row: 0, line: 0, kind: "model" }, { row: 1, line: 1, kind: "app" }]));
+    expect(linked.querySelectorAll("#ovAbout .dl dd").map(value => [value.children.map(child => child.getAttribute("class")), value.textContent.split("\n")]))
+      .toEqual([[["link ov-open"], ["Model one"]], [["ov-lines"], ["App one", "App two", "App three"]]]);
+    expect(["#ovAbout .ov-lines", "#ovAbout .ov-open", "#ovAbout .ov-open svg"].map(selector => linked.querySelectorAll(selector).length)).toEqual([1, 2, 2]);
   });
 
   it("holds the navigation in a bar of its own under the header, the two the top of the page, hidden until there is a result, with nothing that puts it away", () => {

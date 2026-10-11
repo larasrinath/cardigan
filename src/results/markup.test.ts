@@ -10,7 +10,7 @@ import {
   MOON_ICON, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, OPEN_ICONS, opensHtml, overviewHtml, pagerHtml,
   rangeFilterHtml, rowCellHtml, rowDrawerHtml,
   rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
-  type KeptCopy, type Links, type TableView,
+  type AboutLink, type KeptCopy, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
@@ -272,6 +272,27 @@ describe("The results page's escaping", () => {
     expectInert(text => overviewHtml(overviewWith({ files: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
     expectInert(text => overviewHtml(overviewWith({ howToRead: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
     expectInert(text => overviewHtml(overviewWith({ log: each((texts, index) => texts(index))(text) })), 7);
+  });
+
+  it("lets no text change a name under About this export that opens what it names: the name is the link's text, and said in its title and its label", () => {
+    // The model's name, and the first and the last of three apps, the one between them plain.
+    const links: AboutLink[] = [{ row: 0, line: 0, kind: "model" }, { row: 1, line: 0, kind: "app" }, { row: 1, line: 2, kind: "app" }];
+    expectInert(text => overviewHtml(overviewWith({ about: [[text(0), text(1)], [text(2), `${text(3)}\n${text(4)}\n${text(5)}`]] }), "none", [], [], links), 6);
+    expectInertInTurn(text => overviewHtml(overviewWith({ about: [["Model", text(0)], ["Apps", `${text(1)}\n${text(2)}\n${text(3)}`]] }), "none", [], [], links), 4);
+    const view = parseMarkup(overviewHtml(overviewWith({ about: [["Model", QUOTED], ["Apps", `${IMG}\nPlain app\n${SCRIPT}`]] }), "none", [], [], links));
+    // Each is a button of the page's links, named by its place among them, with a drawn icon after the name; its title and
+    // its label say what it opens, by the name as it was typed.
+    expect(view.querySelectorAll('[data-act="ov-open"]').map(link => [link.localName, link.getAttribute("type"), link.getAttribute("class"), link.dataset.ovOpen, link.textContent,
+      link.title, link.getAttribute("aria-label"), link.querySelectorAll("svg").map(svg => svg.getAttribute("aria-hidden"))])).toEqual([
+      ["button", "button", "link ov-open", "0", QUOTED, `Open ${QUOTED} in Model Building`, `Open ${QUOTED} in Model Building`, ["true"]],
+      ["button", "button", "link ov-open", "1", IMG, `Open ${IMG} in Anaplan`, `Open ${IMG} in Anaplan`, ["true"]],
+      ["button", "button", "link ov-open", "2", SCRIPT, `Open ${SCRIPT} in Anaplan`, `Open ${SCRIPT} in Anaplan`, ["true"]]]);
+    // The icons are those of the details' buttons that open the same kinds of thing: the model's box and an app's window.
+    expect(view.querySelectorAll('[data-act="ov-open"] svg').map(svg => svg.outerHTML)).toEqual([OPEN_ICONS.module, OPEN_ICONS.app, OPEN_ICONS.app].map(icon => parseMarkup(icon).innerHTML));
+    // The value keeps its lines as they were read, the plain one among them.
+    expect(view.querySelectorAll("#ovAbout dd").map(value => value.textContent)).toEqual([QUOTED, `${IMG}\nPlain app\n${SCRIPT}`]);
+    // Without links, as for an app's result, every value is as it ever was.
+    expect(overviewHtml(overviewWith({ about: [["Model", QUOTED]] }), "none", [], [], [])).toBe(overviewHtml(overviewWith({ about: [["Model", QUOTED]] })));
   });
 
   it("puts nothing of a result into what the overview says about the copy kept for a refresh: its words are the page's own", () => {
@@ -741,6 +762,8 @@ describe("A result whose every text is hostile, through every view of the page",
       overviewHtml(overviewOf(result)),
       overviewHtml(overviewOf(result), "kept"),
       overviewHtml(overviewOf(result), "forgotten"),
+      // With its first and its last name under About this export opening what they name, as a model's own and an app's do.
+      overviewHtml(overviewOf(result), "none", [], [], [{ row: 0, line: 0, kind: "model" }, { row: overviewOf(result).about.length - 1, line: 0, kind: "app" }]),
       // The run's own view and its banner hold no text of a result, but they are the page's markup too. So is the view
       // of a model's map, shown and not drawn: the map itself is not the page's markup.
       runHtml(),
@@ -790,7 +813,7 @@ describe("A result whose every text is hostile, through every view of the page",
     const html = everyView().join("\n");
     const elements = new Set(["button", "circle", "col", "colgroup", "dd", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
       "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
-    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact|way|use|room)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
+    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact|way|use|room|ov-open)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
     expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
     // The table, the drawer and the popovers are all there: this is the whole page, not a corner of it.
@@ -809,8 +832,9 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "style") styles.add(value.replace(/^--swatch:#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})$/, "--swatch:#hex").replace(/^--width:\d+ch$/, "--width:Nch"));
           if (name === "style" && tag.name === "col") widths.push(value);
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
-          if (/^data-(sort|colfilter|col|fval|page|use)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
-          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log", "refresh-run", "use-page", "use-card", "more-uses", "forget"]).toContain(value);
+          if (/^data-(sort|colfilter|col|fval|page|use|ov-open)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
+          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log", "refresh-run", "use-page", "use-card", "more-uses", "forget",
+            "ov-open"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|map|\d+)$/);
           if (name === "aria-controls") expect(value).toMatch(/^[A-Za-z]+$/);
           if (name === "data-way") expect(value).toMatch(/^(object|use)$/);

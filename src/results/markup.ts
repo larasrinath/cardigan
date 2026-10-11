@@ -341,6 +341,30 @@ export function navMenuHtml(items: readonly NavItem[], current: string, here: st
  * value's lines (results.css `#ovAbout`) a space or a line break around the value would show as well. */
 const detailRows = (rows: readonly (readonly [detail: string, value: string])[]): string => rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("");
 
+/** A name under About this export that opens what it names in Anaplan: the line `line` of the value of the row `row`, by
+ * their places, counted from 0. A model's own name opens the model in Model Building, and an app's name the app. */
+export interface AboutLink { row: number; line: number; kind: "model" | "app" }
+
+/** The rows of About this export, as `detailRows` writes them, but for each line of a value that `links` names: that line
+ * is a link, the page's own, with a title and a label that say what it opens, and after the name the icon of the button
+ * in a row's details that opens the same kind of thing (`OPEN_ICONS`): the model as a box, an app as a window. A link is
+ * named by its place among `links`, a number the page counts itself: what it opens is the page's, never the markup's. A
+ * value of several lines with a link among them stands in one element of its own, with nothing around its lines, so that
+ * the stylesheet shows them one under another, as it shows any value's lines. */
+function aboutRows(rows: readonly (readonly [detail: string, value: string])[], links: readonly AboutLink[]): string {
+  return rows.map(([detail, value], row) => {
+    if (!links.some(link => link.row === row)) return `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`;
+    const lines = value.split("\n").map((text, line) => {
+      const at = links.findIndex(link => link.row === row && link.line === line);
+      if (at < 0) return esc(text);
+      const model = links[at].kind === "model";
+      const says = `Open ${text.trim()} in ${model ? "Model Building" : "Anaplan"}`;
+      return `<button type="button" class="link ov-open" data-act="ov-open" data-ov-open="${at}" title="${esc(says)}" aria-label="${esc(says)}">${esc(text)}${OPEN_ICONS[model ? "module" : "app"]}</button>`;
+    });
+    return `<dt>${esc(detail)}</dt><dd>${lines.length > 1 ? `<span class="ov-lines">${lines.join("\n")}</span>` : lines[0]}</dd>`;
+  }).join("");
+}
+
 /** What the page keeps of the result on it for a refresh of the page (keep-result.ts), as the overview says it: "keeping"
  * while the result is being kept and there is no copy yet, "kept" while a copy is kept for the tab, "forgotten" once the
  * user has had that copy removed, "not-removed" when the user asked for that and the copy could not be removed, and
@@ -382,11 +406,12 @@ export function keptCopyHtml(copy: KeptCopy): string {
  * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
 /** `views`: for each tile, the place in the result of the table it counts. A tile with one opens that table, as the table's
- * entry of the navigation does; one without stays a tile to read. */
-export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views: readonly number[] = [], tileFiles: readonly string[] = []): string {
+ * entry of the navigation does; one without stays a tile to read. `links`: the names under About this export that open
+ * what they name in Anaplan (`aboutRows`). */
+export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views: readonly number[] = [], tileFiles: readonly string[] = [], links: readonly AboutLink[] = []): string {
   const about = overview.about.length ? `
     <div class="d-sec" id="ovAbout"><h2>About this export</h2>
-      <dl class="dl">${detailRows(overview.about)}</dl></div>` : "";
+      <dl class="dl">${aboutRows(overview.about, links)}</dl></div>` : "";
   const files = overview.files.length ? `
     <div class="d-sec" id="ovFiles"><h2>Tables</h2>
       <dl class="dl">${detailRows(overview.files)}</dl></div>` : "";

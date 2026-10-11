@@ -442,6 +442,12 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
    and its models do, and one on each line where it says two, as the pages analysed do when pages were left unpublished.
    The list shows those lines as the value has them. Spaces are as in any other text, and a long line still wraps. */
 #ovAbout .dl dd{white-space:pre-line}
+/* A model's name, and an app's, opens it in Anaplan: the page's link, with the icon of the details' button that opens the
+   same kind of thing after the name. The lines of a value with a link among them stand in one element, one under another
+   as any value's lines do, rather than side by side as the value's parts would in the row. */
+#ovAbout .ov-lines{min-width:0}
+#ovAbout .ov-open{display:inline-flex;align-items:center;gap:5px}
+#ovAbout .ov-open svg{flex:none;width:12px;height:12px}
 .diag{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md)}
 .diag summary{
   cursor:pointer;padding:12px 16px;font-weight:600;font-size:13px;list-style:none;display:flex;align-items:center;gap:8px;
