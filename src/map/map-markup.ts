@@ -144,8 +144,8 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  * - Where the map is: the model name goes to the top; Group by, Group and Module open their lists.
  * - Its tools: which links are drawn, the search, and full screen.
  *
- * Two round buttons for Legend and About float at the bottom left; counts, zoom and the minimap toggle at the right.
- * Their panels open above them. The minimap starts hidden; its button keeps the tab's choice.
+ * The round controls and then the counts float in one row at the bottom left. Legend and About open above the row;
+ * the minimap sits in the bottom-right corner. It starts hidden; its button keeps the tab's choice.
  * The canvas is a picture to a screen reader, with a name, and the keys' list is its description. The notes can be
  * longer than the map is high: they scroll, and take the focus so that the keyboard scrolls them too. */
 export function shellHtml(ids: ShellIds, modelName: string): string {
@@ -215,18 +215,14 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
   </div>
   <div class="map-free">
     <div class="map-foot">
-    <div class="map-clusters">
-    <div class="map-summary">
+    <div class="map-navigation" role="group" aria-label="Map navigation">
+      <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">${zoomIcon(false)}</button>
+      <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">${zoomIcon(true)}</button>
+      <button type="button" class="map-btn map-icon" data-map-act="fit" aria-label="Fit to screen" title="Fit to screen">${FIT_ICON}</button>
+      <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Show minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
       <button type="button" class="map-btn map-icon" data-map-act="legend" aria-label="Legend" title="Legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">${LEGEND_ICON}</button>
       <button type="button" class="map-btn map-icon" data-map-act="about" aria-label="About this map" title="About this map" aria-expanded="false" aria-controls="${esc(ids.about)}">${ABOUT_ICON}</button>
-    </div>
-      <div class="map-navigation" role="group" aria-label="Map navigation">
-        <div class="map-status"><span class="map-stats-size" aria-hidden="true"></span><span class="map-stats"></span></div>
-          <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">${zoomIcon(false)}</button>
-          <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">${zoomIcon(true)}</button>
-          <button type="button" class="map-btn map-icon" data-map-act="fit" aria-label="Fit to screen" title="Fit to screen">${FIT_ICON}</button>
-        <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Show minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
-      </div>
+      <div class="map-status"><span class="map-stats"></span></div>
     </div>
     <div class="map-over">
     <div class="map-panel map-legend" id="${esc(ids.legend)}" role="group" aria-label="Legend: shows and hides layers" hidden></div>

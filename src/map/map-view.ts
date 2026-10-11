@@ -137,7 +137,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const canvas = part<HTMLCanvasElement>(".map-canvas");
   const miniCanvas = part<HTMLCanvasElement>(".map-minimap");
   const stats = part(".map-stats");
-  const statsSize = part(".map-stats-size");
   const miniWrap = part(".map-minimap-wrap");
   const miniButton = part<HTMLButtonElement>('[data-map-act="minimap"]');
   const notes = part(".map-notes");
@@ -181,7 +180,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const legendButton = part<HTMLButtonElement>('[data-map-act="legend"]');
   const about = part(".map-about");
   const aboutButton = part<HTMLButtonElement>('[data-map-act="about"]');
-  const summary = part(".map-summary");
   const navigation = part(".map-navigation");
   const status = part(".map-status");
   const inspector = part(".map-inspector");
@@ -428,12 +426,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /** The rooms the panels leave the picture, measured where the page is laid out: the part of the canvas under the bar
    * and beside the details (`map-free`), clear of what stands in it: the legend and the notes while they are open, the
-   * line of what is shown, and the small picture. None where the panels leave no room worth the name; nothing where
+   * row of controls and counts, and the small picture. None where the panels leave no room worth the name; nothing where
    * the page is not laid out. */
   function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
     if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
-    const panels = [areaOf(legend), areaOf(about), areaOf(summary), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
@@ -451,7 +449,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openRooms(): Insets[] {
     const freeArea = areaOf(free);
     if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
-    const panels = [areaOf(legend), areaOf(about), areaOf(summary), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
     return found.length ? found : [insetsOf(freeArea, width, height)];
   }
@@ -654,15 +652,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * has come to rest. With part of the graph out of view, one press shows it whole. */
   function renderStatus(): void {
     if (!onScreen) return;
-    statsSize.textContent = statusWords(onScreen, shownCount, Math.max(0, shownCount - 1), false, linksDrawn());
     const at = heading ?? camera;
     countedFor = at;
     // Read again if the panels' measured places settle while the words are rendered.
     let counted: string | undefined;
     for (let pass = 0; pass < 3; pass++) {
       // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
-      // legend, the notes or the small picture.
-      const covered = [areaOf(summary), areaOf(navigation), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+      // controls and counts, the legend, the notes or the small picture.
+      const covered = [areaOf(navigation), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
       const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
       if (places === counted) break;
       counted = places;
@@ -675,11 +672,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
   }
 
-  /** Sets the status before measuring a fit. Its place stays fixed; `renderStatus` supplies the final counts. */
+  /** Sets the status before measuring a fit. The pill hugs these words; `renderStatus` supplies the final counts. */
   function footFor(whole: boolean): void {
     if (!onScreen) return;
-    // Not whole: the longest the line can be, with one box out of view.
-    statsSize.textContent = statusWords(onScreen, shownCount, Math.max(0, shownCount - 1), false, linksDrawn());
     const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), false, linksDrawn());
     if (stats.textContent !== said) stats.textContent = said;
     stats.title = said;
