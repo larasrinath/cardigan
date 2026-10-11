@@ -6,7 +6,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
 import { ABOUT_MODEL, ACCESS_FILE, analysedOf, CALENDAR_GUIDANCE, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, IMPORTS_FILE,
-  listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, THIS_MODEL } from "./result-view.js";
+  listedTables, matchedRemark, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, THIS_MODEL } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
@@ -124,10 +124,13 @@ describe("What the results page reads out of a result", () => {
     const summary = ["Line Items: 120 rows", "Imports: 3 rows (2 matched in the Actions list)", "Exports: not exported (the grid did not load).",
       "Source Models: not exported (This model page has no REMOTE_MODEL axis.).", "Actions: the Actions list came without Notes."];
     const overview = overviewOf(result("model", tables, summary));
-    // The three are under Tables, each once, by the name the page has for the table; the note that is one is the only note.
-    expect([overview.notes, overview.files]).toEqual([["Actions: the Actions list came without Notes."], [["Imports", "3 rows (2 matched in the Actions list)"],
-      ["Exports", "Not exported: the grid did not load"], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
-    expect(resultNotes(result("model", tables, summary))).toEqual(overview.notes);
+    // The two that were not exported are under Tables, each once, by the name the page has for the table. The import of
+    // three that could not be matched in the Actions list is a note after the export's own, which says what that means;
+    // it is not said twice.
+    const unmatched = "Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty.";
+    expect([overview.notes, overview.files]).toEqual([["Actions: the Actions list came without Notes.", unmatched],
+      [["Exports", "Not exported: the grid did not load"], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
+    expect([...resultNotes(result("model", tables, summary)), unmatched]).toEqual(overview.notes);
     // That name is the table's own label where the result has the file, whatever the file is called, and otherwise the
     // file's name without its extension: a file that was not exported has no table to ask. No file's name is shown.
     const named = overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Imports.csv", "3 rows (2 matched)"], ["Files", "Gone.csv", "Not exported: no grid"],
@@ -185,6 +188,27 @@ describe("What the results page reads out of a result", () => {
       files: [["Line Items", "120 rows"], ["Imports", "Not exported: the grid did not load"]], howToRead: [], log: [] });
   });
 
+  it("leaves the export's check of the imports matched in the Actions list to the tile where every one was, and says in a note how many were not", () => {
+    const imports = (rows: number): ResultTable => ({ file: "Imports.csv", label: "Imports", headers: ["", "Source"], rows: Array.from({ length: rows }, (_, index) => [`Import ${index}`, ""]), guard: false });
+    const overview = (value: string, rows = 372) => overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Imports.csv", value]]), imports(rows)]));
+    // Every row matched: the row says no more than the tile's count, so Tables has nothing of it, and there is no note.
+    expect(overview("372 rows (372 matched in the Actions list)")).toMatchObject({ tiles: [{ label: "Imports", count: 372 }], files: [], notes: [] });
+    // Some were not: a note says how many and what it means, with a word for one row and for several. Tables has nothing.
+    expect(overview("372 rows (370 matched in the Actions list)")).toMatchObject({ files: [],
+      notes: ["Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty."] });
+    expect(overview("372 rows (371 matched in the Actions list)").notes).toEqual(
+      ["Imports: 1 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."]);
+    // Another remark, the Actions list not read, or a count that is not the table's own number of rows: under Tables as it is.
+    for (const value of ["372 rows (Imports tab only: the Actions list could not be read)", "371 rows (371 matched in the Actions list)", "372 rows (372 matched)"]) {
+      expect([value, overview(value).files, overview(value).notes]).toEqual([value, [["Imports", value]], []]);
+    }
+    // The note says the table by the name the page has for it; a row with no table of its own is left as it is.
+    expect(matchedRemark("All imports", "3 rows (2 matched in the Actions list)", 3)).toEqual(
+      { note: "All imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty." });
+    expect([matchedRemark("Imports", "3 rows (3 matched in the Actions list)", 3), matchedRemark("Imports", "3 rows (3 matched in the Actions list)", undefined)])
+      .toEqual([{ counted: true }, undefined]);
+  });
+
   it("holds on the overview every row of the Details file: none is dropped, and a file's row is left to its tile only when it says the tile's count", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: Array.from({ length: 120 }, (_, index) => [`Line item ${index}`, ""]), guard: false };
     const imports: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Source"], rows: [["Load", "a"], ["Other", "b"]], guard: false };
@@ -196,9 +220,10 @@ describe("What the results page reads out of a result", () => {
       ["How to read", "Layout", "As Anaplan's own export."], ...diagnosticRows(LOG),
     ]);
     const overview = overviewOf(result("model", [details, lineItems, imports]));
-    // The file whose row says only how many rows it has is the tile; the others are said, with what they say.
+    // The file whose row says only how many rows it has is the tile, and so is the Imports row whose every row was matched
+    // in the Actions list; the other is said, with what it says.
     expect([overview.tiles, overview.files]).toEqual([[{ label: "Line Items", count: 120 }, { label: "Imports", count: 2 }],
-      [["Imports", "2 rows (2 matched in the Actions list)"], ["Source Models", "Not exported: no such axis"]]]);
+      [["Source Models", "Not exported: no such axis"]]]);
     // A section the page does not know is part of what the export is about: its rows are there too.
     expect(overview.about.slice(-1)).toEqual([["A detail", "its value"]]);
     // Every row of the Details file is somewhere on the overview.
@@ -208,8 +233,11 @@ describe("What the results page reads out of a result", () => {
       if (section === "Diagnostics") return overview.log.includes(detail ? `${detail} ${value}` : value);
       if (section === "Notes") return overview.notes.includes(`${detail}: ${value}`);
       if (section === "How to read") return overview.howToRead.some(pair);
-      // A Files row names its file; the overview says it under the table's name, among the tables or as the table's tile.
-      if (section === "Files") return [...overview.files, ...overview.tiles.map(tile => [tile.label, `${tile.count} rows`])].some(([table, said]) => `${table}.csv` === detail && said === value);
+      // A Files row names its file; the overview says it under the table's name, among the tables or as the table's tile. A
+      // count whose every row was matched in the Actions list is the tile's count.
+      const matched = /^(\d+) rows \((\d+) matched in the Actions list\)$/.exec(value);
+      const said = matched && matched[1] === matched[2] ? `${matched[1]} rows` : value;
+      if (section === "Files") return [...overview.files, ...overview.tiles.map(tile => [tile.label, `${tile.count} rows`])].some(([table, shown]) => `${table}.csv` === detail && shown === said);
       return overview.about.some(pair);
     };
     expect([details.rows.length, details.rows.filter(row => !held(row))]).toEqual([16, []]);

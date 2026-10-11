@@ -234,13 +234,14 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(10 + Number(leftOut?.[1]) + Number(leftOut?.[2])).toBe(31);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
     // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
-    // model's Line Items grid lacks the three columns it is made from. The overview says each once, with the tables and
-    // by the table's name, and none among the notes.
+    // model's Line Items grid lacks the three columns it is made from. The overview says each once: the two that were not
+    // exported with the tables and by the table's name, and the import it could not match in the Actions list as a note,
+    // which says what that means.
     const NO_ACCESS = "Line Items has no Module Name, Read Access Driver and Write Access Driver columns.";
     expect(result.summary.filter(line => !/^[A-Za-z ]+: \d+ rows$/.test(line))).toEqual(["Imports: 3 rows (2 matched in the Actions list)",
       `Dynamic Cell Access: not exported (${NO_ACCESS}).`, "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
-    expect([overview.notes, overview.files]).toEqual([[], [["Dynamic Cell Access", `Not exported: ${NO_ACCESS}`], ["Imports", "3 rows (2 matched in the Actions list)"],
-      ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
+    expect([overview.notes, overview.files]).toEqual([["Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."],
+      [["Dynamic Cell Access", `Not exported: ${NO_ACCESS}`], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order. The names in the order that the export does not know are Line Item Subsets, which it
     // does not export yet, and the tables of the pages built on the model, which the run adds after the export.
@@ -378,9 +379,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // and then the two driver cells the map could match to no line item. The map places every row of this model.
     const held = againstMap(file.rows, result.tables);
     expect([held.placed, held.beyond, held.map.map(part => part.length)]).toEqual([held.map, [], [10, 2]]);
-    // The overview has a tile for the file with its number of rows, and says the export's count with the files, once.
+    // The overview has a tile for the file with its number of rows, and says the export's count with the files, once. Its
+    // only note is the model's import that the export could not match in the Actions list.
     const overview = overviewOf(result);
-    expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access", COUNTED]]);
+    expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 },
+      ["Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."], ["Dynamic Cell Access", COUNTED]]);
   });
 
   it("lists a driver named in a row of Line Items that the model map leaves out, and counts on the page the rows the export counted", async () => {
