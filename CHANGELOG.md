@@ -6,9 +6,9 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 A table's name and its toolbar share one row, and the toolbar is quieter.
 
-- **One row.** Every table, an app's and a model's, has its name and then its toolbar on one line: the search box, **Reset** when something is in force, and at the right end the count of rows and the pager. The line under a table's name, where it has one, now stands under that row. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that, and always together: the count, the page buttons and the rows per page are never parted, as they could be before. Under 560 pixels the pager may go under the count, so the page never scrolls sideways. A table with the switch of ways or a page's chip keeps them at the toolbar's head. (#PR)
-- **The column chooser is in the search box.** The **Columns** button is gone: a button with three lines at the search box's right end, set off by a thin line, opens the same chooser. Its tooltip and its name for screen readers say **Show or hide columns**. (#PR)
-- **No key drawn in the search boxes.** The search boxes of the tables and of the model map no longer show a `/` key. The key still reaches them, and their tooltips and `aria-keyshortcuts` say so. (#PR)
+- **One row.** Every table, an app's and a model's, has its name and then its toolbar on one line: the search box, **Reset** when something is in force, and at the right end the count of rows and the pager. The line under a table's name, where it has one, now stands under that row. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that, and always together: the count, the page buttons and the rows per page are never parted, as they could be before. Under 560 pixels the pager may go under the count, so the page never scrolls sideways. A table with the switch of ways or a page's chip keeps them at the toolbar's head. (#61)
+- **The column chooser is in the search box.** The **Columns** button is gone: a button with three lines at the search box's right end, set off by a thin line, opens the same chooser. Its tooltip and its name for screen readers say **Show or hide columns**. (#61)
+- **No key drawn in the search boxes.** The search boxes of the tables and of the model map no longer show a `/` key. The key still reaches them, and their tooltips and `aria-keyshortcuts` say so. (#61)
 
 ## 0.18.4 (10 October 2026)
 
