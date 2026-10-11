@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.18.8 (10 October 2026)
+
+Two of a model's tables have shorter names on the page.
+
+- **Data Sources.** Anaplan's Import Data Sources is called **Data Sources**: in the navigation and the Actions menu, on its tile, as its table's heading, in a row's details, in the Overview's rows about it, and in a source model's details, whose lines say what was found in Data Sources, as does the log's note on a source model found in neither table. (#60)
+- **DCA.** Dynamic Cell Access is called **DCA**, in the same places and in the Modules menu. Its tab, its group's button and its tile say "Dynamic Cell Access (DCA)" when hovered and to a screen reader, and a screen reader hears the full name when the table is shown. (#60)
+- **The navigation is narrower.** The model bar needs about 99px less: about 1,184px instead of 1,283px, so it fits on one line from a window about 1,314px wide instead of 1,413px. (#60)
+- **What stays the same.** What is read, and the tables themselves. The export's own log and status lines keep Anaplan's names. A result kept from an earlier version shows the new names as well, since the page names these two tables by their files.
+
 ## 0.18.7 (10 October 2026)
 
 The Overview's Model Calendar tile says what the calendar is, not how many of its settings hold a value.

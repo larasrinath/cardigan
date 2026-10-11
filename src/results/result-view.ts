@@ -119,7 +119,8 @@ export function resultNotes(result: AnalysisResult): string[] {
     said.add(line);
     notes.push(line);
   }
-  return notes;
+  const renamed = renamedTables(result);
+  return notes.map(line => renamedLine(line, renamed));
 }
 
 /** A file as the page shows it: the table it lists in the file's place, and a short line for under the table's name when
@@ -625,6 +626,43 @@ export function cardParts(result: AnalysisResult, cards: CardsTable, row: Row): 
   };
 }
 
+/** The names the page gives two of a model's tables, by their files, where the export's own (Anaplan's grid name, and the
+ * name of the table the export makes from Line Items) is long: the page calls the table so wherever it names it, in the
+ * navigation, its heading, its tile, a row's details, the overview's rows about files and how to read the tables, for any
+ * result, a kept one included, since the file is what names it. `full` is what a short name stands for: it is said beside
+ * the short one, as its title and to a screen reader, where the name stands alone on a tab or a tile. The file keeps its
+ * name, by which the page knows the table everywhere else. */
+const SHOWN_NAMES: ReadonlyMap<string, { label: string; full?: string }> = new Map([
+  ["Import Data Sources.csv", { label: "Data Sources" }],
+  [ACCESS_FILE, { label: "DCA", full: "Dynamic Cell Access (DCA)" }],
+]);
+
+/** The name the page gives a table: its own label, or the one `SHOWN_NAMES` gives its file. */
+export const tableLabel = (table: Pick<ResultTable, "file" | "label">): string => SHOWN_NAMES.get(table.file)?.label ?? cellText(table.label);
+
+/** What a table's short name stands for, where the page gives it one (`SHOWN_NAMES`); nothing otherwise. */
+export const tableFullLabel = (table: Pick<ResultTable, "file">): string | undefined => SHOWN_NAMES.get(table.file)?.full;
+
+/** The tables that the page names otherwise than the export does, by the export's label, which is the file's name without
+ * its extension, or the label a table of the result carries: a line the export wrote about such a table begins with that
+ * label, and the page says the line under the table's own name instead, whether the result has the table or not (a file
+ * that was not exported has a Files row and a How to read row all the same). */
+function renamedTables(result: AnalysisResult): ReadonlyMap<string, string> {
+  const renamed = new Map([...SHOWN_NAMES].map(([file, shown]) => [withoutExtension(file), shown.label]));
+  for (const table of result.tables) if (SHOWN_NAMES.has(table.file)) renamed.set(cellText(table.label), tableLabel(table));
+  return renamed;
+}
+
+/** A line about a table, "Import Data Sources: 3 rows" or a detail that is the table's name alone, under the name the page
+ * gives the table (`renamedTables`). Any other line stays as it is. */
+function renamedLine(line: string, renamed: ReadonlyMap<string, string>): string {
+  for (const [from, to] of renamed) {
+    if (line === from) return to;
+    if (line.startsWith(`${from}: `)) return to + line.slice(from.length);
+  }
+  return line;
+}
+
 /** The design's names for the overview's tiles, where a file is one of the app's: shorter than the file's own name, so
  * that a tile's name keeps to one line. Any other file's tile has the file's own label. */
 const TILE_LABELS: ReadonlyMap<string, string> = new Map([
@@ -633,8 +671,8 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /** One tile of the overview: its table's name, the number of rows the table lists, and for a Model Calendar what its
- * calendar is, where its table tells (calendar-tile.ts). */
-export interface OverviewTile { label: string; count: number; value?: string; detail?: string; title?: string }
+ * calendar is, where its table tells (calendar-tile.ts). `full` is what a short name stands for (`tableFullLabel`). */
+export interface OverviewTile { label: string; count: number; full?: string; value?: string; detail?: string; title?: string }
 
 export interface Overview {
   /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
@@ -678,10 +716,11 @@ export function overviewOf(result: AnalysisResult): Overview {
   // In the order of `listedTables`, which is the navigation's: the page opens a tile's table by that order.
   const tiles = listedTables(result).map(({ table }): OverviewTile => {
     const count = ruledView(result, table).table.rows.length;
-    const label = TILE_LABELS.get(table.file) ?? cellText(table.label);
+    const label = TILE_LABELS.get(table.file) ?? tableLabel(table);
+    const full = tableFullLabel(table);
     // A calendar is said by its kind and its current year, not by how many of the template's settings hold a value.
     const calendar = result.kind === "model" && table.file === MODEL_CALENDAR_FILE ? calendarTile(table, label) : undefined;
-    return { label, count, ...calendar };
+    return { label, count, ...(full ? { full } : {}), ...calendar };
   });
 
   const sections = detailSections(detailsOf(result));
@@ -697,8 +736,8 @@ export function overviewOf(result: AnalysisResult): Overview {
   // file's number of rows and the word, whatever the number.
   const onlyCounted = new Map(result.tables.map(table => [table.file, `${table.rows.length} rows`]));
   // A row names its file, extension and all, which no user is to see: it is said under the name the page has for the table.
-  const labels = new Map(result.tables.map(table => [table.file, cellText(table.label)]));
-  const named = (file: string): string => labels.get(file) ?? withoutExtension(file);
+  const labels = new Map(result.tables.map(table => [table.file, tableLabel(table)]));
+  const named = (file: string): string => labels.get(file) ?? tableLabel({ file, label: withoutExtension(file) });
   // The export's own check that every import was matched in the Actions list says nothing where every one was: the tile
   // says the count. Where some were not, a note says how many and what that means, and the row is not said twice.
   const rowCount = new Map(result.tables.map(table => [table.file, table.rows.length]));
@@ -709,5 +748,8 @@ export function overviewOf(result: AnalysisResult): Overview {
     if (remark && "note" in remark) unmatched.push(remark.note);
     return remark === undefined;
   }).map(([file, value]): [string, string] => [named(file), value]);
-  return { tiles, notes: [...resultNotes(result), ...unmatched], about, files, howToRead: rowsOf(HOW_TO_READ), log: diagnosticLog(detailsOf(result)) };
+  // How to read a table is said under the name the page gives it.
+  const renamed = renamedTables(result);
+  const howToRead = rowsOf(HOW_TO_READ).map(([detail, value]): [string, string] => [renamedLine(detail, renamed), value]);
+  return { tiles, notes: [...resultNotes(result), ...unmatched], about, files, howToRead, log: diagnosticLog(detailsOf(result)) };
 }
