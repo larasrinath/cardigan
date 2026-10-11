@@ -2,11 +2,11 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.29.5 (11 October 2026)
 
-- **A small difference keeps the export.** One module's live line items check the names read from the model's settings. If at least 98% of the IDs present in either source have the same name in both, the export keeps naming the other modules. A rename, an addition or a deletion counts as one difference. Below that threshold, the modules the pages use are read from the listing as before.
-- **The difference, said.** The diagnostic log says whether the export was kept, lists up to five differing line items and counts the rest. It shows IDs, items only in one source, and both names where they differ, quoted so spaces and quotes show. Any module read live uses its listing in full, including names and formats changed or removed since the export.
-- **Filters use the names already read.** A filter line item in the export needs no module search. An ID absent from it is still searched for, including in modules the export covered; the existing time limit and Missing rules stay in place. Line Items, Page Filters and Module Usage keep their layout and counts.
+- **A small difference keeps the export.** One module's live line items check the names read from the model's settings. If at least 98% of the IDs present in either source have the same name in both, the export keeps naming the other modules. A rename, an addition or a deletion counts as one difference. Below that threshold, the modules the pages use are read from the listing as before. (#85)
+- **The difference, said.** The diagnostic log says whether the export was kept, lists up to five differing line items and counts the rest. It shows IDs, items only in one source, and both names where they differ, quoted so spaces and quotes show. Any module read live uses its listing in full, including names and formats changed or removed since the export. (#85)
+- **Filters use the names already read.** A filter line item in the export needs no module search. An ID absent from it is still searched for, including in modules the export covered; the existing time limit and Missing rules stay in place. Line Items, Page Filters and Module Usage keep their layout and counts. (#85)
 
 ## 0.29.4 (11 October 2026)
 
