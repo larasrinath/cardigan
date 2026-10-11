@@ -895,6 +895,7 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): PageFilt
   const moduleNamed = moduleNamer(draft);
   const lineItemNamed = lineItemNamer(draft);
   const check: PageFilterCheck = { rows: table.rows.length, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 0, missing: [] };
+  const missing = new Set<string>();
   for (const row of table.rows) {
     const [module, lineItem] = [table.cell(row, "Condition line item's module"), table.cell(row, "Condition line item")];
     if (nothing(lineItem)) {
@@ -905,8 +906,7 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): PageFilt
     const id = home === undefined ? undefined : lineItemNamed(home, lineItem);
     if (id === undefined) {
       check.notFound++;
-      const said = `${nothing(module) ? "-" : module.trim()} · ${lineItem.trim()}`;
-      if (!check.missing.includes(said)) check.missing.push(said);
+      missing.add(`${nothing(module) ? "-" : module.trim()} · ${lineItem.trim()}`);
       continue;
     }
     check.found++;
@@ -926,6 +926,7 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): PageFilt
     });
     for (const filtered of modules) if (filtered !== own) draft.link(id, filtered, "page_filter");
   }
+  check.missing = [...missing];
   return check;
 }
 
@@ -942,8 +943,8 @@ export function pageFilterCheckLine(check: PageFilterCheck): string {
 }
 
 /** What the Modules file and the Module Usage table say of each module of the map, found by its name as written or,
- * where no module has that, by the name without the spaces at its ends on either side, where one module alone has it:
- * its Functional Area, and the apps whose pages use it. A row of a module the map does not have says nothing, nor does a
+ * where no module has that, by the name without the spaces at its ends on either side, or with each run of spaces in it
+ * made one, where one module alone has it (`moduleNamer`): its Functional Area, and the apps whose pages use it. A row of a module the map does not have says nothing, nor does a
  * cell that holds nothing or a dash. Gives back which of the two the result has, and, where Modules has the Functional
  * Area column, how its rows met the map's modules (`AreaCheck`). */
 function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNullable<ModelGraph["moduleFacts"]> & { areaCheck?: AreaCheck } {

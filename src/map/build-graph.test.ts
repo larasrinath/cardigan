@@ -446,9 +446,10 @@ describe("The model map's graph, from the tables of a model export", () => {
     const filters = file("Page Filters", [...PAGE_FILTERS_HEADERS], [own(1, CLM, "ISProcess", "HLA010 - Stat Combinations #"), own(2, CLM, "Combination Period Order History"),
       own(3, "MDM702 - Admin 2 County #", "Incomplete Records"), own(4, MDM380, "Incomplete Records"), own(5, MDM380, "Missing DisplayName"), own(6, MDM381, "Incomplete Records"),
       own(7, MDM381, "Missing DisplayName"), own(8, "UDM3800 - BOM Input Level #", "Incomplete Records"),
-      // A filter on another module; a line item the map does not have; a filter with no condition line item; and one on
-      // a module the map does not have.
-      filter(9, "FLT01 Filters", "Show?", MDM380, "Customers"), own(10, MDM381, "Gone"), filter(11, "-", "-", "-"), filter(12, MDM380, "Incomplete Records", "Elsewhere")]);
+      // A filter on another module; a line item the map does not have; a filter with no condition line item; one on a
+      // module the map does not have; and the line item the map does not have again, with spaces at its names' ends.
+      filter(9, "FLT01 Filters", "Show?", MDM380, "Customers"), own(10, MDM381, "Gone"), filter(11, "-", "-", "-"), filter(12, MDM380, "Incomplete Records", "Elsewhere"),
+      own(13, `${MDM381} `, "Gone ")]);
     const graph = buildModelGraph([...tables, filters]);
     const ids = graph.nodes.map(node => [node.module === undefined ? "" : graph.nodes[node.module].name, node.name, node.id] as const);
     const id = (module: string, name: string): number => ids.find(([inModule, own]) => inModule === module && own === name)![2];
@@ -462,10 +463,11 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(graph.nodes[id(MDM702, "Incomplete Records")].pageFilters).toEqual([{ app: "Data Hub", page: "Admin", card: "3", modules: [module(MDM702)] }]);
     // A filter on its own module is no link: the one link is the filter on another module.
     expect(graph.edges.filter(([, , kind]) => kind === "page_filter")).toEqual([[id("FLT01 Filters", "Show?"), module(MDM380), "page_filter"]]);
-    // How the table met the map, for the run's log and for the map's note.
-    expect(graph.pageFilterCheck).toEqual({ rows: 12, found: 10, own: 8, other: 1, nowhere: 1, unnamed: 1, notFound: 1, missing: ["MDM381 - Resources # · Gone"] });
-    expect(pageFilterCheckLine(graph.pageFilterCheck!)).toBe("Page filters: 12 rows; 10 with the condition line item on the map (8 on its own module, 1 on another module, 1 on no module of the map); "
-      + "1 with no condition line item; 1 with a line item the map does not have: MDM381 - Resources # · Gone.");
+    // How the table met the map, for the run's log and for the map's note: each line item the map does not have named
+    // once, however many rows name it.
+    expect(graph.pageFilterCheck).toEqual({ rows: 13, found: 10, own: 8, other: 1, nowhere: 1, unnamed: 1, notFound: 2, missing: ["MDM381 - Resources # · Gone"] });
+    expect(pageFilterCheckLine(graph.pageFilterCheck!)).toBe("Page filters: 13 rows; 10 with the condition line item on the map (8 on its own module, 1 on another module, 1 on no module of the map); "
+      + "1 with no condition line item; 2 with a line item the map does not have: MDM381 - Resources # · Gone.");
     // On the map: each module that its own line items filter is marked with how many, and nothing else changes.
     const model = indexModel(graph);
     expect([model.ownFiltersOf(module(CLM)), model.ownFiltersOf(module(MDM380)), model.ownFiltersOf(module(MDM381)), model.ownFiltersOf(module(MDM702)), model.ownFiltersOf(module("FLT01 Filters")), model.ownFiltered])
