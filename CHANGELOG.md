@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.18.2 (10 October 2026)
+
+The navigation bar names every table in full again, and its tabs spread out evenly.
+
+- **Full names again.** The shorter names of 0.18.1 are gone: **Model Calendar**, **Dynamic Cell Access** and **Import Data Sources** show in full on the bar, as a tab of their own and as a menu's tab that names the table shown. Each menu's tab keeps the width of its longest name, so choosing a table or a view still moves nothing. (#PR)
+- **Tabs spread evenly.** Where the tabs fit on one line, the bar shares the room it has beyond them evenly between them, so they reach from one side of the page's column to the other instead of gathering at its left. Each tab keeps its own width, its highlight included. The page measures the tabs' widths when it draws the bar, and the stylesheet does the rest at any window width, so nothing moves as the view changes. A model's bar with every table fits on one line in a window about 1,410 pixels wide or wider, with gaps of about 4 pixels at 1,440 and 13 at 1,840; an app's bar spreads wider. Where the tabs don't fit, they wrap onto a second line, packed at its left, as before. (#PR)
+
 ## 0.18.1 (10 October 2026)
 
 Three long names are shorter on the navigation bar, so a model's bar fits a narrower window.
