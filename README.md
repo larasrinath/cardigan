@@ -198,7 +198,7 @@ Follow the version rule in [CHANGELOG.md](CHANGELOG.md): features get a minor ve
 
 ## Thanks
 
-Thanks to [Harish Ramaiah](https://www.linkedin.com/in/harish-ramaiah-1327794/) for valuable feedback that shaped Cardigan.
+Thanks to [Harish Ramaiah](https://www.linkedin.com/in/harish-ramaiah-1327794/) for valuable ideas and feedback.
 
 ## Licence
 
