@@ -241,7 +241,8 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
  * shows it again, and under them what a line means: while the links of page filters are drawn (`filters`), what theirs
- * means too, beside a piece of the line they are drawn in. A hidden layer says so in more than its colour: its name is
+ * means too, beside a piece of the line they are drawn in; and while a box of the picture has a filter mark, what the
+ * mark means on that kind of picture (`marks`), beside one. A hidden layer says so in more than its colour: its name is
  * struck through, and the button is not pressed. */
 export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false, marks?: ViewGraph["kind"]): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
