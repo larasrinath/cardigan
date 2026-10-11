@@ -1,4 +1,4 @@
-import { poolForStatus, wordsForPool, type WordEngine, type WordPool } from "./spinner-words.js";
+import { poolForStatus, WORD_PACE_MS, wordsForPool, type WordEngine, type WordPool } from "./spinner-words.js";
 
 /** The Drive wave: the middle row leads, with the outer rows one step behind. */
 export const pixelDelay = (index: number): number => (index % 3 + Math.abs(Math.floor(index / 3) - 1)) * 90;
@@ -42,8 +42,6 @@ export class ElapsedTimer {
   }
 }
 
-export const SPINNER_WORD_INTERVAL_MS = 500;
-
 /** One silent phrase beside the pixels. Status updates leave the rotation's clock alone within a pool. */
 export class SpinnerWords {
   private interval: ReturnType<typeof setInterval> | undefined;
@@ -80,7 +78,7 @@ export class SpinnerWords {
       clearInterval(this.interval);
       this.interval = undefined;
     } else if (this.interval === undefined) {
-      this.interval = setInterval(() => this.pick(), SPINNER_WORD_INTERVAL_MS);
+      this.interval = setInterval(() => this.pick(), WORD_PACE_MS[pool]);
     }
   }
 
