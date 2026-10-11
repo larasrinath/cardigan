@@ -829,7 +829,7 @@ describe("A result whose every text is hostile, through every view of the page",
         for (const [name, value] of tag.attributes) {
           if (value === undefined) continue;
           if (HOSTILE.some(entry => decode(value).includes(entry))) expect(VALUE_ATTRIBUTES, `${tag.name} ${name}="${value}"`).toContain(name);
-          // A formatting rule's colour in its square and the number in a column's width are the only parts of a style that vary.
+          // Colours, column widths and the loader's counted delays are the only parts of a style that vary.
           if (name === "style") styles.add(value.replace(/^--swatch:#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})$/, "--swatch:#hex").replace(/^--width:\d+ch$/, "--width:Nch"));
           if (name === "style" && tag.name === "col") widths.push(value);
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
@@ -847,7 +847,7 @@ describe("A result whose every text is hostile, through every view of the page",
     // square, # and hexadecimal digits, and a column's width in ch (column-widths.ts), which the stylesheet reads as --width.
     // That number is counted from the lengths of the table's texts, and no text of a result can reach the style: each
     // column's style is the width and nothing else, a whole number of ch, here where every text of the result is hostile.
-    expect([...styles].sort()).toEqual(["--swatch:#hex", "--width:Nch", "font-size:12px;color:var(--text-3);margin:4px 0 0",
+    expect([...styles].sort()).toEqual(["--swatch:#hex", "--width:Nch", "animation-delay:0ms", "animation-delay:180ms", "animation-delay:270ms", "animation-delay:90ms", "font-size:12px;color:var(--text-3);margin:4px 0 0",
       "margin-bottom:12px", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
     expect(widths.length).toBeGreaterThan(20);
     expect(widths.filter(width => !/^--width:[1-9]\d?ch$/.test(width))).toEqual([]);
@@ -955,7 +955,7 @@ describe("A result whose every text is hostile, through every view of the page",
   it("draws a distinct mark for every run state, with the adjacent title providing its accessible name", () => {
     const cases = [
       ["no-tab", "info"], ["not-anaplan", "info"], ["no-subject", "info"], ["ready", "info"],
-      ["connecting", "progress"], ["running", "progress"], ["maintenance", "clock"], ["model-opening", "clock"],
+      ["maintenance", "clock"], ["model-opening", "clock"],
       ["missing-reader", "refresh"], ["old-reader", "refresh"],
       ["failed", "warning"], ["unreachable", "warning"], ["tab-closed", "warning"], ["interrupted", "warning"],
     ] as const;
@@ -964,7 +964,17 @@ describe("A result whose every text is hostile, through every view of the page",
       expect([svg?.getAttribute("data-run-icon"), svg?.getAttribute("aria-hidden"), svg?.textContent]).toEqual([kind, "true", ""]);
       expect(svg?.children.length).toBeGreaterThan(0);
     }
-    expect(new Set(cases.map(([phase]) => runIconHtml(phase))).size).toBe(5);
+    expect(new Set(cases.map(([phase]) => runIconHtml(phase))).size).toBe(4);
+    expect([runIconHtml("connecting"), runIconHtml("running")]).toEqual(["", ""]);
+  });
+
+  it("announces the real status separately from the silent pixels and elapsed time", () => {
+    const run = parseMarkup(runHtml());
+    const status = run.querySelector("#runStatus")!;
+    expect([status.getAttribute("role"), status.getAttribute("aria-live")]).toEqual(["status", "polite"]);
+    expect(run.querySelector(".pixel-grid")?.getAttribute("aria-hidden")).toBe("true");
+    expect(run.querySelector(".run-elapsed")?.getAttribute("aria-hidden")).toBe("true");
+    expect(status.children).toHaveLength(0);
   });
 
   it("gives the diagnostic log, which the keyboard can scroll, a role and a name", () => {

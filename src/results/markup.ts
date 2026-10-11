@@ -8,6 +8,7 @@ import type { ProcessView } from "./process-actions-view.js";
 import type { SourceModelView } from "./source-model-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import type { RangeState } from "./range-filter.js";
+import { pixelGridHtml } from "./pixel-loader.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type OverviewTile, type SectionCell } from "./result-view.js";
 import { cellText, dayText, groupedCount, NONE, type RangeColumn, type Row, type Sort } from "./table-engine.js";
 import { bothTimes, timesOf, type TimeMode } from "./times.js";
@@ -18,7 +19,7 @@ import { usedOn, type WhereUsedObject } from "./where-used-view.js";
  * comes from a result goes through `esc`, in text and inside attributes alike, and no value is ever written as a tag, an
  * attribute name, a style or an address. One part of a value is written into a style, and only as the page matched it: a
  * formatting rule's colour, `#` and hexadecimal digits, which fills its square (`coloursHtml`). The only other style that
- * carries a value holds a number the page worked out itself: a column's width. What a click means is read from the row
+ * carries a value holds a number the page worked out itself: a column's width or a loader cell's delay. What a click means is read from the row
  * the page holds, never back out of the markup: the only data attributes that carry a value hold a number the page
  * counted itself, or an ID to copy. In a drawer, a value that lists several items decides one thing more than its text:
  * how many items its list has. Each item is escaped text, in a list of the page's own elements. */
@@ -480,16 +481,15 @@ function numberSize(tile: OverviewTile): string {
 
 /** A drawn mark for the run's state. The adjacent heading names it for assistive technology. */
 export function runIconHtml(phase: RunState["phase"]): string {
+  if (phase === "connecting" || phase === "running") return "";
   const kind = phase === "old-reader" || phase === "missing-reader" ? "refresh"
     : phase === "maintenance" || phase === "model-opening" ? "clock"
-    : phase === "connecting" || phase === "running" ? "progress"
     : phase === "not-anaplan" || phase === "no-tab" || phase === "no-subject" || phase === "ready" || phase === "done" ? "info" : "warning";
   const paths = {
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.2"/>',
     warning: '<path d="m10.3 4-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0Z"/><path d="M12 9v5M12 17v.2"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
     refresh: '<path d="M20 4v6h-6M4 20v-6h6"/><path d="M4.6 8a8.5 8.5 0 0 1 14-3L20 10M4 14l1.4 5a8.5 8.5 0 0 0 14-3"/>',
-    progress: '<circle cx="12" cy="12" r="9" stroke-dasharray="42 15"/>',
   };
   return `<svg data-run-icon="${kind}" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg>`;
 }
@@ -502,7 +502,11 @@ export function runHtml(): string {
     <section class="panel run-card" id="runCard" aria-labelledby="runTitle">
       <div class="run-mark" id="runIcon" aria-hidden="true"></div>
       <h1 class="view-title" id="runTitle"></h1>
-      <p id="runStatus"></p>
+      <div class="run-message">
+        ${pixelGridHtml()}
+        <span id="runStatus" role="status" aria-live="polite"></span>
+        <span class="run-elapsed" aria-hidden="true"></span>
+      </div>
       <p class="run-hint" id="runHint"></p>
       <div class="run-actions">
         ${refreshButton("runRefresh")}

@@ -507,17 +507,27 @@ describe("The results page's files", () => {
     expect(declared(".d-opens .btn")).toEqual(["white-space:nowrap;padding:3px 7px;gap:5px;font-size:11.5px"]);
   });
 
-  it("holds the run controls' width, draws their spinner and respects reduced motion", () => {
+  it("holds the run control's width with the small pixel grid and respects reduced motion", () => {
     const shell = new FakePage(html);
     for (const id of ["runAgain"]) {
       expect(shell.id(id).classList.contains("run-control")).toBe(true);
       expect(shell.id(id).querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
-      expect(shell.id(id).querySelector("svg .run-spinner")?.localName).toBe("circle");
     }
     expect(declared(".run-control")[0]).toContain("width:116px");
     expect(declared(".run-control")[0]).toContain("flex:none");
-    expect(declared(".reading .run-icon")).toEqual(["display:none"]);
-    expect(css).toContain("@media(prefers-reduced-motion:reduce){.reading .run-spinner{animation:none}}");
+    expect(declared(".run-control.reading > svg")).toEqual(["display:none"]);
+    expect(declared(".run-control.reading > .pixel-grid")).toEqual(["display:inline-grid"]);
+    expect(declared(".pixel-grid")[0]).toContain("grid-template-columns:repeat(3,4px);grid-template-rows:repeat(3,4px);gap:1.5px");
+    expect(declared(".pixel-grid-small")[0]).toContain("grid-template-columns:repeat(3,3px);grid-template-rows:repeat(3,3px)");
+    expect(declared(".pixel-cell")[0]).toContain("border-radius:1px;background:currentColor;opacity:.15");
+    expect(declared(".reading .pixel-cell")[0]).toBe("animation:pixel-on 650ms ease-in-out infinite");
+    expect(css).toContain("@keyframes pixel-on{0%,100%{opacity:.15}50%{opacity:1}}");
+    expect(declared(".reading #runStatus")[0]).toContain("linear-gradient(90deg,var(--text-3) 35%,var(--ink) 50%,var(--text-3) 65%)");
+    expect(declared(".reading #runStatus")[0]).toContain("animation:shimmer-text 1.4s linear infinite");
+    expect(declared(".reading .run-message")[0]).toBe("display:flex;align-items:center;gap:10px");
+    expect(declared(".reading .run-elapsed")[0]).toContain("width:9ch;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-3)");
+    expect(mediaRules("(prefers-reduced-motion:reduce)")).toContainEqual([".reading .pixel-cell,.reading #runStatus", "animation:none"]);
+    expect(mediaRules("(prefers-reduced-motion:reduce)")).toContainEqual([".reading #runStatus", "background:none;color:var(--text-3)"]);
     expect(shell.id("live").getAttribute("aria-live")).toBe("polite");
   });
 

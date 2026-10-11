@@ -532,7 +532,7 @@ describe("The results page's script, on the page", () => {
           : phase === "old-reader" ? { code: "OLD_READER" as const, renewable: false }
           : phase === "model-opening" ? { code: "MODEL_OPENING" as const } : {}) });
     }
-    await eventually(() => page.find("#runIcon svg").getAttribute("data-run-icon") === icon, "the run card's icon");
+    await eventually(() => page.has("#runIcon svg") && page.find("#runIcon svg").getAttribute("data-run-icon") === icon, "the run card's icon");
     expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe(icon);
     expect(page.find("#runIcon svg").getAttribute("aria-hidden")).toBe("true");
     expect(page.find(".run-state").children.map(child => child.id)).toEqual(["runCard", "runLog"]);
@@ -547,18 +547,18 @@ describe("The results page's script, on the page", () => {
 
   it("keeps progress in the card until a result arrives, then keeps the header run control through another run and failure", async () => {
     await open("?tab=42");
-    expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe("progress");
+    expect(page.id("runIcon").hidden).toBe(true);
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
     expect([page.id("runAgain").hidden, page.id("runRetry").hidden, page.id("runRetry").textContent]).toEqual([true, false, "Run"]);
     page.id("runRetry").press();
     const card = page.id("runCard");
-    const progressIcon = page.find("#runIcon svg");
+    const progressIcon = page.find("#runCard .pixel-grid");
     ports[0].send({ type: "log", text: "Reading invented app" });
     page.find("#runLog summary").press();
     ports[0].send({ type: "status", text: "Reading pages" });
     expect(page.id("runCard") === card).toBe(true);
-    expect(page.find("#runIcon svg") === progressIcon).toBe(true);
-    expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe("progress");
+    expect(page.find("#runCard .pixel-grid") === progressIcon).toBe(true);
+    expect(page.all("#runCard .pixel-cell")).toHaveLength(9);
     expect(page.id("runLog").hasAttribute("open")).toBe(true);
     expect(page.id("runAgain").hidden).toBe(true);
     sendResult(ports[0]);
@@ -569,6 +569,41 @@ describe("The results page's script, on the page", () => {
     expect([page.id("view").innerHTML, page.has("#runBanner"), page.id("runAgain").hidden]).toEqual([overview, false, false]);
     ports[0].send({ type: "error", message: "The connection stopped." });
     expect([page.id("view").innerHTML, page.id("runAgain").hidden, page.id("ovLog").hasAttribute("open")]).toEqual([overview, false, false]);
+  });
+
+  it.each(["done", "failed", "interrupted"])("ticks only during the run and stops on %s", async ending => {
+    await open("?tab=42");
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    const timer = page.find(".run-elapsed");
+    vi.advanceTimersByTime(500);
+    expect(timer.textContent).toBe("");
+    page.id("runRetry").press();
+    expect(timer.textContent).toBe("0.0s");
+    vi.advanceTimersByTime(100);
+    expect(timer.textContent).toBe("0.1s");
+    const grid = page.find("#runCard .pixel-grid");
+    ports[0].send({ type: "status", text: `Reading ${TAG}` });
+    vi.advanceTimersByTime(1100);
+    expect(timer.textContent).toBe("1.2s");
+    expect(page.find("#runCard .pixel-grid")).toBe(grid);
+    expect(page.id("runStatus").textContent).toBe(`Reading ${TAG}`);
+    expect([page.id("runStatus").getAttribute("role"), page.id("runStatus").getAttribute("aria-live"), timer.getAttribute("aria-hidden")])
+      .toEqual(["status", "polite", "true"]);
+    expect(strayImg()).toBe(false);
+    const clear = vi.spyOn(globalThis, "clearInterval");
+    if (ending === "done") sendResult(ports[0]);
+    else if (ending === "failed") ports[0].send({ type: "error", message: "The connection stopped." });
+    else ports[0].drop();
+    expect(clear).toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(timer.textContent).toBe("1.2s");
+    expect(page.id("runAgain").classList.contains("reading")).toBe(false);
+    expect(page.id("live").getAttribute("role")).toBe("status");
+    if (ending !== "failed") return;
+    page.id("runRetry").press();
+    expect(timer.textContent).toBe("0.0s");
+    vi.advanceTimersByTime(100);
+    expect(timer.textContent).toBe("0.1s");
   });
 
   it("keeps Diagnostics folded on failure, toggles it, and copies the log while folded", async () => {
@@ -3632,7 +3667,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect(cleared).toEqual(["Cardigan", "", 0, 0, []]);
     // The page is then the one that kept nothing: the waiting view, no navigation, and Run. What was kept is gone.
     expect(parts()).toEqual(["Cardigan", "", 0, 0, ["Connecting"]]);
-    expect([page.id("runStatus").textContent, page.has("#noteBanner"), page.id("topnav").hidden, said]).toEqual(["Connecting to the Anaplan tab…", false, true, "Connecting to the Anaplan tab…"]);
+    expect([page.id("runStatus").textContent, page.has("#noteBanner"), page.id("topnav").hidden, said]).toEqual(["Connecting to the Anaplan tab…", false, true, ""]);
     expect([session.held.size, runControl()[0], disabled("runAgain")]).toEqual([0, "Run", [false]]);
   });
 
@@ -6533,7 +6568,8 @@ describe("How a result was looked at, kept through a refresh of the page until t
     for (const id of ["runAgain"]) {
       expect([page.id(id).textContent.trim(), page.id(id).title, page.id(id).disabled, page.id(id).classList.contains("reading"), page.id(id).getAttribute("aria-busy")])
         .toEqual(["Reading", `Reading ${TAG}`, true, true, "true"]);
-      expect(page.id(id).querySelector("svg .run-spinner")).not.toBeNull();
+      expect(page.id(id).querySelector("svg .run-spinner")).toBeNull();
+      expect(page.id(id).querySelectorAll(".pixel-grid-small .pixel-cell")).toHaveLength(9);
     }
     // The row's formula and format changed. A namesake in another module is not this row.
     const rows = [["Line item 2", "Number", "Other formula", "Cost"], ...LINES.map(row => row[0] === "Line item 2" ? [row[0], "Boolean", "Changed formula", row[3]] : row)];

@@ -6,6 +6,11 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Round map controls.** Zoom, Fit to screen and Minimap are separate round buttons, matching Full screen, with no pipes in either bottom cluster. Fit has its own drawn icon; Minimap shows a small inset in the frame's bottom-right corner and stays highlighted while open.
 
+## 0.31.0 (11 October 2026)
+
+- **Pixels while reading.** The run card shows a small grid moving to the right beside the current step, with shimmering words and an elapsed timer. The timer starts with the run and stops when it finishes or fails. Both themes use their own colours; reduced motion keeps the pixels and words still while the timer ticks. (#96)
+- **Reading again, in place.** A smaller grid replaces the spinner beside **Reading** in **Run again**. The button keeps its width, and the earlier result stays in place. Screen readers announce the step, without the pixels or timer. (#96)
+
 ## 0.30.3 (11 October 2026)
 
 - **One highlight, one grouping.** The map's lists and navigation menus use the same rounded highlight as the tabs, with plain hover and a ring for keyboard focus in both themes. Group by lists each choice once, tags the suggestion, and returns to automatic when it is picked; its info explains the choice in plain words with whole percentages and real prefixes. (#95)
