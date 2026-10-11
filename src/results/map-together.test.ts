@@ -318,21 +318,20 @@ const status = (): string => text(".map-stats");
 /** The names of the places reached along the path, without its unused Module step. */
 function where(): string[] {
   const steps = [text(".map-title-name")];
-  if (part(".map-group-name").getAttribute("aria-current") || part(".map-module-name").getAttribute("aria-current")) steps.push(text(".map-group-name"));
-  if (part(".map-module-name").getAttribute("aria-current")) steps.push(text(".map-module-name"));
+  if (part('[data-map-act="groups"]').getAttribute("aria-current") || part('[data-map-act="modules"]').getAttribute("aria-current")) steps.push(text(".map-group-name"));
+  if (part('[data-map-act="modules"]').getAttribute("aria-current")) steps.push(text(".map-module-name"));
   return steps;
 }
 function chooseGroup(value: string): void {
   part('[data-map-act="groups"]').press();
   part(`[data-map-group="${value}"]`).press();
 }
-/** The modules the Line items view's picker lists with every section's: the modules in the Line Items file's order. The
- * map is left in its Modules view, as it was. */
+/** The modules the picker lists with every section's: the modules in the Line Items file's order. Opening and closing
+ * the list leaves the drawing alone; `around.shows()` would clear the pens with no new frame to record. */
 function pickable(): string[] {
   part('[data-map-act="modules"]').press();
   const names = parts(".map-picker-opt .map-picker-name").map(name => name.textContent);
-  part('[data-map-act="group-home"]').press();
-  around.shows();
+  part(".map-picker-input").dispatch("keydown", { key: "Escape" });
   return names;
 }
 /** What is written on the canvas as the browser last showed it: each box's small line and its name. */
@@ -412,10 +411,14 @@ describe("A model's result on the results page, with the map's real graph and th
     chooseGroup("modules");
     around.shows();
     expect([shownStatus(), where()]).toEqual(["4 modules · 3 links", ["Model one", "All modules"]]);
+    // Each module is drawn as soon as the browser shows the frame requested by the group choice.
+    const modulesDrawn = written();
+    expect(modulesDrawn).toEqual(expect.arrayContaining(["Volumes", "Prices", "Revenue", "Summary"]));
     expect(pickable()).toEqual([VOLUMES, PRICES, REVENUE, SUMMARY]);
     expect(where()).toEqual(["Model one", "All modules"]);
-    // Each module is a box, with its code and its section on the small line and its name under it.
-    expect(written()).toEqual(expect.arrayContaining(["Volumes", "Prices", "Revenue", "Summary"]));
+    // Closing the list keeps that picture, with each module's code and section on its small line.
+    expect(part(".map-module-picker .map-picker-pop").hidden).toBe(true);
+    expect(written()).toEqual(modulesDrawn);
     expect([writes("INP01", "01 Inputs"), writes("INP02", "01 Inputs"), writes("CAL01", "02 Calculations"), writes("REP01", "03 Reporting")]).toEqual([true, true, true, true]);
     // The notes about the map say how large the model is. And they say what the map leaves out of this export: its one
     // export, whose definition names no module. Every other name in the files was matched, every file the map reads is
@@ -564,7 +567,6 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(where()).toEqual(["Model two", "02 Calculations", REVENUE]);
     // The box that was selected is selected again in the new result's map, with its details open.
     expect([root.isConnected, part(".map-inspector").hidden, part(".map-search").value]).toEqual([false, false, ""]);
-    part('[data-map-act="group-home"]').press();
     chooseGroup("modules");
     around.shows();
     expect([where(), shownStatus()]).toEqual([["Model two", "All modules"], "5 modules · 4 links"]);
