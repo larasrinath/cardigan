@@ -2,8 +2,8 @@ import type { ResultTable } from "../result-types.js";
 import { columnIndex } from "./columns.js";
 import { cellText } from "./table-engine.js";
 
-/** What the Overview's tile for a model's Model Calendar says in place of a count: the kind of calendar in a word, and
- * under it the current fiscal year. A count of the table's rows says nothing of a calendar: its rows are the settings of a
+/** What the Overview's tile for a model's Model Calendar says in place of a count: the current fiscal year, and
+ * under it the kind of calendar. A count of the table's rows says nothing of a calendar: its rows are the settings of a
  * template (model/calendar.ts), and how many of them hold a value depends on the calendar's type.
  *
  * The type is read from the table's Calendar Type setting, as the Model Calendar tab's list labels it. Anaplan has four
@@ -41,11 +41,12 @@ function kindOf(type: string): Kind | undefined {
 }
 
 export interface CalendarTile {
-  /** The calendar's kind in a word: Monthly or Weekly, or its type as written where it is neither, cut short. Where the
-   * result has no type, the current fiscal year's label. */
+  /** The current fiscal year's label, or the calendar's kind where no year was read. */
   value: string;
-  /** Under it: how a weeks calendar is grouped and the current fiscal year's label, such as "4-4-5 · FY24". None where
-   * there is neither. */
+  /** A year uses the count's size; a type without a year keeps the smaller word size. */
+  valueIsYear?: boolean;
+  /** Under the year: the kind and how a weeks calendar is grouped, such as "Weekly · 4-4-5". Without a year, only the
+   * grouping, since the kind is already the large value. */
   detail?: string;
   /** The tile in full, for its title and a screen reader: the table's name, the type as written, and the current fiscal
    * year with its dates. */
@@ -74,8 +75,8 @@ export function calendarTile(table: ResultTable, label: string): CalendarTile | 
   const weeks = kind === "weeksGeneral" && /^\d+$/.test(of("Number of Weeks")) && Number(of("Number of Weeks")) > 0 ? `${Number(of("Number of Weeks"))} weeks` : "";
   const pattern = kind === "weeks13" ? "13 periods" : grouping || weeks;
   const word = kind === "months" ? "Monthly" : kind !== undefined ? "Weekly" : type.split(/[:/]/)[0].trim() || type;
-  const shown = type === "" ? year : word;
-  const detail = [pattern, type === "" ? "" : year].filter(part => part !== "").join(" · ");
+  const shown = year || word;
+  const detail = [year ? word : "", pattern].filter(part => part !== "").join(" · ");
   const full = [type, grouping && `grouped ${grouping}`, weeks, year && `current fiscal year ${year}${dates ? ` (${dates})` : ""}`].filter(part => part !== "");
-  return { value: shown, ...(detail ? { detail } : {}), title: `${label}: ${full.join(", ")}` };
+  return { value: shown, ...(year ? { valueIsYear: true } : {}), ...(detail ? { detail } : {}), title: `${label}: ${full.join(", ")}` };
 }

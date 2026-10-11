@@ -1047,16 +1047,16 @@ describe("What the results page reads out of a result", () => {
       headers: ["Section", "Setting", "Value"], rows: settings.map(([setting, value]) => ["Model Calendar", setting, value]), guard: false }])).tiles[0];
     const type = (value: string): [string, string] => ["Calendar Type", value];
     const year = (value: string): [string, string] => ["Current Fiscal Year", value];
-    // A months calendar is Monthly, with its current fiscal year's label under it; the title has the type as written and the
+    // A months calendar has its current fiscal year's label above Monthly; the title has the type as written and the
     // year's dates, as the export writes them after the label.
-    expect(tileOf([type("Calendar Months/Quarters/Years"), year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual(expect.objectContaining({ label: "Model Calendar", count: 2, value: "Monthly", detail: "FY24",
+    expect(tileOf([type("Calendar Months/Quarters/Years"), year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual(expect.objectContaining({ label: "Model Calendar", count: 2, value: "FY24", detail: "Monthly",
       title: "Model Calendar: Calendar Months/Quarters/Years, current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" }));
     // Each of Anaplan's weeks calendars is Weekly. A 4-4-5 one says the grouping its setting gives, a 13-period one that it
     // has 13 periods, and a general one how many weeks it has, where its setting gives a number of them.
     expect(tileOf([type("Weeks: 4-4-5, 4-5-4 or 5-4-4"), ["Week Grouping into Months / Qtrs", "4-5-4"], year("FY2025")])).toEqual(expect.objectContaining({ label: "Model Calendar", count: 3,
-      value: "Weekly", detail: "4-5-4 · FY2025", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-5-4, current fiscal year FY2025" }));
+      value: "FY2025", detail: "Weekly · 4-5-4", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-5-4, current fiscal year FY2025" }));
     expect([tileOf([type("Weeks: 13 4-week Periods"), year("FY24: 31 Dec 2023 - 28 Dec 2024")]), tileOf([type("Weeks: General"), ["Number of Weeks", "52"]])]
-      .map(tile => [tile.value, tile.detail])).toEqual([["Weekly", "13 periods · FY24"], ["Weekly", "52 weeks"]]);
+      .map(tile => [tile.value, tile.detail])).toEqual([["FY24", "Weekly · 13 periods"], ["Weekly", "52 weeks"]]);
     // A 4-4-5 calendar whose grouping is not given, and a general one of no weeks, say only that they are weekly.
     expect([tileOf([type("Weeks: 4-4-5, 4-5-4 or 5-4-4")]), tileOf([type("Weeks: General"), ["Number of Weeks", "0"]])].map(tile => [tile.value, tile.detail]))
       .toEqual([["Weekly", undefined], ["Weekly", undefined]]);

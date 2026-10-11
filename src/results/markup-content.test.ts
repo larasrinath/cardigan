@@ -7,6 +7,7 @@ import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterH
   filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, sourceModelHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
   SEARCH_TITLE, type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
+import { calendarTile } from "./calendar-tile.js";
 import { dayOf, NONE, pageOf, rangeColumn, selectRows } from "./table-engine.js";
 import type { WhereUsedObject } from "./where-used-view.js";
 
@@ -577,13 +578,13 @@ describe("What the results page's markup shows", () => {
       ["s-num s-n6", "153890"], ["s-num s-n7", "1538900"], ["s-num s-n8", "15389000"], ["s-num s-word", "Monthly"]]);
   });
 
-  it("says on a Model Calendar's tile what its calendar is in the number's place, its current year under that, and the whole in its title", () => {
-    const calendar = { index: 3, file: "Model Calendar.csv", label: "Model Calendar", count: 21, value: "Weekly", detail: "4-4-5 · FY24", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY24" };
+  it("says on a Model Calendar's tile its current year in the number's place, its kind under that, and the whole in its title", () => {
+    const calendar = { index: 3, file: "Model Calendar.csv", label: "Model Calendar", count: 21, value: "FY26", valueIsYear: true, detail: "Weekly · 4-4-5", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY26" };
     const view = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar, { index: 4, file: "Modules.csv", label: "Modules", count: 2 }] })));
     const [tile, other] = view.querySelectorAll(".stat");
-    // The kind in the number's place, sized as a word, and under it the year: no word for a screen reader that it is a
+    // The year in the number's place, sized as four figures, and under it the kind: no word for a screen reader that it is a
     // count, for it is none.
-    expect(tile.children.map(child => [child.getAttribute("class"), child.textContent])).toEqual([["s-lab", "Model Calendar"], ["s-num s-word", "Weekly"], ["s-detail", "4-4-5 · FY24"]]);
+    expect(tile.children.map(child => [child.getAttribute("class"), child.textContent])).toEqual([["s-lab", "Model Calendar"], ["s-num", "FY26"], ["s-detail", "Weekly · 4-4-5"]]);
     // Its title and its name for a screen reader are the tile in full; a tile that counts has neither.
     expect([tile.getAttribute("title"), tile.getAttribute("aria-label"), tile.dataset.nav, other.getAttribute("title"), other.getAttribute("aria-label")])
       .toEqual([calendar.title, calendar.title, "3", null, null]);
@@ -591,7 +592,40 @@ describe("What the results page's markup shows", () => {
     // A calendar without a detail line still opens its table and keeps its full title.
     const still = parseMarkup(overviewHtml(overviewWith({ tiles: [{ ...calendar, detail: undefined }] }))).querySelector(".stat");
     expect([still?.localName, still?.getAttribute("title"), still?.getAttribute("aria-label"), still?.children.map(child => child.textContent)])
-      .toEqual(["button", calendar.title, calendar.title, ["Model Calendar", "Weekly"]]);
+      .toEqual(["button", calendar.title, calendar.title, ["Model Calendar", "FY26"]]);
+  });
+
+  it.each([
+    ["Calendar Months/Quarters/Years", "FY20: 1 Jan 2020 - 31 Dec 2020", "", "", "FY20", "Monthly", "s-num",
+      "Calendar Months/Quarters/Years, current fiscal year FY20 (1 Jan 2020 - 31 Dec 2020)"],
+    ["Weeks: 4-4-5, 4-5-4 or 5-4-4", "FY26", "4-4-5", "", "FY26", "Weekly · 4-4-5", "s-num",
+      "Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY26"],
+    ["Weeks: 13 4-week Periods", "FY26", "", "", "FY26", "Weekly · 13 periods", "s-num", "Weeks: 13 4-week Periods, current fiscal year FY26"],
+    ["Weeks: General", "FY26", "", "52", "FY26", "Weekly · 52 weeks", "s-num", "Weeks: General, 52 weeks, current fiscal year FY26"],
+    ["Calendar Months/Quarters/Years", "", "", "", "Monthly", undefined, "s-num s-word", "Calendar Months/Quarters/Years"],
+    ["Weeks: General", "", "", "52", "Weekly", "52 weeks", "s-num s-word", "Weeks: General, 52 weeks"],
+    ["", "FY20", "", "", "FY20", undefined, "s-num", "current fiscal year FY20"],
+    ["", "", "", "", "1", undefined, "s-num", undefined],
+  ])("renders calendar settings %s / %s with their full accessible text", (type, year, grouping, weeks, value, detail, size, full) => {
+    const table: ResultTable = { file: "Model Calendar.csv", label: "Model Calendar", guard: false, headers: ["Setting", "Value"],
+      rows: [["Calendar Type", type], ["Current Fiscal Year", year], ["Week Grouping into Months / Qtrs", grouping], ["Number of Weeks", weeks], ["Fiscal Year Starts", "Jan"]]
+        .filter(([, value]) => value !== "") };
+    const calendar = { index: 3, file: table.file, label: table.label, count: table.rows.length, ...calendarTile(table, table.label) };
+    const tile = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar] }))).querySelector(".stat")!;
+    expect([tile.querySelector(".s-num")?.textContent, tile.querySelector(".s-num")?.getAttribute("class"), tile.querySelector(".s-detail")?.textContent])
+      .toEqual([value, size, detail]);
+    const title = full ? `Model Calendar: ${full}` : null;
+    expect([tile.getAttribute("title"), tile.getAttribute("aria-label"), tile.dataset.nav, tile.localName]).toEqual([title, title, "3", "button"]);
+    expect(tile.querySelector(".s-lab svg")?.outerHTML).toBe(parseMarkup(FILE_ICONS.get(table.file)!).querySelector("svg")?.outerHTML);
+    expect(tile.querySelector(".sr-only")?.textContent).toBe(full ? undefined : "row");
+  });
+
+  it.each([["FY202", "s-n5"], ["FY2026", "s-n6"], ["2026/27", "s-n7"], ["2026/2027", "s-n8"], ["Financial Year 2026/2027", "s-n8"]])("shrinks the fiscal-year label %s like a long count", (year, size) => {
+    const calendar = { index: 0, file: "Model Calendar.csv", label: "Model Calendar", count: 1,
+      ...calendarTile({ file: "Model Calendar.csv", label: "Model Calendar", guard: false, headers: ["Setting", "Value"], rows: [["Current Fiscal Year", year]] }, "Model Calendar") };
+    const number = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar] }))).querySelector(".s-num");
+    expect([number?.getAttribute("class"), number?.textContent]).toEqual([`s-num ${size}`, year]);
+    expect(number?.getAttribute("style")).toMatch(/^font-size:min\(44px,[\d.]+cqi\)$/);
   });
 
   it("shows in a row's drawer, after a cell that is said in words, the text that was read in its place, named as that", () => {
