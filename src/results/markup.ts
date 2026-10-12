@@ -5,6 +5,7 @@ import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, textWidth, WIDEST } from "./column-widths.js";
 import { APP_FILES, countText, rowColumns, type Column } from "./columns.js";
 import { REFRESH_AND_RUN, type RunState } from "./connection.js";
+import { FILE_IMPORTS_FILE, IMPORT_TABLES, IMPORTS_FILE, IN_MODEL_IMPORTS_FILE, MODEL_IMPORTS_FILE } from "./import-files.js";
 import type { MappingView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
 import type { SourceModelView } from "./source-model-view.js";
@@ -240,7 +241,15 @@ export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
   // One step that leads to the next.
   ["Processes.csv", navIcon('<rect x="2" y="2" width="5.3" height="5.3" rx="1.3"/><rect x="8.7" y="8.7" width="5.3" height="5.3" rx="1.3"/><path d="M4.7 7.3V10A1.3 1.3 0 0 0 6 11.3h2.7"/>')],
   // An arrow that goes in.
-  ["Imports.csv", navIcon('<path d="M10 2h2.7A1.3 1.3 0 0 1 14 3.3v9.4a1.3 1.3 0 0 1-1.3 1.3H10"/><path d="M6.7 11.3 10 8 6.7 4.7M10 8H2"/>')],
+  [IMPORTS_FILE, navIcon('<path d="M10 2h2.7A1.3 1.3 0 0 1 14 3.3v9.4a1.3 1.3 0 0 1-1.3 1.3H10"/><path d="M6.7 11.3 10 8 6.7 4.7M10 8H2"/>')],
+  // An arrow that goes into a file: imports of uploaded data.
+  [FILE_IMPORTS_FILE, navIcon('<path d="M6.5 5.6V3.3A1.3 1.3 0 0 1 7.8 2h3.7L14 4.5v8.2a1.3 1.3 0 0 1-1.3 1.3H7.8a1.3 1.3 0 0 1-1.3-1.3v-2.3"/>'
+    + '<path d="M11.5 2v2.5H14M2 8h7.2M7 5.8 9.2 8 7 10.2"/>')],
+  // An arrow that goes out of one model and into another: imports of another model's object.
+  [MODEL_IMPORTS_FILE, navIcon('<path d="M5 2H3.3A1.3 1.3 0 0 0 2 3.3v9.4A1.3 1.3 0 0 0 3.3 14H5M11 2h1.7A1.3 1.3 0 0 1 14 3.3v9.4a1.3 1.3 0 0 1-1.3 1.3H11"/>'
+    + '<path d="M4.5 8h7M9.3 5.8 11.5 8l-2.2 2.2"/>')],
+  // An arrow within one model: imports of this model's own object.
+  [IN_MODEL_IMPORTS_FILE, navIcon('<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M4.6 8h6.4M8.8 5.8 11 8l-2.2 2.2"/>')],
   // A store of data.
   ["Import Data Sources.csv", navIcon('<path d="M2.2 3.7a5.8 2 0 1 0 11.6 0a5.8 2 0 1 0-11.6 0"/><path d="M2.2 3.7v8.6a5.8 2 0 0 0 11.6 0V3.7M2.2 8a5.8 2 0 0 0 11.6 0"/>')],
   // An arrow that goes out.
@@ -266,7 +275,8 @@ const entryIcon = (entry: NavEntry): string =>
  * order of Anaplan's Model settings (result-view.ts `MODEL_FILE_ORDER`), each group by the names the analysis writes its
  * files under, never by a table's words. Source Models stands in the bar on its own,
  * as does a file that no group names: none is left out. Each group's ID is the ID of its menu. The page's own words and
- * drawings only: nothing of a result. */
+ * drawings only: nothing of a result. Actions holds the three tables the page shows the Imports file as (import-files.ts)
+ * in the file's place, among its other tables: the file itself stands there where the page shows it as it stands. */
 export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[];
   subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
   { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
@@ -274,7 +284,8 @@ export const NAV_GROUPS: readonly { id: string; label: string; icon: string; fil
     subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
       { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
   { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE] },
-  { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions, files: ["Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
+  { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions,
+    files: ["Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
   { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
 ];
 
@@ -476,8 +487,9 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", links:
     ${overview.tiles.length ? `<div class="ov-grid">
       ${overview.tiles.map((tile: OverviewTile & Partial<CalendarTile>) => {
         // The table's icon, the one its entry of the navigation has, then its name, and under that the number of rows the
-        // table lists, without a word: only a screen reader is told that they are rows. A name too long for the tile ends
-        // in an ellipsis, and its title holds it whole. A file with no icon of its own has none here, and no stand-in.
+        // table lists, without a word: only a screen reader is told that they are rows. A name too long for one line of the
+        // tile goes on to a second, one too long for two ends in an ellipsis (results.css `.s-lab`), and its title holds it
+        // whole. A file with no icon of its own has none here, and no stand-in.
         // A Model Calendar says its current year in the number's place, and its kind under that: its title
         // holds it all, and a screen reader is told the same.
         const icon = FILE_ICONS.get(tile.file) ?? "";

@@ -558,7 +558,7 @@ describe("The results page's files", () => {
     expect([written.querySelectorAll(".d-dl dd .cell-list li .cell-t").length, written.querySelectorAll(".mini td .cell-list li .cell-t").length]).toEqual([2, 2]);
   });
 
-  it("makes every tile of the overview the same size: columns of one width, rows of one height, a name on one line, and no word under the number", () => {
+  it("makes every tile of the overview the same size: columns of one width, rows of one height, a name on two lines at most, and no word under the number", () => {
     const body = (name: string, selector: string) => rules(name).find(([found]) => found === selector)?.[1] ?? "";
     const [grid, tile, label, number] = [body(".ov-grid", ".ov-grid"), body(".stat", ".stat"), body(".s-lab", ".stat .s-lab"), body(".s-num", ".stat .s-num")];
     // A Model Calendar's current year, under its kind, keeps to one line as well, cut with an ellipsis: every row of tiles is
@@ -572,8 +572,12 @@ describe("The results page's files", () => {
     // Columns of one width, and every row as high as the highest: a tile never grows with its name or its number.
     expect([/grid-template-columns:repeat\(auto-fill,minmax\(\d+px,1fr\)\)/.test(grid), grid.includes("grid-auto-rows:1fr"), tile.includes("min-width:0"), tile.includes("height:100%")])
       .toEqual([true, true, true, true]);
-    // A name and a number keep to one line, cut with an ellipsis where they are too long; the line under the number is gone.
-    expect([["white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"].every(rule => label.includes(rule) && number.includes(rule)), rules(".s-sub").length]).toEqual([true, 0]);
+    // A name goes on to a second line where one is too short for it, as Model-to-Model Imports does in a narrow tile, and
+    // only a name too long for two lines is cut with an ellipsis: no other rule sets its display, which would undo the two
+    // lines. A number keeps to one line, cut with an ellipsis where it is too long; the line under the number is gone.
+    expect([["display:-webkit-box", "-webkit-box-orient:vertical", "-webkit-line-clamp:2", "overflow:hidden"].every(rule => label.includes(rule)), label.includes("nowrap"),
+      rules(".s-lab").filter(([, found]) => found.includes("display:")).length, ["white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"].every(rule => number.includes(rule)),
+      rules(".s-sub").length]).toEqual([true, false, 1, true, 0]);
   });
 
   it("stands a tile's name at its top left and its number at its bottom right, in large figures that are never cut, in a taller tile", () => {

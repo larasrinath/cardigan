@@ -48,8 +48,10 @@ The menu bar groups the model's tables:
     <tr><td>DCA (Dynamic Cell Access)</td><td>Read and write access drivers and what they control.</td></tr>
     <tr><td>Unused Line Items</td><td>Line items nothing Cardigan can see uses, each with why.</td></tr>
     <tr><td>Unused Modules</td><td>Modules that are empty, or whose line items are all unused.</td></tr>
-    <tr><td rowspan="5"><b>Actions</b></td><td>Processes</td><td>Processes and their actions.</td></tr>
-    <tr><td>Imports</td><td>Sources, targets and import settings.</td></tr>
+    <tr><td rowspan="7"><b>Actions</b></td><td>Processes</td><td>Processes and their actions.</td></tr>
+    <tr><td>File Imports</td><td>Imports of uploaded data: sources, targets and settings.</td></tr>
+    <tr><td>Model-to-Model Imports</td><td>Imports from another model's modules, saved views and lists.</td></tr>
+    <tr><td>In-Model Imports</td><td>Imports from this model's own modules, saved views and lists.</td></tr>
     <tr><td>Data Sources</td><td>Import sources and the imports that use them.</td></tr>
     <tr><td>Exports</td><td>Export actions and their settings.</td></tr>
     <tr><td>Other Actions</td><td>Other model actions, such as deleting or ordering list items.</td></tr>
@@ -64,7 +66,7 @@ The menu bar groups the model's tables:
 
 ![Line Items with Format type open, No Data unticked and the tick-all checkbox inside Find](docs/images/model-line-items.png)
 
-**Imports** shows where data comes from and where it goes. Each row's **Mapping** shows the import's saved definition, from a file, a module, a saved view or a list. An import into a module reads like Anaplan's import dialog: its clear setting, its dimensions in the dialog's order, then its line items. A file import also shows its file options. Cardigan reads the saved definitions, never the uploaded file.
+**File Imports**, **Model-to-Model Imports** and **In-Model Imports** show where data comes from and where it goes. Each row's **Mapping** shows the import's saved definition, from a file, a module, a saved view or a list. An import into a module reads like Anaplan's import dialog: its clear setting, its dimensions in the dialog's order, then its line items. A file import also shows its file options. Cardigan reads the saved definitions, never the uploaded file.
 
 ![Load promotions file import with its saved Mapping open](docs/images/model-imports.png)
 

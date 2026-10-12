@@ -486,6 +486,9 @@ const choose = (nav: string) => {
 };
 /** Opens one of the result's tables from the navigation, by its place among the result's files. */
 const goTo = (table: number) => choose(String(table));
+/** Opens one of the page's tables from the navigation by the words of its entry: one of the three tables the page shows a
+ * model's Imports file as has a place of its own, after the result's files (import-tables.ts). */
+const goToNamed = (label: string) => choose(page.all("#navList .nav-item").find(item => item.querySelector("span")?.textContent === label)?.dataset.nav ?? "");
 /** What an entry of the navigation says: its words. Its icon is a drawing, which says nothing. */
 const entryLabel = (item: FakeElement): string => item.querySelector("span")?.textContent ?? "";
 /** The navigation's entries of the result's tables: those named by the table's place in the result, a number. The
@@ -2317,10 +2320,11 @@ describe("What a click, a key and typing do on the results page", () => {
   it("filters a column of dates by whole days, as a box for dates gives them, and says that the column's times are UTC", async () => {
     const DATED: AnalysisResult = { ...MODEL, summary: ["Imports: 3 rows"], tables: [MODEL.tables[0], { file: "Imports.csv", label: "Imports",
       headers: ["", "Start Date and Time (UTC)", "Source Type"], guard: false, rows: [["Load", "2026-03-12 23:19:56", "MODEL"], ["Sort", "2026-03-13 00:00:01", "MODEL"], ["Copy", "", "MODEL"]] }] };
-    // The viewer chose UTC, in which the file's times stand as they were read.
+    // The viewer chose UTC, in which the file's times stand as they were read. A Source Type that names no model's object
+    // is not told, and its imports are listed in Model-to-Model Imports (import-tables.ts).
     stored.set(TIMES_KEY, "utc");
     await openWith(DATED);
-    goTo(1);
+    goToNamed("Model-to-Model Imports");
     page.find('[data-colfilter="1"]').press();
     const from = page.find("#popover [data-rfrom]");
     expect([from.getAttribute("type"), from.getAttribute("min"), from.getAttribute("max"), page.find("#rangeHint").textContent.trim()]).toEqual(["date", "2026-03-12", "2026-03-13",
@@ -2559,7 +2563,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([mapBuilds.length, mapBuilds[0].tables, sources.rows[0]]).toEqual([1, WITH_SOURCES.tables, ["Finance Hub (old)", FINANCE]]);
   });
 
-  it("shows a model's Imports with Source Object as three columns, the source's model, module and saved view; the row's drawer has Source Object as it was read, and the map the file as it is", async () => {
+  it("shows a model's imports of models' objects with Source Object as four columns, the source's model, module, saved view and list; the row's drawer has Source Object as it was read, and the map the file as it is", async () => {
     // An Imports file as the export writes it: the Imports tab's columns, then the Actions list's. One import reads a saved
     // view of another model, one a saved view of this model's own module, and one a list of another model.
     const HUB = "M0 Data Hub [DEV] / 'HRY01 ORG Hierarchy Builder'.'DATA & LIST: ORG3 Area'";
@@ -2570,31 +2574,41 @@ describe("What a click, a key and typing do on the results page", () => {
         ["Products from the hub", "Hub / Products", "Hub / Products", "LIST", "Products", "LIST", "Nightly load"]] };
     const WITH_IMPORTS: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Imports: 3 rows"], tables: [...BLUEPRINT.tables, imports] };
     await openWith(WITH_IMPORTS);
-    // The tile counts every row of the file: the table lists them all.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent)).at(-1)).toEqual(["Imports", "3", "rows"]);
+    // The tiles count every row of the file between them: two imports of another model's objects, one of this model's own,
+    // and none of uploaded data, which has no tile.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent)).slice(-2))
+      .toEqual([["Model-to-Model Imports", "2", "rows"], ["In-Model Imports", "1", "row"]]);
 
-    goTo(3);
-    // Three columns in the place of Source Object. An import from this model's own module names this model; a list is no
-    // module, and its Source Object stands as it is, which the line under the table's name says.
-    expect(headings()).toEqual(["Name", "Source Type", "Source Label", "Source Model", "Source Module", "Saved View", "Target Type", "Target Object", "Used in Processes"]);
-    expect([column("Source Model"), column("Source Module"), column("Saved View")]).toEqual([["M0 Data Hub [DEV]", "Model one", "Hub / Products"],
-      ["HRY01 ORG Hierarchy Builder", "SYS ORG1 Campus #", ""], ["DATA & LIST: ORG3 Area", "DATA: SYS ORG1 Campus # (Reset)", ""]]);
-    expect(page.texts("#view .view-note")).toEqual(["1 row has a Source Object that is not a module or a saved view: its text stands as it is under Source Model."]);
+    goToNamed("Model-to-Model Imports");
+    // Four columns in the place of Source Object. A list is named under Source List, behind its model.
+    expect(headings()).toEqual(["Name", "Source Model", "Source Module", "Saved View", "Source List", "Source Type", "Target Type", "Target Object", "Used in Processes"]);
+    expect([column("Source Model"), column("Source Module"), column("Saved View"), column("Source List")]).toEqual([["M0 Data Hub [DEV]", "Hub"],
+      ["HRY01 ORG Hierarchy Builder", ""], ["DATA & LIST: ORG3 Area", ""], ["", "Products"]]);
+    expect(page.texts("#view .view-note")).toEqual([]);
     // A column of names offers a filter by them, as any column of few texts does.
     page.find('[data-colfilter="2"]').press();
-    expect(choices()).toEqual([["Hub / Products", "1", true], ["M0 Data Hub [DEV]", "1", true], ["Model one", "1", true]]);
+    expect(choices()).toEqual([["Hub", "1", true], ["M0 Data Hub [DEV]", "1", true]]);
     page.key("Escape");
 
-    // The row's drawer: the three columns, then Source Object as it was read, once, under the file's own name for it.
+    // The row's drawer: the four columns, then Source Object as it was read, once, under the file's own name for it.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt").slice(3, 6), page.all("#drawerBody dd").map(value => value.textContent).slice(3, 6)])
-      .toEqual([["Source Model", "Source Module", "Saved View"], ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area"]]);
+    expect([page.texts("#drawerBody dt").slice(1, 5), page.all("#drawerBody dd").map(value => value.textContent).slice(1, 5)])
+      .toEqual([["Source Model", "Source Module", "Saved View", "Source List"], ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area", ""]]);
     expect(page.texts("#drawerBody .d-raw dd")).toEqual([HUB]);
     page.key("Escape");
-    // The list's import has nothing that was read in words, and so nothing as read.
-    page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.texts("#drawerBody dt").slice(3, 7), page.all("#drawerBody dd").map(value => value.textContent).slice(3, 7)])
-      .toEqual([["Source Model", "Source Module", "Saved View", "Target Type"], ["Hub / Products", "", "", "LIST"]]);
+    // The list's import: its model and its list, and the cell as it was read.
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect([page.texts("#drawerBody dt").slice(1, 7), page.all("#drawerBody dd").map(value => value.textContent).slice(1, 7)])
+      .toEqual([["Source Model", "Source Module", "Saved View", "Source List", "Source Type", "Target Type"], ["Hub", "", "", "Products", "LIST", "LIST"]]);
+    expect(page.texts("#drawerBody .d-raw dd")).toEqual(["Hub / Products"]);
+    page.key("Escape");
+
+    // This model's own: Source Model, which is this model in every row, starts hidden, and stays in the drawer.
+    goToNamed("In-Model Imports");
+    expect([headings(), column("Source Module")]).toEqual([["Name", "Source Module", "Saved View", "Source List", "Source Type", "Target Type", "Target Object", "Used in Processes"],
+      ["SYS ORG1 Campus #"]]);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.texts("#drawerBody dt")).toContain("Source Model");
     page.key("Escape");
 
     // The model map is handed the result's own tables, in which Source Object is as the export wrote it.
@@ -6805,7 +6819,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
 
   it("starts the details of an import from a file with its mapping, before All details: each source with the target it feeds, then the targets nothing feeds and the columns it does not use", async () => {
     await openWith(WITH_MAPPINGS);
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Division from HQ Network.csv");
     expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["Mapping", "All details"]]);
     // The import's file is no longer available, and its mapping is shown all the same: the mapping is the import's own.
@@ -6820,8 +6834,9 @@ describe("The mapping of an import from a file, in its row's details", () => {
     expect(mapping()).toEqual([[["Product", "Products"], ["Price", "Price"], ["Constant: Actual", "Versions"], ["Header row: each column whose header is a line item's name or code", "Line Items"]],
       ["Column 1 is used."]]);
     page.key("Escape");
-    // An import from another model has no mapping in a result whose mappings are of imports from a file alone, as an
-    // earlier version kept them: its details say to run again, which reads it.
+    // An import from another model, in its own table, has no mapping in a result whose mappings are of imports from a file
+    // alone, as an earlier version kept them: its details say to run again, which reads it.
+    goToNamed("Model-to-Model Imports");
     openImport("Regions from the hub");
     expect([sections(), mapping()]).toEqual([["Mapping", "All details"], [[], ["Cardigan has no mapping for this import: choose Run again to read it."]]]);
     page.key("Escape");
@@ -6837,7 +6852,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     const BY_PROPERTIES: ImportMapping = { ...MAPPINGS[0], matchedBy: { by: "properties", properties: ["Manager"], numbered: true },
       targets: [{ target: "Division", source: "numbered" }, { target: "Parent", source: "none" }, { target: "Manager", source: "column", text: "Manager" }] };
     await openWith({ ...WITH_MAPPINGS, importMappings: [BY_PROPERTIES, MAPPINGS[1]] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Division from HQ Network.csv");
     expect(mapping()).toEqual([[["Manager", "Manager"]],
       ["Items uniquely identified by: Combination of properties: Manager.", "Not mapped: Division (the list numbers its items itself) and Parent.",
@@ -6858,7 +6873,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
       { target: "Time", source: "constant", text: "Mar 26" }, { target: "Missing line item (ID 3130054)", source: "column", column: 2 },
       { target: "Line Items", source: "headerRow" }], headers: [{ header: "Display share", lineItem: "Missing line item (ID 6180093)" }] };
     await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], MISSING] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Prices from prices.csv");
     expect(mapping()).toEqual([[["Product", "Products"], ["Column 2", "Missing line item (ID 3130054)"], ["Constant: Mar 26", "Time"],
       ["Header row: each line item from the header mapped to itDisplay share to Missing line item (ID 6180093)", "Line Items"]],
@@ -6875,7 +6890,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
   it("shows no mapping for a result an earlier version kept, which has none", async () => {
     const { importMappings: _mappings, ...earlier } = WITH_MAPPINGS;
     await openWith(earlier);
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Division from HQ Network.csv");
     expect(sections()).toEqual(["All details"]);
   });
@@ -6885,7 +6900,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await letKeep();
     await open("?tab=42");
     await eventually(() => page.document.title === `Cardigan - ${WITH_MAPPINGS.name}`, "the result to come back");
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Prices from prices.csv");
     expect([sections(), mapping()[0][0]]).toEqual([["Mapping", "All details"], ["Product", "Products"]]);
   });
@@ -6893,7 +6908,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
   it("says why there is no mapping to show: one that could not be read, or an import of another kind", async () => {
     const NOT_READ = "Cardigan could not read this import's mapping: the model did not give the imports' definitions. The diagnostic log says why.";
     await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], importType: "", targets: [], note: NOT_READ }, { ...MAPPINGS[1], importType: "USERS", targets: [] }] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Division from HQ Network.csv");
     expect([sections(), mapping()]).toEqual([["Mapping", "All details"], [[], [NOT_READ]]]);
     expect(page.has("#drawerMapping table")).toBe(false);
@@ -6904,7 +6919,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
 
   it("says that it has none for an import the result's mappings do not hold, and to run again", async () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[1]] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Division from HQ Network.csv");
     expect(mapping()).toEqual([[], ["Cardigan has no mapping for this import: choose Run again to read it."]]);
   });
@@ -6918,7 +6933,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     const withPrices = (table: ResultTable): ResultTable => (table.file !== "Line Items.csv" ? table : { ...table, rows: [...table.rows, ["PRI01 Prices", "", "", "", "Products", "", "", ""],
       ...["Cost", "Hours", "Rate", "Start", "End", "Notes", "Active"].map(name => [name, NUMBER, "", SUM, "-", "PRI01 Prices", "", ""])] });
     await openWith({ ...WITH_MAPPINGS, tables: WITH_MAPPINGS.tables.map(withPrices), importMappings: [MAPPINGS[0], MATCHED] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Prices from prices.csv");
     // The line under a source stands in its cell; the header row's names the first five line items, and opens to all.
     expect(page.texts("#drawerMapping span.m-note")).toEqual(["2 items mapped manually, 1 ignored", "Period format: MMM YY"]);
@@ -6930,7 +6945,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
   it("lists stored headers under the header row, each with its line item or Ignored", async () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], { ...MATCHED, targets: [{ target: "Line Items", source: "headerRow", items: { byHand: 1, ignored: 1 } }],
       headers: [{ header: "Cost (EUR)", lineItem: "Cost" }, { header: "Comment" }] }] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Prices from prices.csv");
     expect(mapping()[0]).toEqual([["Header row: each line item from the header mapped to itCost (EUR) to CostComment: Ignored", "Line Items"]]);
     expect(page.texts("#drawerMapping .cell-list li")).toEqual(["Cost (EUR) to Cost", "Comment: Ignored"]);
@@ -6940,7 +6955,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
   it.each([15, 16])("lists %i hand mappings with the same fold as other long details lists", async count => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], { ...MATCHED, targets: [{ target: "Line Items", source: "headerRow" }],
       headers: Array.from({ length: count }, (_, index) => ({ header: `Header ${index + 1} ${TAG}`, lineItem: `Line item ${index + 1} ${TAG}` })) }] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Prices from prices.csv");
     expect(page.texts("#drawerMapping .cell-list li")).toEqual(Array.from({ length: count }, (_, index) => `Header ${index + 1} ${TAG} to Line item ${index + 1} ${TAG}`));
     expect(strayImg()).toBe(false);
@@ -6970,7 +6985,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     // The File line's label is Anaplan's own word for an import's File Options, as the page shows it, and the model's.
     theirs = /\bFILE\b|^File$|HQ Network\.csv|prices\.csv|The uploaded file is no longer available; please upload the file again/g;
     await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], sourceType: "FILE" }, HUB, PRICES] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Prices from prices.csv");
     const table = (kind: string) => [page.texts(`#drawerMapping table.${kind} th`), page.all(`#drawerMapping table.${kind} tbody tr`).map(row => row.children.map(cell => cell.textContent))];
     expect([sections(), page.texts("#drawerMapping .m-clear"), page.texts("#drawerMapping p")]).toEqual([["Mapping", "All details"], ["Clear target prior to import"],
@@ -6984,7 +6999,8 @@ describe("The mapping of an import from a file, in its row's details", () => {
     const order = ["Clear target prior to import", "Header row 1", "<table", "Line items (3)", "Each column mapped"].map(words => html.indexOf(words));
     expect([order.every(at => at >= 0), order.every((at, index) => index === 0 || at > order[index - 1]), strayImg()]).toEqual([true, true, false]);
     page.key("Escape");
-    // The import of a saved view names the object it reads in the File line's place, as its row names it.
+    // The import of a saved view, in its own table, names the object it reads in the File line's place, as its row names it.
+    goToNamed("Model-to-Model Imports");
     openImport("Regions from the hub");
     expect(mapping()).toEqual([[["Region", "+ Regions"]], ["Source Model: Hub · Module: LIST - Regions · Saved view: Export"]]);
     expect(page.has("#drawerMapping .m-clear")).toBe(false);
@@ -7011,7 +7027,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     "shows a list whose items are mapped manually in the dimensions table, with its count words, and no section of its items, in a result kept by %s, through a refresh too",
     async (_by, kept) => {
       await openWith({ ...WITH_MAPPINGS, ...kept });
-      goTo(3);
+      goToNamed("File Imports");
       openImport("Prices from prices.csv");
       const shown = () => {
         // Time first, as the dialog lists it; the list with how many of its items are mapped manually and ignored; then the
@@ -7030,7 +7046,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
       await letKeep();
       await open("?tab=42");
       await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
-      goTo(3);
+      goToNamed("File Imports");
       openImport("Prices from prices.csv");
       shown();
     });
@@ -7038,7 +7054,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
   it("writes every name, heading and value of a mapping as text", async () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], targets: [{ target: `Division ${TAG}`, source: "column", column: 1, text: `Name ${TAG}` },
       { target: "Parent", source: "constant", text: TAG }, { target: "Code", source: "other", text: TAG }] }] });
-    goTo(3);
+    goToNamed("File Imports");
     openImport("Division from HQ Network.csv");
     expect([strayImg(), mapping()[0]]).toEqual([false, [[`Name ${TAG}`, `Division ${TAG}`], [`Constant: ${TAG}`, "Parent"], [`A source Cardigan does not know (${TAG})`, "Code"]]]);
   });
@@ -7079,9 +7095,10 @@ describe("The actions of a process, in its row's details", () => {
     expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["Actions (3)", "All details"]]);
     expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Prices from the hub", "Import"], ["2", "1.1 Load regions", "Import"], ["3", "Delete old items", "Other action"]], []]);
     expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
-    // An action's name opens its row of its own table, as a click on that row does.
+    // An action's name opens its row of its own table, as a click on that row does: an import's, the one of the three
+    // tables of imports that holds it (import-tables.ts), here that of an import from a saved view whose model is not known.
     page.all('#drawerSteps [data-act="step"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Imports", ["All details"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Model-to-Model Imports", ["All details"]]);
     page.key("Escape");
     openProcess("Nightly load");
     page.all('#drawerSteps [data-act="step"]')[2].press();
@@ -7100,7 +7117,7 @@ describe("The actions of a process, in its row's details", () => {
     expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["Actions (0)", "All details"], [[], [], ["This process runs no action."]], false]);
     page.key("Escape");
     // A row of another table has no actions to list, though it names a process.
-    goTo(4);
+    goToNamed("Model-to-Model Imports");
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(sections()).toEqual(["All details"]);
   });
@@ -7208,13 +7225,14 @@ describe("What a source model gives, in its row's details", () => {
     expect([page.texts("#drawerSources th"), rows("drawerSources"), page.texts("#drawerSources p")])
       .toEqual([["Source", "Kind"], [["SYS02 Products", "Saved view"], ["DAT01 Demand", "Module"]], []]);
     expect([page.texts("#drawerSourceImports th"), rows("drawerSourceImports")]).toEqual([["Import", "Reads"], [["IMP01 Products", "SYS02 Products"], ["IMP02 Demand", "DAT01 Demand"]]]);
-    // An object opens its row of Import Data Sources; an import its row of Imports.
+    // An object opens its row of Import Data Sources; an import its row in the table of imports that holds it: one of
+    // another model's object, Model-to-Model Imports.
     page.all('#drawerSources [data-act="item"]')[1].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Data Sources"]);
     page.key("Escape");
     openSource(DEMAND);
     page.all('#drawerSourceImports [data-act="item"]')[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["IMP01 Products", "Imports"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["IMP01 Products", "Model-to-Model Imports"]);
   });
 
   it("shows no empty section for a source model no table names, and the log says so once", async () => {
@@ -7745,7 +7763,8 @@ describe("How a result was looked at, kept through a refresh of the page until t
 
 describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the header says", () => {
   /** A model whose Imports have started at these moments, UTC as Anaplan writes them, and whose export was made at 14:02
-   * UTC. The viewer's clock is Japan's, nine hours ahead (`fixTimeZone`). */
+   * UTC. The viewer's clock is Japan's, nine hours ahead (`fixTimeZone`). Their Source Type names no model's object, so
+   * the page lists them in Model-to-Model Imports (import-tables.ts), the third of its tables after the result's two. */
   const TIMED: AnalysisResult = { ...MODEL, summary: ["Imports: 4 rows"], tables: [
     { ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Export", "Exported on", "2026-10-03 14:02 UTC"]] },
     { file: "Imports.csv", label: "Imports", headers: ["", "Start Date and Time (UTC)", "Source Type"], guard: false,
@@ -7781,7 +7800,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     // Neither the header nor the overview says when the export was made.
     expect(page.id("hdMeta").textContent).not.toContain("Exported");
     expect(about()).toEqual([[["Model", "Model one"]], false]);
-    goTo(1);
+    goToNamed("Model-to-Model Imports");
     expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Source Type", "Start Date and Time (Asia/Tokyo)"],
       ["2026-03-13 08:19:56", "2026-03-13 09:00:01", "2026-03-14 05:00:00", ""]]);
     // The search finds a time as it is shown, and not as it was read.
@@ -7810,7 +7829,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
 
   it("says each time in UTC once the viewer chooses it, keeps the choice for the next page, and back again", async () => {
     await openWith(TIMED);
-    goTo(1);
+    goToNamed("Model-to-Model Imports");
     page.find('[data-sort="1"]').press();
     switchZone();
     // The table shown is said anew, as the file has it, in the order it had; the pill follows.
@@ -7830,7 +7849,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     const port = ports[ports.length - 1];
     port.send({ type: "subject", subject: { kind: "app", id: TIMED.id } });
     sendResult(port, TIMED);
-    goTo(1);
+    goToNamed("Model-to-Model Imports");
     expect([zone(), headings()[2]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
     // And Local takes them back to the viewer's clock.
     switchZone();
@@ -7841,7 +7860,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
   it("keeps the rows a range of days kept, in the zone its days were set in, whichever zone the times are shown in, through a refresh too", async () => {
     await openWith(TIMED);
     await letKeep();
-    goTo(1);
+    goToNamed("Model-to-Model Imports");
     // Local days: the 13th by the viewer's clock holds Load and Sort, and Late is the 14th's. The cells that say nothing stay.
     rangeTo("2026-03-13", "2026-03-13");
     expect(firstCells()).toEqual(["Load", "Sort", "Copy"]);
@@ -7856,9 +7875,9 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     // The tab keeps the range under the column's name as the file has it, with its zone.
     vi.advanceTimersByTime(1000);
     expect((JSON.parse(session.held.get(VIEW_KEY) ?? "{}") as { tables: unknown }).tables).toEqual({
-      "Imports.csv": { ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "2026-03-13", blanks: true, zone: "Asia/Tokyo" } } } });
+      "Model-to-Model Imports.csv": { ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "2026-03-13", blanks: true, zone: "Asia/Tokyo" } } } });
     // After a refresh, in UTC as chosen, the range keeps the same rows.
-    await open("?tab=42#1");
+    await open("?tab=42#3");
     await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
     expect([headings()[2], firstCells()]).toEqual(["Start Date and Time (UTC)", ["Load", "Sort", "Copy"]]);
     // Days set in UTC are UTC days: the 13th there is Sort's and Late's.
@@ -7872,9 +7891,220 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
   it("says local times where the browser's storage cannot be read, and switches all the same, keeping nothing", async () => {
     storeRefuses = new Error("The storage is not available.");
     await openWith(TIMED);
-    goTo(1);
+    goToNamed("Model-to-Model Imports");
     expect([zone(), headings()[2]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
     switchZone();
     expect([zone(), headings()[2], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
+  });
+});
+
+describe("A model's imports in the three tables of their kinds, on the page", () => {
+  const ORIGIN = "https://us1a.app.anaplan.com";
+  const CUSTOMER = "5555eeee6666ffff7777aaaa8888bbbb";
+  const WORKSPACE = "4444cccc5555dddd6666eeee7777ffff";
+  const refreshed = "?tab=42";
+  const back = (name: string) => eventually(() => page.document.title === `Cardigan - ${name}`, "the result to come back");
+  /** Lets the page write how its result is looked at, which it does a moment after the last change. */
+  const letLooksKeep = () => vi.advanceTimersByTime(1000);
+  const looksKept = (): { tables: Record<string, unknown> } => JSON.parse(session.held.get(VIEW_KEY) ?? '{"tables":{}}') as { tables: Record<string, unknown> };
+  /** A model's Imports as the export writes them, of every kind: uploaded data; two imports of one name and Source Type,
+   * one of another model's module and one of this model's; and a list of another model and one of this model's. Every
+   * name and ID is made up. */
+  const IMPORTS: ResultTable = { file: "Imports.csv", label: "Imports", guard: false,
+    headers: ["", "Source Label", "Source Object", "Source Type", "Target Object", "Target Type", "Production Data", "Notes", "Used in Processes", "Used in Dashboards"], rows: [
+      ["Load prices", "prices.csv", "-", "FILE", "PRI01 Prices", "MODULE", "true", "From the pricing team", "Nightly load", ""],
+      ["Load costs", "Hub / Costs", "Hub / 'COS01 Costs'", "MODULE", "COST01 Costs", "MODULE", "false", "", "", ""],
+      ["Load costs", "COS02 Costs", "'COS02 Costs'", "MODULE", "COST01 Costs", "MODULE", "false", "", "", ""],
+      ["Hub products", "Hub / Products", "Hub / Products", "LIST", "Products", "LIST", "false", "", "Nightly load", ""],
+      ["Copy regions", "Regions", "'Regions'", "LIST", "Regions", "LIST", "false", "", "Weekly load", ""]] };
+  /** Each import's mapping, as this version's export reads it: of an import of a model's object, whether its data source
+   * is this model's. */
+  const MAPPINGS: ImportMapping[] = [
+    { id: "112000000001", name: "Load prices", sourceType: "FILE", importType: "MODULE_DATA", targets: [{ target: "Price", source: "column", column: 1, text: "Price" }] },
+    { id: "112000000002", name: "Load costs", sourceType: "MODULE", importType: "MODULE_DATA", sourceInThisModel: false, targets: [{ target: "Cost", source: "column", text: "Hub cost" }] },
+    { id: "112000000003", name: "Load costs", sourceType: "MODULE", importType: "MODULE_DATA", sourceInThisModel: true, targets: [{ target: "Cost", source: "column", text: "Own cost" }] },
+    { id: "112000000004", name: "Hub products", sourceType: "LIST", importType: "HIERARCHY_DATA", sourceInThisModel: false, targets: [{ target: "Products", source: "column", text: "Product" }] },
+    { id: "112000000005", name: "Copy regions", sourceType: "LIST", importType: "HIERARCHY_DATA", sourceInThisModel: true, targets: [{ target: "Regions", source: "column", text: "Region" }] }];
+  const PROCESSES: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers: ["", "Notes"], rows: [["Nightly load", ""], ["Weekly load", ""]] };
+  const PROCESS_ACTIONS: ProcessActions[] = [
+    { id: "118000000001", name: "Nightly load", actions: [{ id: "112000000001", name: "Load prices", type: "IMPORT" }, { id: "112000000004", name: "Hub products", type: "IMPORT" }] },
+    { id: "118000000002", name: "Weekly load", actions: [{ id: "112000000005", name: "Copy regions", type: "IMPORT" }, { id: "112000000003", name: "Load costs", type: "IMPORT" }] }];
+  const SOURCES: ResultTable = { file: "Import Data Sources.csv", label: "Import Data Sources", guard: false, headers: ["", "Source Type", "Source Model", "Source Object Name", "Imports"],
+    rows: [["prices.csv", "FILE", "", "prices.csv", "Load prices"], ["Hub / Products", "LIST", "Hub", "Products", "Hub products"], ["Regions", "LIST", "Model one", "Regions", "Copy regions"]] };
+  const SOURCE_MODELS: ResultTable = { file: "Source Models.csv", label: "Source Models", guard: false, headers: ["", "Sources", "Imports"], rows: [["Hub", "1", "1"]] };
+  const BUTTON: Record<string, Cell> = { "Model action name": "Copy regions", "Action type": "Import", App: "Planning", Page: "Regions board", "Button label": "Copy the regions" };
+  const PAGE_ACTIONS: ResultTable = { file: PAGE_ACTIONS_FILE, label: "Page Actions", guard: true, headers: [...PAGE_ACTIONS_HEADERS],
+    rows: [PAGE_ACTIONS_HEADERS.map(header => BUTTON[header] ?? NONE)] };
+  /** BLUEPRINT with its workspace's ID, which the Model button opens Model Building by, and all of the above: its Imports
+   * file fifth among its eight tables, so that the three tables of imports are the page's ninth to eleventh. */
+  const RESULT: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Processes: 2 rows", "Imports: 5 rows", "Import Data Sources: 3 rows", "Source Models: 1 rows"],
+    tables: [{ ...BLUEPRINT.tables[0], rows: [...BLUEPRINT.tables[0].rows, ["Model", "Workspace ID", WORKSPACE]] }, ...BLUEPRINT.tables.slice(1), PROCESSES, IMPORTS, SOURCES,
+      SOURCE_MODELS, PAGE_ACTIONS], importMappings: MAPPINGS, processActions: PROCESS_ACTIONS };
+  const [FILES, MODELS, IN_MODEL] = [8, 9, 10];
+  /** Opens the page on the model as a model the tab shows in Model Building, and lets it keep the result for a refresh. */
+  const openModel = async (result: AnalysisResult = RESULT) => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: result.id, origin: ORIGIN, customer: CUSTOMER } });
+    sendResult(ports[0], result);
+    await letKeep();
+  };
+  const said = () => [page.id("drawerTitle").textContent, page.id("drawerSub").textContent];
+  const openRow = (name: string) => page.all("#tableWrap tbody tr").find(row => row.children[0].textContent.trim() === name)!.querySelector('[data-act="row"]')!.press();
+  const mapping = () => [page.all("#drawerMapping tbody tr").map(row => row.children.map(cell => cell.textContent)), page.texts("#drawerMapping p")];
+  const opens = () => page.all("#drawerOpens button").map(button => [button.textContent.trim(), button.title]);
+  const items = () => page.all('#drawerBody [data-act="item"]');
+  const tiles = () => page.all("#view .stat").map(tile => tile.children.map(child => child.textContent)).filter(([label]) => label.endsWith("Imports"));
+  /** The lines of the run's log that say how the imports were placed, as the page's button beside a run copies that log. */
+  const placedLines = async () => {
+    const copy = page.document.createElement("button");
+    copy.dataset.act = "copy-run-log";
+    page.document.body.append(copy);
+    copy.press();
+    await settle();
+    copy.remove();
+    return (copied.at(-1) ?? "").split("\n").filter(line => line.includes("Import tables:")).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+  };
+
+  beforeEach(() => {
+    // The model's own words, which the page shows as it read them: a Source Type, and the name of the file an import reads.
+    theirs = /\bFILE\b|prices\.csv/g;
+  });
+
+  it("lists each import in the table of its kind, the three in the Imports file's place in Actions, each with its tile and its place", async () => {
+    await openModel();
+    const actions = page.find("#navGroupActions");
+    // No heading: the three stand among Actions' other tables, at their indent, each named by a place of its own.
+    expect([actions.querySelectorAll(".nav-heading").length, actions.querySelectorAll(".nav-item").map(item => [entryLabel(item), item.dataset.nav, item.parentElement === actions])])
+      .toEqual([0, [["Processes", "3", true], ["File Imports", String(FILES), true], ["Model-to-Model Imports", String(MODELS), true],
+        ["In-Model Imports", String(IN_MODEL), true], ["Data Sources", "5", true]]]);
+    expect(tiles()).toEqual([["File Imports", "1", "row"], ["Model-to-Model Imports", "2", "rows"], ["In-Model Imports", "2", "rows"]]);
+    // A tile opens its table, as an entry does.
+    page.all("#view .stat").find(tile => tile.children[0].textContent === "In-Model Imports")!.press();
+    expect([page.texts("#view h1"), firstCells(), page.id("live").textContent]).toEqual([["In-Model Imports"], ["Load costs", "Copy regions"], "In-Model Imports: 2 rows"]);
+    // The bar's Actions button names the table shown, and a refresh comes back to it by its place.
+    expect(entryLabel(page.find('#navList [aria-controls="navGroupActions"]'))).toBe("In-Model Imports");
+    await open(`${refreshed}#${IN_MODEL}`);
+    await back("Model one");
+    expect([page.texts("#view h1"), firstCells()]).toEqual([["In-Model Imports"], ["Load costs", "Copy regions"]]);
+  });
+
+  it("opens each table's rows in full: the details name the table, the Mapping is the import's own, found by the whole file, and Model opens the Actions page", async () => {
+    await openModel();
+    goTo(FILES);
+    openRow("Load prices");
+    expect([said(), page.texts("#drawerBody h3"), mapping(), opens()]).toEqual([["Load prices", "File Imports"], ["Mapping", "All details"],
+      [[["Price", "Price"]], ["Column 1 is used."]], [["Model", "Open Actions in Model Building"]]]);
+    page.key("Escape");
+    // Two imports of one name and Source Type, each in its own table, each with its own mapping: this model's is the first
+    // of its table and the second of the file.
+    goTo(MODELS);
+    openRow("Load costs");
+    expect([said(), mapping(), opens()]).toEqual([["Load costs", "Model-to-Model Imports"], [[["Hub cost", "Cost"]], ["Source Model: Hub · Module: COS01 Costs"]],
+      [["Model", "Open Actions in Model Building"]]]);
+    page.key("Escape");
+    goTo(IN_MODEL);
+    openRow("Load costs");
+    expect([said(), mapping(), opens()]).toEqual([["Load costs", "In-Model Imports"], [[["Own cost", "Cost"]], ["Source Model: Model one · Module: COS02 Costs"]],
+      [["Model", "Open Actions in Model Building"]]]);
+    page.key("Escape");
+    // A list of this model's names the list it reads; Source Model, this model, starts hidden in the table and is in the
+    // details with every other column.
+    openRow("Copy regions");
+    expect([said(), mapping()]).toEqual([["Copy regions", "In-Model Imports"], [[["Region", "Regions"]], ["Source Model: Model one · List: Regions"]]]);
+    expect(page.texts("#drawerBody dt")).toEqual(expect.arrayContaining(["Source Model", "Source List", "Source Label", "Production Data"]));
+  });
+
+  it("opens an import from a process's actions, a data source's imports, a source model's imports and a page's button, each in the table that holds it", async () => {
+    await openModel();
+    // A process's actions: each import opens in its own table. Two imports of one name are not told apart, and stay text.
+    goTo(3);
+    openRow("Nightly load");
+    expect(page.all('#drawerSteps [data-act="step"]').map(link => link.textContent)).toEqual(["Load prices", "Hub products"]);
+    page.all('#drawerSteps [data-act="step"]')[0].press();
+    expect(said()).toEqual(["Load prices", "File Imports"]);
+    page.id("drawerBack").press();
+    page.all('#drawerSteps [data-act="step"]')[1].press();
+    expect(said()).toEqual(["Hub products", "Model-to-Model Imports"]);
+    page.key("Escape");
+    openRow("Weekly load");
+    expect(page.all('#drawerSteps [data-act="step"]').map(link => link.textContent)).toEqual(["Copy regions"]);
+    page.all('#drawerSteps [data-act="step"]')[0].press();
+    expect(said()).toEqual(["Copy regions", "In-Model Imports"]);
+    page.key("Escape");
+    // A data source's imports.
+    goTo(5);
+    openRow("prices.csv");
+    items().find(item => item.textContent === "Load prices")!.press();
+    expect(said()).toEqual(["Load prices", "File Imports"]);
+    page.key("Escape");
+    // A source model's imports.
+    goTo(6);
+    openRow("Hub");
+    page.all('#drawerSourceImports [data-act="item"]')[0].press();
+    expect(said()).toEqual(["Hub products", "Model-to-Model Imports"]);
+    page.key("Escape");
+    // A page's button that runs an import.
+    goTo(7);
+    openRow("Copy regions");
+    items().find(item => item.textContent === "Copy regions")!.press();
+    expect(said()).toEqual(["Copy regions", "In-Model Imports"]);
+    // And an import's own Used in Processes opens the process.
+    items().find(item => item.textContent === "Weekly load")!.press();
+    expect(said()).toEqual(["Weekly load", "Processes"]);
+  });
+
+  it("keeps each table's search, columns and sort apart, through a refresh, and lets the settings an earlier version kept of the one Imports table go", async () => {
+    await openModel();
+    goTo(FILES);
+    page.id("tblSearch").type("prices");
+    goTo(MODELS);
+    page.find('[data-sort="0"]').press();
+    expect(firstCells()).toEqual(["Hub products", "Load costs"]);
+    goTo(IN_MODEL);
+    // Each table has its own: no search and no order here.
+    expect([page.id("tblSearch").value, firstCells()]).toEqual(["", ["Load costs", "Copy regions"]]);
+    letLooksKeep();
+    expect(looksKept().tables).toEqual({ "File Imports.csv": { search: "prices" }, "Model-to-Model Imports.csv": { sort: { column: "Name", dir: "asc" } } });
+    // An earlier version's settings of the one Imports table, and the details it had open, are let go without a word; a
+    // column shown in one table is shown in that table alone.
+    session.held.set(VIEW_KEY, JSON.stringify({ ...looksKept(), subject: `model:${RESULT.id}`, tables: { ...looksKept().tables, "Imports.csv": { search: "Load", hidden: ["Notes"] },
+      "In-Model Imports.csv": { shown: ["Source Model"] } }, drawer: { kind: "row", file: "Imports.csv", key: 'row:["Imports.csv","Load prices",null]' } }));
+    await open(`${refreshed}#${MODELS}`);
+    await back("Model one");
+    expect([page.texts("#view h1"), firstCells(), page.id("drawer").hidden]).toEqual([["Model-to-Model Imports"], ["Hub products", "Load costs"], true]);
+    const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
+    expect(headings()).not.toContain("Source Label");
+    // Shown, a column that starts hidden stands after the columns shown at first, as in any table.
+    goTo(IN_MODEL);
+    expect(headings()).toEqual(["Name", "Source Module", "Saved View", "Source List", "Source Type", "Target Type", "Target Object", "Used in Processes", "Notes", "Source Model"]);
+    goTo(FILES);
+    expect([page.id("tblSearch").value, firstCells(), headings()]).toEqual(["prices", ["Load prices"], ["Name", "Source Label", "Target Type", "Target Object", "Used in Processes",
+      "Notes", "Production Data"]]);
+  });
+
+  it("shows a result an earlier version kept, brought back after a refresh: its imports in their tables by Source Model, each with what that version's mappings say", async () => {
+    // As 0.35 kept a result: the mappings of the imports of uploaded data alone, without their Source Type, and nothing of
+    // any import's source.
+    const earlier: AnalysisResult = { ...RESULT, importMappings: [{ id: "112000000001", name: "Load prices", importType: "MODULE_DATA",
+      targets: [{ target: "Price", source: "column", column: 1, text: "Price" }] }] };
+    await openModel(earlier);
+    await open(refreshed);
+    await back("Model one");
+    expect(tiles()).toEqual([["File Imports", "1", "row"], ["Model-to-Model Imports", "2", "rows"], ["In-Model Imports", "2", "rows"]]);
+    goTo(FILES);
+    openRow("Load prices");
+    expect(mapping()).toEqual([[["Price", "Price"]], ["Column 1 is used."]]);
+    page.key("Escape");
+    goTo(IN_MODEL);
+    openRow("Load costs");
+    expect([said(), mapping()]).toEqual([["Load costs", "In-Model Imports"], [[], ["Cardigan has no mapping for this import: choose Run again to read it."]]]);
+  });
+
+  it("says once in the run's log how many imports each table lists and how they were placed", async () => {
+    await openModel();
+    goTo(MODELS);
+    goTo(FILES);
+    expect(await placedLines()).toEqual(["Import tables: File Imports 1, Model-to-Model Imports 2, In-Model Imports 2; 4 placed by their data source and 0 by Source Model; "
+      + "0 could not be placed."]);
   });
 });

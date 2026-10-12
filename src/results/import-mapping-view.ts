@@ -4,9 +4,10 @@ import { POLARIS_MAPPING_NOTE } from "../polaris.js";
 import { readImportMappings } from "../result-plain.js";
 import type { AnalysisResult, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable, TargetKind } from "../result-types.js";
 import { columnIndex } from "./columns.js";
+import { IMPORTS_FILE, importTableOf } from "./import-files.js";
+import { fileRowOf, importsFileOf, mappingsByRow, typeKey } from "./import-tables.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { formatType } from "./readable-cells.js";
-import { IMPORTS_FILE } from "./result-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
 /** The mapping of an import, as the details of its row of a model's Imports show it, before All details. It is the
@@ -548,49 +549,50 @@ export function lineItemsOf(result: AnalysisResult, table: ResultTable, row: Row
   return names.length ? names : undefined;
 }
 
-/** A Source Type as the page tells one from another: without the spaces around it, and in any case, as `readsFile` reads
- * FILE. */
-const typeKey = (cell: unknown): string => cellText(cell).trim().toUpperCase();
-
-/** The model's object an import of one reads, as its row of Imports names it, in a line: the model, the module and the
- * saved view, each with what it is, where the table shows Source Object as those three (result-view.ts `importsRule`);
- * the list an import of a list reads, as the cell writes it, under Source Model, or under Source Object where the table
- * shows that as it stands; any other object as the cell writes it. None where the row says none. */
+/** The model's object an import of one reads, as its row names it, in a line: the model, the module and the saved view,
+ * or the model and the list, each with what it is, where the table shows Source Object as its four parts (result-view.ts
+ * `importsRule`); a list the table names whole under Source List, as the cell writes it; the list an import of a list
+ * reads under Source Object, where the table shows that as it stands; any other object as the cell writes it. None where
+ * the row says none. */
 export function sourceLine(table: ResultTable, row: Row): string | undefined {
   const part = (label: string): string => {
     const at = columnIndex(table, label);
     return at === undefined ? "" : cellText(row[at]).trim();
   };
-  const [model, module, view] = [part("Source Model") || part("Source Object"), part("Source Module"), part("Saved View")];
+  const [model, module, view, list] = [part("Source Model") || part("Source Object"), part("Source Module"), part("Saved View"), part("Source List")];
   const type = columnIndex(table, SOURCE_TYPE);
   if (module !== "") return [`Model: ${model || "This model"}`, `Module: ${module}`, ...(view ? [`Saved view: ${view}`] : [])].join(" · ");
+  if (list !== "") return [...(model ? [`Model: ${model}`] : []), `List: ${list}`].join(" · ");
   if (model === "" || model === "-") return undefined;
   return type !== undefined && typeKey(row[type]) === "LIST" ? `List: ${model}` : model;
 }
 
-/** The mapping for a row of a model's Imports, where its Source Type says anything, and where the result has mappings,
+/** The mapping for a row of a model's imports, where its Source Type says anything, and where the result has mappings,
  * checked as the bridge checks them (result-plain.ts `readImportMappings`). None for any other row, such as one of an
  * import the Actions list has and the Imports tab did not give, and for a result without mappings: the drawer then has no
- * Mapping. The Imports table has no column of IDs, so the row's mapping is the one of its name, the import's own name, and
- * of its Source Type; among imports of both alike, the one in the row's place among them, as the export lists them in the
- * Imports tab's order, which the table keeps. A result an earlier version kept has mappings of imports from a file alone,
- * without their Source Type: they are taken for those of FILE (file-imports.ts `readsFile`), and a row of another Source
- * Type has none, which the drawer says, with what to do. `table` is the Imports table as the page shows it, whose rows
- * stand each in the place it has in the file (result-view.ts `fileView`). An import of a model's object has the object as
- * its row names it (`sourceLine`). */
+ * Mapping. The Imports file has no column of IDs, so the row's mapping is the one of its name, the import's own name, and
+ * of its Source Type; among imports of both alike, the one in the row's place among them in the whole file, as the
+ * export lists them in the Imports tab's order (import-tables.ts `mappingsByRow`). A result an earlier version kept has
+ * mappings of imports from a file alone, without their Source Type: they are taken for those of FILE (file-imports.ts
+ * `readsFile`), and a row of another Source Type has none, which the drawer says, with what to do.
+ *
+ * `table` is the Imports table as the page shows it, or one of the three tables it shows the Imports file as
+ * (import-files.ts), whose rows are the file's of one kind: each row stands in the place it has in the file, among the
+ * table's rows (result-view.ts `fileView`), and so stands for its own row of the file (import-tables.ts `fileRowOf`),
+ * by which its mapping is found, whatever the other tables hold. An import of a model's object has the object as its row
+ * names it (`sourceLine`). */
 export function mappingOfRow(result: AnalysisResult | undefined, table: ResultTable, row: Row): MappingView | undefined {
-  if (result?.kind !== "model" || table.file !== IMPORTS_FILE) return undefined;
+  const split = importTableOf(table.file);
+  if (result?.kind !== "model" || (table.file !== IMPORTS_FILE && !split)) return undefined;
   if (result.engine === "polaris") return { rows: [], lines: [POLARIS_MAPPING_NOTE] };
   const type = columnIndex(table, SOURCE_TYPE);
   const kind = type === undefined ? "" : typeKey(row[type]);
   if (type === undefined || kind === "") return undefined;
-  const mappings = readImportMappings(result.importMappings);
-  if (!mappings) return undefined;
-  // Names are told apart without the spaces around them, on both sides alike.
-  const name = cellText(row[0]).trim();
+  if (!readImportMappings(result.importMappings)) return undefined;
   const at = table.rows.findIndex(candidate => candidate === row);
-  const place = table.rows.slice(0, Math.max(0, at)).filter(other => cellText(other[0]).trim() === name && typeKey(other[type]) === kind).length;
-  const mapping = mappings.filter(candidate => candidate.name.trim() === name && typeKey(candidate.sourceType ?? "FILE") === kind)[place];
+  const file = split ? importsFileOf(result) : table;
+  const fileAt = split ? fileRowOf(result, split, at) : at;
+  const mapping = file && fileAt !== undefined && fileAt >= 0 ? mappingsByRow(result, file)[fileAt] : undefined;
   // The line items a header can match are said only where the header row of line items is matched on names or codes.
   const matched = mapping?.targets.some(target => target.source === "headerRow" && kindOf(target) === "lineItems") && !mapping.headers?.length;
   return mappingView(mapping, matched ? lineItemsOf(result, table, row) : undefined, readsFile(row[type]) ? undefined : sourceLine(table, row));

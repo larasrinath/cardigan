@@ -789,8 +789,9 @@ describe("Model export: Model settings grids to tables", () => {
     // the Actions list's files, on Imports and on the calendar.
     expect(kept.flatMap((row, index) => (row.join("\n") === detailsBefore[index].join("\n") ? [] : [[detailsBefore[index], row]])))
       .toEqual([MODEL_ROWS_FOR_THE_PAGE.layout, MODEL_ROW_REWORDED, MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, DATA_SOURCES_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE.calendar].map(row => [parseCsv(row.was)[0], parseCsv(row.now)[0]]));
-    // The row on Imports says what it said, and then how the page shows Source Object.
-    expect(parseCsv(IMPORTS_ROW_REWORDED.now)[0][2]).toContain("Source Object is shown as three columns, Source Model, Source Module and Saved View");
+    // The row on Imports says how the page shows the file, as three tables, and Source Object, as four columns, then what it said.
+    expect(["Shown as three tables in Actions: File Imports", "Source Object is shown as four columns, Source Model, Source Module, Saved View and Source List"]
+      .filter(words => !parseCsv(IMPORTS_ROW_REWORDED.now)[0][2].includes(words))).toEqual([]);
     // The row on Line Items is the account of that table, and names each column the export adds to the grid's own; the
     // row on the Actions list's files names the one it adds to theirs.
     const [section, detail, howToRead] = parseCsv(MODEL_ROW_REWORDED.now)[0];
@@ -798,9 +799,10 @@ describe("Model export: Model settings grids to tables", () => {
     const [actionsSection, actionsDetail, actionsHowToRead] = parseCsv(MODEL_ACTIONS_ROW_REWORDED.now)[0];
     expect([actionsSection, actionsDetail, actionsHowToRead.includes(ACTION_LIST_COLUMN)]).toEqual(["How to read", "Processes, Exports and Other Actions", true]);
     // No "How to read" row names a file, a CSV or a zip, or says to download or to fill one in: the page's overview lists
-    // these rows as they are. (Anaplan's own export of a grid, which the layout is said by, is Anaplan's.)
+    // these rows as they are. (Anaplan's own export of a grid, which the layout is said by, is Anaplan's; and File Imports,
+    // the page's table of imports of uploaded data, names what an import reads, as the owner named it.)
     const said = details.filter(row => row[0] === "How to read").map(row => row[2]);
-    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text))]).toEqual([14, []]);
+    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text.replace(/\bFile Imports\b/g, "")))]).toEqual([14, []]);
     // Then every byte. The zip holds the twelve files it held, and no Dynamic Cell Access.csv; only those three have other
     // bytes than 0.6.1's.
     const [files, golden] = [zipEntries(zip), zipEntries(MODEL_ZIP_0_6_1)];

@@ -2,6 +2,7 @@ import { FILTER_USES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, P
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
+import { FILE_IMPORTS_FILE, IMPORTS_FILE, IN_MODEL_IMPORTS_FILE, MODEL_IMPORTS_FILE } from "./import-files.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, dayOf, filterItems, groupedCount, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
 import { fileLabel } from "./times.js";
@@ -137,6 +138,8 @@ interface ModelLayout { shown: readonly string[]; hidden: readonly string[] }
 
 const RUN = ["Start Date and Time (UTC)", "Most recent duration (ms)"];
 const DASHBOARDS = ["Used in Dashboards"];
+/** The four columns the page shows an import's Source Object as (result-view.ts `importsRule`). */
+const SOURCE_PARTS = ["Source Model", "Source Module", "Saved View", "Source List"];
 const PAGE_HIDDEN = ["Page type", "App ID", "Page ID"];
 
 /** The reading order of a model's tables. These are matching names, never replacement labels. Every column remains
@@ -158,8 +161,19 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
   [UNUSED_LINE_ITEMS_FILE, { shown: ["Line Item", "Module", "Why", "Format", "Cell Count", "Notes"], hidden: ["Formula", "Referenced By"] }],
   [UNUSED_MODULES_FILE, { shown: ["Module", "Why", "Line Items", "Cell Count", "Functional Area"], hidden: ["Notes"] }],
   ["Processes.csv", { shown: ["Name", "Actions", ...RUN, "Notes"], hidden: DASHBOARDS }],
-  ["Imports.csv", { shown: ["Name", "Source Type", "Source Label", "Source Model", "Source Module", "Saved View", "Target Type", "Target Object", "Used in Processes",
-    ...RUN, "Notes", "Production Data"], hidden: DASHBOARDS }],
+  [IMPORTS_FILE, { shown: ["Name", "Source Type", "Source Label", ...SOURCE_PARTS, "Target Type", "Target Object", "Used in Processes", ...RUN, "Notes", "Production Data"],
+    hidden: DASHBOARDS }],
+  // The three tables the page shows the Imports file as (import-files.ts), each with what applies to its imports. Uploaded
+  // data is named by its Source Label, the file, and names no model's object: its Source Type is FILE in every row, and the
+  // four parts of Source Object are empty. An import of a model's object is named by those four parts and its Source Type,
+  // which says whether it reads a module, a saved view or a list; its Source Label, which names the same object again, and
+  // Production Data start hidden. Of this model's own objects, Source Model is this model in every row.
+  [FILE_IMPORTS_FILE, { shown: ["Name", "Source Label", "Target Type", "Target Object", "Used in Processes", ...RUN, "Notes", "Production Data"],
+    hidden: ["Source Type", ...SOURCE_PARTS, ...DASHBOARDS] }],
+  [MODEL_IMPORTS_FILE, { shown: ["Name", ...SOURCE_PARTS, "Source Type", "Target Type", "Target Object", "Used in Processes", ...RUN, "Notes"],
+    hidden: ["Source Label", "Production Data", ...DASHBOARDS] }],
+  [IN_MODEL_IMPORTS_FILE, { shown: ["Name", ...SOURCE_PARTS.slice(1), "Source Type", "Target Type", "Target Object", "Used in Processes", ...RUN, "Notes"],
+    hidden: [SOURCE_PARTS[0], "Source Label", "Production Data", ...DASHBOARDS] }],
   ["Import Data Sources.csv", { shown: ["Name", "Source Type", "Source Model", "Source Object Name", "Imports"], hidden: [] }],
   ["Exports.csv", { shown: ["Name", "Action", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],
   ["Other Actions.csv", { shown: ["Name", "Action", "Action List", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],

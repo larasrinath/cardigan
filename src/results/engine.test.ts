@@ -259,14 +259,18 @@ describe("The results page against the engine in the Anaplan tab", () => {
       [["DCA", `Not exported: ${NO_ACCESS}`], ["Line Item Subsets", "Not exported: This model page has no LINE_ITEM_SUBSET axis."], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order. The names in the order that the export does not know are the tables the run adds after
-    // the export: those of what nothing uses (model/unused.ts) and those of the pages built on the model.
+    // the export: those of what nothing uses (model/unused.ts) and those of the pages built on the model; and the three
+    // tables the page shows the Imports file as (import-files.ts), which are no file of the export's.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
     expect([known.length, known.filter(file => !MODEL_FILE_ORDER.includes(file)), MODEL_FILE_ORDER.filter(file => !known.includes(file))])
-      .toEqual([14, [], ["Unused Line Items.csv", "Unused Modules.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]]);
+      .toEqual([14, [], ["Unused Line Items.csv", "Unused Modules.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv", "Module Usage.csv",
+        "Page Filters.csv", "Page Actions.csv"]]);
     // So this result's files are listed in the order of Anaplan's Model settings, each one once. (This model has no source
-    // models, and no Dynamic Cell Access file.)
-    expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports",
-      "Import Data Sources", "Exports", "Other Actions"]);
+    // models, and no Dynamic Cell Access file.) Its Imports file is listed as the tables of its imports' kinds that have
+    // rows: one import of uploaded data; one of another model's saved view, with the one the Actions list alone has, whose
+    // kind is not known.
+    expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes",
+      "File Imports", "Model-to-Model Imports", "Import Data Sources", "Exports", "Other Actions"]);
     expect(result.tables.map(table => table.label)).toEqual(["Model Details", "Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
       "Time Ranges", "Versions", "Model Calendar"]);
     expect(result.summary.at(-1)).toBe("Source Models: not exported (This model page has no REMOTE_MODEL axis.).");
@@ -384,7 +388,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(ACCESS_ZIP_WITH_FILE, "Model Details.csv"));
     // The page lists the file where the zip has it, after Line Items, which the order of Anaplan's settings puts after Modules.
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access",
-      "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions"]);
+      "Processes", "File Imports", "Model-to-Model Imports", "Import Data Sources", "Exports", "Other Actions"]);
     const file = result.tables.find(table => table.file === ACCESS_FILE);
     if (!file) throw new Error("The export wrote no Dynamic Cell Access.csv.");
     // Its table is the file as it stands, under the line that says what it lists. The line counts the rows without a
