@@ -7,7 +7,7 @@ import * as cameraMath from "./map-camera.js";
 import { isMapAtStart, keptText, readKept, VIEW_KEY } from "../results/view-keep.js";
 import { FALLBACK } from "./map-palette.js";
 import { accessMarkedModel, twinBoxesModel } from "./map-fakes.test-support.js";
-import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
+import { ACCESS_MARK_MODULE_SAYS, ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
 import { browserEnvironment, mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
 import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, MODULES_ONLY_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
@@ -362,12 +362,15 @@ describe("Empty canvas closes the details", () => {
 });
 
 describe("Nothing jumps when links change", () => {
-  it.each(["groups", "modules", "drill"])("keeps one outside object in %s through every link combination and a drag", level => {
+  it.each(["groups", "modules", "drill", "drill grouped"])("keeps one outside object in %s through every link combination and a drag", level => {
     const data = twinBoxesModel();
     const spy = vi.spyOn(drawing, "drawScene");
     open(data.graph);
     if (level === "modules") groupChoice("0");
-    if (level === "drill") pickModule("ACC01 Access");
+    if (level.startsWith("drill")) pickModule("ACC01 Access");
+    // Grouped, the module and its line item share one box. One by one, the module's box stands for the links to the whole
+    // module alone, beside the box of its line item.
+    if (level === "drill grouped") tickExternal();
     const scene = () => { env.settle(); return spy.mock.calls.at(-1)![1]; };
     const snapshot = () => {
       const current = scene();
@@ -396,7 +399,10 @@ describe("Nothing jumps when links change", () => {
         });
         expect(snapshot(), `link combination ${mask}, dragged ${drag}`).toEqual(before);
         expect(text(".map-insp-name")).toBe(targetName);
-        if (level !== "groups") expect(scene().graph.nodes.find(node => node.raw?.id === data.plan)?.dimmed).toBe(mask === 0);
+        // The access driver's and the page filter's links to the whole module bring its box in one by one; grouped, the
+        // formulas of its line item do as well.
+        if (level !== "groups") expect(scene().graph.nodes.find(node => node.raw?.id === data.plan)?.dimmed).toBe(level === "drill" ? (mask & 6) === 0 : mask === 0);
+        if (level === "drill") expect(scene().graph.nodes.find(node => node.raw?.id === data.forecast)?.dimmed).toBe(mask === 0);
       }
       act("links").press();
     }
@@ -506,24 +512,164 @@ describe("Access marks in the view", () => {
   });
 });
 
-describe("A selected box kept for the tab", () => {
-  it.each(["module", "externalModule"])("restores the old %s selection into the merged outside box", kind => {
+describe("Other modules' line items, one by one unless unticked", () => {
+  it("goes from the search, the details' links and the page to an outside line item's own box, in its module", () => {
+    const { units } = sample();
+    const told: MapView[] = [];
+    mount(sample().graph, { modelName: "Demand Plan", onView: view => { told.push(view); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    const own = JSON.stringify(["lineItem", "lineItem", "Units", "INP01 - Volumes", ""]);
+    /** CAL01 - Revenue's line items, with Units of INP01 - Volumes in a box of its own beside them. */
+    const besideUnits = (): void => {
+      groupChoice("1");
+      pickModule("CAL01 - Revenue");
+      expect([here(), part(".map-external").checked, locate().has("Units")]).toEqual(["CAL01 - Revenue", true, true]);
+    };
+    besideUnits();
+    goTo("Units");
+    expect([here(), text(".map-insp-name"), text(".map-kind"), told.at(-1)?.selected]).toEqual(["INP01 - Volumes", "Units", "Line item", own]);
+    besideUnits();
+    clickNode("Gross");
+    part(`[data-map-raw="${units}"]`).press();
+    expect([here(), text(".map-insp-name"), told.at(-1)?.selected]).toEqual(["INP01 - Volumes", "Units", own]);
+    // The page's Model map button, from Units' row.
+    besideUnits();
+    expect(map.reveal(units)).toBe(true);
+    expect([here(), text(".map-insp-name"), told.at(-1)?.selected]).toEqual(["INP01 - Volumes", "Units", own]);
+  });
+
+  it("comes back from Find source inputs to the line items one by one, with an outside line item's box selected, after a refresh too", () => {
+    const told: MapView[] = [];
+    mount(sample().graph, { modelName: "Demand Plan", onView: view => { told.push(view); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    groupChoice("1");
+    pickModule("CAL01 - Revenue");
+    clickNode("Units");
+    const beside = JSON.stringify(["externalItem", "lineItem", "Units", "INP01 - Volumes", ""]);
+    expect(told.at(-1)?.selected).toBe(beside);
+    act("sources").press();
+    expect(part(".map-sources-step").hidden).toBe(false);
+    const inSources = told.at(-1)!;
+    expect(inSources).toMatchObject({ view: "drill", module: "CAL01 - Revenue", originSelected: beside });
+    expect(inSources.others).toBeUndefined();
+    act("sources-back").press();
+    expect([part(".map-sources-step").hidden, here(), part(".map-external").checked, text(".map-insp-name"), told.at(-1)?.selected]).toEqual([true, "CAL01 - Revenue", true, "Units", beside]);
+    // A refresh among the source inputs: Back builds the view anew, one by one, and selects Units' box there by its key.
+    map.destroy();
+    env = new FakeSurroundings();
+    mount(sample().graph, { modelName: "Demand Plan", view: inSources, onView: view => { told.push(view); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect(part(".map-sources-step").hidden).toBe(false);
+    act("sources-back").press();
+    expect([part(".map-sources-step").hidden, here(), part(".map-external").checked, text(".map-insp-name"), told.at(-1)?.selected]).toEqual([true, "CAL01 - Revenue", true, "Units", beside]);
+  });
+
+  it("keeps a box for another module where a link is to the whole module, beside its line item's own box", () => {
     const data = twinBoxesModel();
-    mount(data.graph, { modelName: "Invented planning", view: { view: "drill", module: "ACC01 Access", access: true,
+    const spy = vi.spyOn(drawing, "drawScene");
+    open(data.graph);
+    pickModule("ACC01 Access");
+    tickAccess();
+    env.settle();
+    // Open and visible is a read access driver of PLN01 Forecast as a whole: the module stands beside its line items in a
+    // box of its own, with Forecast, which formulas link, in another.
+    expect(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.external).map(node => [node.kind, node.fullName, node.code, node.meta, node.dimmed]))
+      .toEqual([["externalItem", "Forecast", "PLN01", "Line item", false], ["module", "PLN01 Forecast", "PLN01", "Module · 1 line item", false]]);
+    expect(parts(".map-legend-name").map(name => name.textContent)).toContain("Other objects");
+    spy.mockRestore();
+  });
+
+  it("says what a key mark on another module's box counts only while such a box carries one", () => {
+    open();
+    groupChoice("1");
+    pickModule("CAL01 - Revenue");
+    tickAccess();
+    // One by one, Can Edit carries a key of its own: no box of another module carries one.
+    expect(text(".map-legend-key")).toBe(ACCESS_MARK_SAYS.drill);
+    expect(text(".map-legend-key")).not.toContain(ACCESS_MARK_MODULE_SAYS);
+    // Grouped, INP01 - Volumes' box counts its one driver.
+    act("links").press();
+    tickExternal();
+    expect(text(".map-legend-key")).toBe(`${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}`);
+    tickExternal();
+    expect(text(".map-legend-key")).toBe(ACCESS_MARK_SAYS.drill);
+    map.destroy();
+    // One by one, a module's own box stands beside them where a link is to the whole module: it counts its drivers too.
+    const make = new GraphMaker();
+    const home = make.module("HOM01 Home", "Home");
+    const other = make.module("OTH01 Other", "Other");
+    const flag = make.item(home, "Flag", { format: "BOOLEAN" });
+    const value = make.item(home, "Value");
+    const gate = make.item(other, "Gate", { format: "BOOLEAN" });
+    make.link(flag, other, "read_access").link(gate, value, "write_access");
+    const spy = vi.spyOn(drawing, "drawScene");
+    open(make.graph());
+    pickModule("HOM01 Home");
+    tickAccess();
+    env.settle();
+    expect(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.external).map(node => [node.kind, node.fullName, node.accessMark]))
+      .toEqual([["module", "OTH01 Other", 1], ["externalItem", "Gate", 1]]);
+    expect([part(".map-external").checked, text(".map-legend-key")]).toEqual([true, `${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}`]);
+    spy.mockRestore();
+  });
+});
+
+describe("A selected box kept for the tab", () => {
+  it.each(["module", "externalModule"])("restores the old %s selection into the merged outside box, with other modules' line items grouped", kind => {
+    const data = twinBoxesModel();
+    mount(data.graph, { modelName: "Invented planning", view: { view: "drill", module: "ACC01 Access", others: false, access: true,
       selected: JSON.stringify([kind, "module", "PLN01 Forecast", "", ""]) } });
     map.show();
     env.resize(1200, 800);
     env.settle();
+    expect(part(".map-external").checked).toBe(false);
     expect(part(".map-inspector").hidden).toBe(false);
     expect(text(".map-insp-name")).toBe("PLN01 Forecast");
     expect(parts(".map-details summary").map(summary => summary.textContent)).toContain("Its line items linked here · 1");
   });
 
-  it("names the kind in both hover cards when a module and its same-named line item are expanded", () => {
+  it.each(["module", "externalModule"])("lets a kept %s selection go quietly where other modules' line items stand one by one and the module has no box", kind => {
+    const data = twinBoxesModel();
+    const told: MapView[] = [];
+    const failures: string[] = [];
+    const spy = vi.spyOn(drawing, "drawScene");
+    // Without the access driver's and the page filter's links to PLN01 Forecast as a whole, nothing links ACC01 Access to
+    // the module itself: it has no box, and its line item Forecast has one.
+    const graph = { ...data.graph, edges: data.graph.edges.filter(([, to]) => to !== data.plan) };
+    mount(graph, { modelName: "Invented planning", view: { view: "drill", module: "ACC01 Access", access: true, filters: true, selected: JSON.stringify([kind, "module", "PLN01 Forecast", "", ""]) },
+      onView: view => { told.push(view); }, onFailure: reason => { failures.push(reason); } });
+    expect(() => { map.show(); env.resize(1200, 800); env.settle(); }).not.toThrow();
+    expect(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.external).map(node => [node.kind, node.fullName])).toEqual([["externalItem", "Forecast"]]);
+    expect([part(".map-inspector").hidden, told.at(-1), parts(".map-broken").length, failures]).toEqual([true, { view: "drill", module: "ACC01 Access", access: true, filters: true }, 0, []]);
+    // The map goes on as it does: a press selects.
+    clickNode("Forecast");
+    expect([part(".map-inspector").hidden, text(".map-insp-name"), told.at(-1)?.selected]).toEqual([false, "Forecast", JSON.stringify(["externalItem", "lineItem", "Forecast", "PLN01 Forecast", ""])]);
+    spy.mockRestore();
+  });
+
+  it("restores a kept module selection into the module's own box where a link is to the whole module, beside its line items one by one", () => {
+    const data = twinBoxesModel();
+    mount(data.graph, { modelName: "Invented planning", view: { view: "drill", module: "ACC01 Access", access: true, selected: JSON.stringify(["module", "module", "PLN01 Forecast", "", ""]) } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect([part(".map-external").checked, part(".map-inspector").hidden, text(".map-insp-name"), text(".map-kind")]).toEqual([true, false, "PLN01 Forecast", "Module"]);
+    // It stands for the module, and its line item has its own box: the details list no line items linked here.
+    expect(parts(".map-details summary").map(summary => summary.textContent)).not.toContain("Its line items linked here · 1");
+  });
+
+  it("names the kind in both hover cards when a module and its same-named line item stand one by one, as they do unless unticked", () => {
     open(twinBoxesModel().graph);
     pickModule("ACC01 Access");
     tickAccess();
-    tickExternal();
+    expect(part(".map-external").checked).toBe(true);
+    act("links").press();
     pointer("pointermove", ...at("PLN01 Forecast"));
     expect(text(".map-tip-meta")).toContain("Module · 1 line item");
     pointer("pointermove", ...at("Forecast"));
@@ -1499,8 +1645,10 @@ describe("The map's views", () => {
     expect(picked()).toEqual(["CAL01 - Revenue"]);
     key("Enter");
     expect([here(), groupValue(), part(".map-picker-input").getAttribute("aria-expanded"), page.document.activeElement === canvas()]).toEqual(["CAL01 - Revenue", "1", "false", true]);
-    expect([status(), text(".map-live")]).toEqual(["3 line items · 5 outside the module · 7 links", "Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 7 links."]);
-    expect(parts(".map-legend-name").map(name => name.textContent)).toEqual(["No Data line items (headings)", "Line items", "Lists and subsets", "Other modules"]);
+    // Beside its three line items: the line items of other modules they read and feed, one by one, among them Can Edit,
+    // whose link as an access driver is not drawn, and the list a formula names.
+    expect([status(), text(".map-live")]).toEqual(["3 line items · 7 outside the module · 7 links", "Line items of CAL01 - Revenue: 3 line items, with 7 outside the module, 7 links."]);
+    expect(parts(".map-legend-name").map(name => name.textContent)).toEqual(["No Data line items (headings)", "Line items", "Lists and subsets", "Line items of other modules"]);
     groupChoice(groupValue());
     doubleClick("Margin Workings");
     expect(here()).toBe("Margin Workings");
@@ -1544,22 +1692,33 @@ describe("The map's views", () => {
     expect(here()).toBe("Reporting");
     key("Escape"); expect(here()).toBe("Demand Plan");
   });
-  it("shows the line items of other modules one by one, and grouped again, by a box that says which it does", () => {
+  it("shows the line items of other modules one by one, grouped by module when unticked, and one by one again, by a box that says which it does", () => {
+    const spy = vi.spyOn(drawing, "drawScene");
+    const kinds = (): string[] => {
+      env.settle();
+      return [...new Set(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.external).map(node => node.kind))].sort();
+    };
     open();
     groupChoice("1");
     pickModule("CAL01 - Revenue");
-    // The box says what it shows in the legend's own words, and is ticked where they stand one by one.
-    expect([part(".map-external").checked, text(".map-external-check"), parts(".map-legend-name").map(name => name.textContent)]).toEqual([false, "Other modules' line items", expect.arrayContaining(["Other modules"])]);
-    expect([...locate().keys()]).toContain("INP01 - Volumes");
-    tickExternal();
-    expect([part(".map-external").checked, here()]).toEqual([true, "CAL01 - Revenue"]);
+    // The box says what it shows in the legend's own words, and is ticked as the module opens: they stand one by one, each
+    // in a box of its own, and no box stands for a module.
+    expect([part(".map-external").checked, text(".map-external-check"), parts(".map-legend-name").map(name => name.textContent)]).toEqual([true, "Other modules' line items", expect.arrayContaining(["Line items of other modules"])]);
     const names = [...locate().keys()];
     expect(names).toEqual(expect.arrayContaining(["Units", "Price", "Cost", "Margin %", "Total", "Gross"]));
     expect(names).not.toContain("INP01 - Volumes");
-    expect(parts(".map-legend-name").map(name => name.textContent)).toContain("Line items of other modules");
+    expect(kinds()).toEqual(["externalItem", "list"]);
+    // Unticked: one box for each module, which says how many of its line items are linked.
     tickExternal();
-    expect([...locate().keys()]).toContain("INP01 - Volumes");
-    expect(part(".map-external").checked).toBe(false);
+    expect([part(".map-external").checked, here()]).toEqual([false, "CAL01 - Revenue"]);
+    expect([...locate().keys()]).toEqual(expect.arrayContaining(["INP01 - Volumes", "Margin Workings", "Gross"]));
+    expect([...locate().keys()]).not.toContain("Units");
+    expect([kinds(), parts(".map-legend-name").map(name => name.textContent)]).toEqual([["externalModule", "list"], expect.arrayContaining(["Other modules"])]);
+    tickExternal();
+    expect([part(".map-external").checked, here(), kinds()]).toEqual([true, "CAL01 - Revenue", ["externalItem", "list"]]);
+    expect([...locate().keys()]).toEqual(expect.arrayContaining(["Units", "Price", "Cost", "Margin %", "Total"]));
+    expect([...locate().keys()]).not.toContain("INP01 - Volumes");
+    spy.mockRestore();
   });
   it("draws the links of read and write access drivers when asked to, says so, and keeps what is selected", () => {
     open();
@@ -1572,10 +1731,10 @@ describe("The map's views", () => {
     expect(text(".map-insp-name")).toBe("Net");
     expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Access driven by · 1", "Feeds it directly · 2", "It feeds directly · 1"]);
     expect(parts(".map-link small").map(small => small.textContent)).toContain("Write access");
-    expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
+    expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 7 outside the module, 8 links.");
     tickAccess();
     expect(parts(".map-details summary")[0].textContent).toBe("Access driven by · 1");
-    expect(text(".map-live")).toBe("Access driver links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 7 links.");
+    expect(text(".map-live")).toBe("Access driver links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 7 outside the module, 7 links.");
     // What access drivers are is said beside the box, and is its description to a screen reader.
     expect(text(`#${part(".map-access").getAttribute("aria-describedby")}`)).toBe(ACCESS_SAYS);
   });
@@ -1589,15 +1748,15 @@ describe("The map's views", () => {
     pickModule("CAL01 - Revenue");
     const before = locate();
     expect([part(".map-formulas").checked, linksDrawn().length, status(), act("links").classList.contains("map-on")])
-      .toEqual([true, 7, "3 line items · 5 outside the module · 7 links", false]);
+      .toEqual([true, 7, "3 line items · 7 outside the module · 7 links", false]);
     expect(text(`#${part(".map-formulas").getAttribute("aria-describedby")}`)).toBe(FORMULAS_SAY);
     // Formulas' arrows have no line in the legend: the notes about the map say what an arrow means.
     expect([parts(".map-legend-note").map(note => note.textContent), text(".map-legend").includes(LINK_SAYS)]).toEqual([[], false]);
     // Unticked, with no other kind ticked: no link is drawn, and the map says so plainly, at the foot and in the legend.
     tickFormulas();
     expect([part(".map-formulas").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([false, true, { view: "drill", module: "CAL01 - Revenue", noFormulas: true }]);
-    expect(text(".map-live")).toBe("Formula links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, no links drawn.");
-    expect([status(), parts(".map-legend-note").map(note => note.textContent)]).toEqual(["3 line items · 5 outside the module · no links drawn", [NO_LINKS_SAYS]]);
+    expect(text(".map-live")).toBe("Formula links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 7 outside the module, no links drawn.");
+    expect([status(), parts(".map-legend-note").map(note => note.textContent)]).toEqual(["3 line items · 7 outside the module · no links drawn", [NO_LINKS_SAYS]]);
     // The boxes stay where they were: the graph is not laid out again, and only the drawing changes.
     expect(locate()).toEqual(before);
     expect(linksDrawn()).toEqual([]);
@@ -1606,7 +1765,7 @@ describe("The map's views", () => {
     expect([text(".map-insp-name"), text(".map-live")]).toEqual(["Net", "Line item Net selected. Nothing feeds it and feeds nothing on this map, including links through other boxes."]);
     // Access drivers ticked: theirs alone are drawn and traced, and the legend says what they are.
     tickAccess();
-    expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 1 link.");
+    expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 7 outside the module, 1 link.");
     expect([text(".map-insp-name"), parts(".map-legend-note").map(note => note.textContent), heard.at(-1)])
       .toEqual(["Net", [ACCESS_LINK_SAYS, ACCESS_MARK_SAYS.drill], { view: "drill", module: "CAL01 - Revenue", noFormulas: true, access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }]);
     env.settle();
@@ -1617,7 +1776,7 @@ describe("The map's views", () => {
     // Ticked again: formulas' links are back, with the boxes where they were, and the trace follows them.
     const kept = locate();
     tickFormulas();
-    expect(text(".map-live")).toBe("Formula links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
+    expect(text(".map-live")).toBe("Formula links are drawn. Line items of CAL01 - Revenue: 3 line items, with 7 outside the module, 8 links.");
     expect([parts(".map-legend-note").map(note => note.textContent), heard.at(-1), act("links").classList.contains("map-on")])
       .toEqual([[ACCESS_LINK_SAYS, ACCESS_MARK_SAYS.drill], { view: "drill", module: "CAL01 - Revenue", access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }, true]);
     expect(text(".map-legend")).not.toContain(LINK_SAYS);
@@ -1694,7 +1853,8 @@ describe("Selecting a node on the map", () => {
     expect(opens).not.toHaveBeenCalled();
     for (const [id, buttons] of [
       [revenue, ["Show its 3 line items", "Table", "Model"]],
-      [gross, ["Table", "Model"]],
+      // A line item finds its source inputs, beside its own buttons.
+      [gross, ["Find source inputs", "Table", "Model"]],
       [products, ["Table", "Model"]],
     ] as const) {
       expect(map.reveal(id)).toBe(true);
@@ -1799,8 +1959,8 @@ describe("Selecting a node on the map", () => {
     expect([act("open").textContent, act("open").dataset.mapModule]).toEqual(["Show its 3 line items", String(revenue)]);
     act("open").press();
     expect(here()).toBe("CAL01 - Revenue");
-    // With the line items of other modules shown one by one, each leads to its own module.
-    tickExternal();
+    // With the line items of other modules one by one, as they stand unless unticked, each leads to its own module.
+    expect(part(".map-external").checked).toBe(true);
     clickNode("Units");
     expect([act("open").textContent, act("open").dataset.mapSelect]).toEqual(["Show its module with it selected", String(units)]);
     act("open").press();
@@ -1853,7 +2013,7 @@ describe("Selecting a node on the map", () => {
     open();
     groupChoice("1");
     pickModule("CAL01 - Revenue");
-    tickExternal();
+    expect(part(".map-external").checked).toBe(true);
     doubleClick("Units");
     expect([here(), text(".map-insp-name")]).toEqual(["INP01 - Volumes", "Units"]);
   });
@@ -2536,11 +2696,25 @@ describe("The map's search", () => {
     part(".map-search").type("zzz");
     env.settle();
     expect([text(".map-search-count"), rings(), boxStrengths()]).toEqual(["0", 0, [1, 1, 1]]);
-    // Among one module's line items, a line item of another module marks nothing here.
+    // Among one module's line items, a line item of another module marks nothing here, and fades nothing: the picture is
+    // as it was. (Net, which reads Can Edit as an access driver alone, stands faded with access drivers' links undrawn.)
     firstModule();
+    env.settle();
+    const unsearched = boxStrengths();
     part(".map-search").type("price");
     env.settle();
-    expect([here(), rings(), boxStrengths().every(strength => strength === 1)]).toEqual(["INP01 - Volumes", 0, true]);
+    expect([here(), rings(), boxStrengths()]).toEqual(["INP01 - Volumes", 0, unsearched]);
+    expect(unsearched.filter(strength => strength !== 1)).toHaveLength(1);
+    // Beside CAL01 - Revenue's line items, those of INP01 - Volumes stand one by one: its name marks each of them, as it
+    // marked its one box where they stood grouped.
+    groupChoice("1");
+    pickModule("CAL01 - Revenue");
+    const spy = vi.spyOn(drawing, "drawScene");
+    part(".map-search").type("volumes");
+    env.settle();
+    const scene = spy.mock.calls.at(-1)![1];
+    expect([here(), scene.graph.nodes.filter(node => scene.matches?.[node.index]).map(node => node.fullName).sort(), rings()]).toEqual(["CAL01 - Revenue", ["Can Edit", "Units"], 2]);
+    spy.mockRestore();
   });
 
   it("goes to the first hit with Enter, and to any hit by a press on it, and puts the focus on its details", () => {
@@ -4076,9 +4250,12 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     expect(heard.at(-1)).toEqual({ view: "modules", group: "02: Calculations", access: true });
     groupChoice("1");
     pickModule("CAL01 - Revenue");
+    // Other modules' line items one by one, as they stand by default, are not said; grouped, they are.
     expect([here(), heard.at(-1)]).toEqual(["CAL01 - Revenue", { view: "drill", module: "CAL01 - Revenue", access: true }]);
     tickExternal();
-    expect(heard.at(-1)).toEqual({ view: "drill", module: "CAL01 - Revenue", others: true, access: true });
+    expect(heard.at(-1)).toEqual({ view: "drill", module: "CAL01 - Revenue", others: false, access: true });
+    tickExternal();
+    expect(heard.at(-1)).toEqual({ view: "drill", module: "CAL01 - Revenue", access: true });
     // A box selected: where the map is stays as it was, and is told again as such or not at all.
     const told = heard.length;
     clickNode("Gross");
@@ -4086,9 +4263,14 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
   });
 
   it("opens where the page kept it, as far as the model still has the group or the module, and otherwise as it opens by itself", () => {
+    openAt({ view: "drill", module: "INP02 - Prices", others: false, access: true });
+    expect([here(), part(".map-external").checked, part(".map-access").checked, heard[0]])
+      .toEqual(["INP02 - Prices", false, true, { view: "drill", module: "INP02 - Prices", others: false, access: true }]);
+    map.destroy();
+    // A view kept while other modules' line items were grouped by default, ticked to stand one by one, opens them so.
     openAt({ view: "drill", module: "INP02 - Prices", others: true, access: true });
     expect([here(), part(".map-external").checked, part(".map-access").checked, heard[0]])
-      .toEqual(["INP02 - Prices", true, true, { view: "drill", module: "INP02 - Prices", others: true, access: true }]);
+      .toEqual(["INP02 - Prices", true, true, { view: "drill", module: "INP02 - Prices", access: true }]);
     openPicker();
     expect(picked()).toEqual(["INP01 - Volumes", "INP02 - Prices"]);
     expect(text('.map-picker-list [aria-selected="true"] .map-picker-name')).toBe("INP02 - Prices");
@@ -4126,6 +4308,42 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     toggleGroups();
     firstModule();
     expect([here(), parts(".map-broken").length]).toEqual(["INP01 - Volumes", 0]);
+  });
+
+  it("keeps other modules' line items grouped through a refresh where they were unticked, and opens them one by one otherwise", () => {
+    const spy = vi.spyOn(drawing, "drawScene");
+    /** Where the map is after a refresh: the module, the box's tick, and the kinds of the boxes beside its line items. */
+    const after = (): [string, boolean, string[]] => {
+      env.settle();
+      return [here(), part(".map-external").checked, [...new Set(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.external).map(node => node.kind))].sort()];
+    };
+    const oneByOne: [string, boolean, string[]] = ["CAL01 - Revenue", true, ["externalItem", "list"]];
+    const grouped: [string, boolean, string[]] = ["CAL01 - Revenue", false, ["externalModule", "list"]];
+    openAt({ view: "drill", module: "CAL01 - Revenue" });
+    expect([after(), heard.at(-1)]).toEqual([oneByOne, { view: "drill", module: "CAL01 - Revenue" }]);
+    // Unticked: the page keeps that, and a refresh opens them grouped, as it was told.
+    tickExternal();
+    expect(heard.at(-1)).toEqual({ view: "drill", module: "CAL01 - Revenue", others: false });
+    refresh();
+    expect([after(), heard[0]]).toEqual([grouped, { view: "drill", module: "CAL01 - Revenue", others: false }]);
+    refresh();
+    expect(after()).toEqual(grouped);
+    // Ticked again: nothing of it is kept, and a refresh opens them one by one.
+    tickExternal();
+    expect(heard.at(-1)).toEqual({ view: "drill", module: "CAL01 - Revenue" });
+    refresh();
+    expect([after(), heard[0]]).toEqual([oneByOne, { view: "drill", module: "CAL01 - Revenue" }]);
+    // A view the page kept while they were grouped by default, with `others: true` where they had been ticked one by one or
+    // with no word of them, is read back as it was kept, and opens them one by one too.
+    for (const others of [true, undefined]) {
+      map.destroy();
+      const kept = keptText({ subject: "model:invented", tables: {}, map: { view: "drill", module: "CAL01 - Revenue", ...(others === undefined ? {} : { others }) } });
+      const view = readKept({ getItem: key => key === VIEW_KEY ? kept! : null })?.map;
+      expect(view, String(others)).toEqual({ view: "drill", module: "CAL01 - Revenue", ...(others === undefined ? {} : { others }) });
+      openAt(view);
+      expect([after(), heard[0]], String(others)).toEqual([oneByOne, { view: "drill", module: "CAL01 - Revenue" }]);
+    }
+    spy.mockRestore();
   });
 });
 
@@ -4292,5 +4510,184 @@ describe("A module from Modules alone on the map", () => {
     open();
     act("about").press();
     expect(parts(".map-notes .map-about-line").filter(line => line.textContent.includes("Modules alone"))).toEqual([]);
+  });
+});
+
+describe("A line item's source inputs on the map", () => {
+  /** The rows of the list of source inputs: each input's line item, then its module, then its kind, steps and what it feeds. */
+  const sourceRows = (): string[][] => parts(".map-sources .map-source")
+    .map(row => [row.querySelector(".map-link-text")!.childNodes[0].textContent, ...row.querySelectorAll("small").map(small => small.textContent)]);
+  /** Where the camera was for the last picture drawn. */
+  const cameraOf = (spy: { mock: { calls: Parameters<typeof drawing.drawScene>[] } }) => ({ ...spy.mock.calls.at(-1)![1].camera });
+
+  it("lists the three inputs in three modules of a result fed through two calculations, and maps them from the inputs at the left to the result at the right", () => {
+    const { graph, total } = sample();
+    open(graph);
+    expect(map.reveal(total)).toBe(true);
+    const path = [text(".map-group-name"), text(".map-module-name")];
+    const button = act("sources");
+    expect([parts(".map-insp-opens button").map(each => each.textContent), button.title, button.querySelectorAll("svg").length])
+      .toEqual([["Find source inputs"], "Find the line items without a formula that feed this one", 1]);
+    button.press();
+    env.settle();
+    // The path keeps its steps as they were, and ends with where the map is and the way back.
+    expect([text(".map-group-name"), text(".map-module-name")]).toEqual(path);
+    expect([part(".map-sources-step").hidden, text(".map-sources-name"), part(".map-sources-name").getAttribute("aria-current"), act("sources-back").getAttribute("aria-label"),
+      act("modules").getAttribute("aria-current")]).toEqual([false, "Source inputs of REP01 - Board · Total", "location", "Back to REP01 - Board", null]);
+    // The result is selected, and its details list its inputs: no input has a name that says it is one.
+    expect([text(".map-insp-name"), text(".map-sources summary"), part(".map-sources").hasAttribute("open"), sourceRows()]).toEqual(["Total", "Source inputs (3)", true, [
+      ["Cost", "Margin Workings", "Entered · 2 steps · Feeds Net"],
+      ["Units", "INP01 - Volumes", "Entered · 3 steps · Feeds Gross"],
+      ["Price", "INP02 - Prices", "Entered · 3 steps · Feeds Gross"]]]);
+    expect(parts(".map-sources .map-insp-note").map(note => note.textContent)).toEqual([]);
+    // The list comes first in the body; the result offers its module, and no second search for its own inputs.
+    expect([part(".map-insp-body").children[0].getAttribute("class"), parts(".map-insp-opens button").map(each => each.textContent)])
+      .toEqual(["map-details map-sources", ["Show its module with it selected"]]);
+    // Only the result, its inputs and the calculations between, each box with its module: no list, no access driver, no
+    // line item that feeds nothing of it.
+    const places = locate();
+    expect([...places.keys()].sort()).toEqual(["Cost", "Gross", "Net", "Price", "Total", "Units"]);
+    const x = (name: string): number => places.get(name)![0];
+    expect([x("Cost"), x("Units")]).toEqual([x("Price"), x("Price")]);
+    expect(x("Price") < x("Gross") && x("Gross") < x("Net") && x("Net") < x("Total")).toBe(true);
+    expect(text(".map-live")).toBe("Source inputs of REP01 - Board · Total: 3 inputs, 5 links.");
+    expect(status()).toBe("6 boxes · 5 links");
+    // The legend has the three kinds of box, and says what a tinted one is.
+    expect(parts(".map-legend-item").map(item => [item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent]))
+      .toEqual([["Inputs", "3"], ["Calculations", "2"], ["Result", "1"]]);
+    expect([text(".map-legend-title"), text(".map-legend-input"), part(".map-legend-input .map-mark-input").getAttribute("aria-hidden")])
+      .toEqual(["On this map", "A tinted box is an input: a line item without a formula, entered or imported.", "true"]);
+    // The inputs are tinted in the accent's colours, their names in its ink; the calculations are drawn plainly.
+    const calls = lastPicture();
+    const fills = calls.filter((call, index) => call.name === "fill" && calls[index - 1]?.name === "roundRect").map(call => call.fillStyle);
+    expect([fills.filter(fill => fill === FALLBACK.inputFill).length, fills.length]).toEqual([3, 6]);
+    const named = (name: string): string[] => calls.filter(call => call.name === "fillText" && call.args[0] === name).map(call => call.fillStyle);
+    expect([named("Cost"), named("Gross")]).toEqual([[FALLBACK.inputText], [FALLBACK.nodeText]]);
+  });
+
+  it("selects an input from its row, and goes back with Escape or Back to the view it was found from, with nothing moved", () => {
+    const spy = vi.spyOn(drawing, "drawScene");
+    const { graph, total } = sample();
+    open(graph);
+    map.reveal(total);
+    env.settle();
+    const left = (): unknown[] => [text(".map-insp-name"), here(), boxes(), cameraOf(spy), status(), part(".map-sources-step").hidden];
+    const before = left();
+    act("sources").press();
+    env.settle();
+    expect(cameraOf(spy)).not.toEqual(before[3]);
+    // A row selects its input on the map shown, whose details are its own.
+    parts(".map-sources .map-source")[1].press();
+    expect([text(".map-insp-name"), text(".map-sources-name"), parts(".map-insp-opens button").map(each => each.textContent)])
+      .toEqual(["Units", "Source inputs of REP01 - Board · Total", ["Show its module with it selected", "Find source inputs"]]);
+    key("Escape");
+    expect(left()).toEqual(before);
+    act("sources").press();
+    env.settle();
+    clickNode("Net");
+    act("sources-back").press();
+    expect(left()).toEqual(before);
+    expect(page.document.activeElement).toBe(canvas());
+    spy.mockRestore();
+  });
+
+  it("keeps the source inputs and the box selected among them through a refresh, and goes back from them to the box selected before", () => {
+    let saved: MapView | undefined;
+    const { graph, total } = sample();
+    mount(graph, { modelName: "Demand Plan", onView: view => { saved = view; } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    map.reveal(total);
+    act("sources").press();
+    parts(".map-sources .map-source")[0].press();
+    expect(saved).toEqual({ view: "drill", module: "REP01 - Board", selected: JSON.stringify(["sourceItem", "lineItem", "Cost", "Margin Workings", ""]),
+      sources: JSON.stringify(["REP01 - Board", "Total"]), originSelected: JSON.stringify(["lineItem", "lineItem", "Total", "REP01 - Board", ""]) });
+    // As the page keeps it for the tab, and gives it back after a refresh.
+    expect(readKept({ getItem: () => keptText({ subject: "model:1", tables: {}, map: saved! })!, setItem: () => undefined, removeItem: () => undefined })?.map).toEqual(saved);
+    expect(isMapAtStart(saved!)).toBe(false);
+    map.destroy();
+    mount(graph, { modelName: "Demand Plan", view: saved, onView: view => { saved = view; } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect([text(".map-sources-name"), text(".map-insp-name"), text(".map-module-name"), locate().size]).toEqual(["Source inputs of REP01 - Board · Total", "Cost", "REP01 - Board", 6]);
+    act("sources-back").press();
+    expect([text(".map-insp-name"), here(), part(".map-sources-step").hidden, saved?.sources]).toEqual(["Total", "REP01 - Board", true, undefined]);
+    map.destroy();
+    // A line item the model no longer has opens the view as it was, without its source inputs.
+    mount(graph, { modelName: "Demand Plan", view: { view: "drill", module: "REP01 - Board", sources: JSON.stringify(["REP01 - Board", "Gone"]) } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect([here(), part(".map-sources-step").hidden]).toEqual(["REP01 - Board", true]);
+  });
+
+  it("folds a long list under Show all as a table's details do, and says a large trace in a line, drawing every box of it", () => {
+    const make = new GraphMaker();
+    const many = make.module("INP01 - Many", "01: Inputs");
+    const sums = make.module("CAL01 - Sums", "02: Calculations");
+    const small = make.item(sums, "Small Sum", { formula: "SUM of twenty" });
+    const large = make.item(sums, "Large Sum", { formula: "SUM of all" });
+    Array.from({ length: 160 }, (_, index) => make.item(many, `Input ${String(index + 1).padStart(3, "0")}`)).forEach((item, index) => {
+      make.link(item, large);
+      if (index < 20) make.link(item, small);
+    });
+    open(make.graph());
+    expect(map.sources(small)).toBe(true);
+    const shown = (): number => parts(".map-sources .map-source").filter(row => !row.closest(".map-sources-rest")).length;
+    expect([shown(), parts(".map-sources-rest .map-source").length, part(".map-sources-rest").hidden, act("sources-more").textContent, act("sources-more").getAttribute("aria-expanded")])
+      .toEqual([12, 8, true, "Show all 20", "false"]);
+    act("sources-more").press();
+    expect([part(".map-sources-rest").hidden, act("sources-more").textContent, act("sources-more").getAttribute("aria-expanded"), page.document.activeElement === parts(".map-sources-rest .map-source")[0]])
+      .toEqual([false, "Show fewer", "true", true]);
+    act("sources-more").press();
+    expect([part(".map-sources-rest").hidden, act("sources-more").textContent]).toEqual([true, "Show all 20"]);
+    expect(parts(".map-sources .map-insp-note").map(note => note.textContent)).toEqual([]);
+    // A trace of more than 150 boxes is shown whole all the same, and says how many it has.
+    expect(map.sources(large)).toBe(true);
+    env.settle();
+    expect([parts(".map-sources .map-insp-note")[0].textContent, text(".map-sources summary"), status().startsWith("161 boxes · 160 links")])
+      .toEqual(["A large trace: all 161 boxes are on the map.", "Source inputs (160)", true]);
+  });
+
+  it("says a line item without a formula is an input itself, offers nothing for a heading, and finds a calculation's own inputs, going back to the view first found from", () => {
+    const { graph, units, heading, total, revenue } = sample();
+    open(graph);
+    map.reveal(heading);
+    expect(root().querySelector('[data-map-act="sources"]')).toBeNull();
+    expect([map.sources(heading), map.sources(revenue), map.sources(graph.nodes.length)]).toEqual([false, false, false]);
+    map.reveal(units);
+    act("sources").press();
+    expect([text(".map-sources summary"), parts(".map-sources .map-insp-note").map(note => note.textContent), sourceRows(), locate().size])
+      .toEqual(["Source inputs", ["This line item has no formula: it is an input itself."], [], 1]);
+    key("Escape");
+    expect([here(), text(".map-insp-name")]).toEqual(["INP01 - Volumes", "Units"]);
+    // From the page, with the details in focus; then a calculation's own, and back to where the first were found from.
+    expect(map.sources(total)).toBe(true);
+    expect(page.document.activeElement).toBe(part(".map-insp-name"));
+    clickNode("Gross");
+    act("sources").press();
+    expect([text(".map-sources-name"), sourceRows().map(row => row[0]), act("sources-back").title]).toEqual(["Source inputs of CAL01 - Revenue · Gross", ["Units", "Price"], "Back to INP01 - Volumes"]);
+    act("sources-back").press();
+    expect([here(), text(".map-insp-name"), part(".map-sources-step").hidden]).toEqual(["INP01 - Volumes", "Units", true]);
+  });
+
+  it("goes to a box it has from the search, and leaves for one it does not have, and for another view", () => {
+    const { graph, total } = sample();
+    open(graph);
+    map.sources(total);
+    goTo("Gross");
+    expect([text(".map-insp-name"), part(".map-sources-step").hidden]).toEqual(["Gross", false]);
+    goTo("Margin %");
+    expect([text(".map-insp-name"), here(), part(".map-sources-step").hidden]).toEqual(["Margin %", "Margin Workings", true]);
+    map.sources(total);
+    // A box's own module, and any other view, leave them.
+    clickNode("Price");
+    act("open").press();
+    expect([text(".map-insp-name"), here(), part(".map-sources-step").hidden]).toEqual(["Price", "INP02 - Prices", true]);
+    map.sources(total);
+    groupChoice("groups");
+    expect([here(), part(".map-sources-step").hidden]).toEqual(["Demand Plan", true]);
   });
 });

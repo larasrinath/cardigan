@@ -3,6 +3,7 @@ import type { GraphNode, PageFilter } from "./graph-types.js";
 import { edgeDrawn, LAYER, sectionLayer, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { isAccess, isFormula, type MapModel } from "./map-model.js";
 import { formatCount, plural } from "./map-text.js";
+import { kindWords, propertiesLine, type SourceTrace } from "./map-sources.js";
 
 /** What the map says in words about the graph on screen and the node selected, as plain data: the markup
  * (map-markup.ts) writes it out, and escapes every piece of it. Everything here is read from the model's graph; nothing
@@ -330,8 +331,9 @@ function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode): Inspect
   const formula = raw.formula !== undefined && raw.formula !== "" ? raw.formula : undefined;
   return {
     kind: KIND_NAMES[raw.kind] ?? String(raw.kind).toUpperCase(), layer: node.layer, name: node.fullName, rows,
-    // A line item of another module can be gone to in its own module. One of the module on screen is already there.
-    ...(module && node.external ? { action: { label: "Show its module with it selected", module: module.id, select: raw.id } } : {}),
+    // A line item of another module can be gone to in its own module, and so can a line item among a line item's source
+    // inputs: that is where it is found. One of the module on screen is already there.
+    ...(module && (node.external || node.kind === "sourceItem") ? { action: { label: "Show its module with it selected", module: module.id, select: raw.id } } : {}),
     ...(formula !== undefined ? { formula } : raw.kind === "lineItem" ? { remark: isHeading(raw) ? "No formula. Its format is No Data: a heading among the line items." : "No formula." } : {}),
     lists: [...accessLists(model, raw), ...linkLists(related(model, raw.id, true), related(model, raw.id, false)), ...filtersModules(model, raw), ...filtersLineItems(model, raw),
       ...itemFilteredBy(model, raw)], texts: pageFiltersText(model, raw),
@@ -369,6 +371,7 @@ export function traceWords(inspection: Inspection, up: number, down: number): Tr
 /** What stands for a count of the graph's boxes, one and many. */
 function boxesOf(graph: ViewGraph, count: number, kind: "own" | "others"): string {
   if (graph.kind === "sections") return plural(count, "group");
+  if (graph.kind === "sources") return plural(count, "box", "boxes");
   if (graph.kind === "modules") return kind === "own" ? plural(count, "module") : `${plural(count, "module")} of other groups`;
   return kind === "own" ? plural(count, "line item") : `${formatCount(count)} outside the module`;
 }
@@ -401,6 +404,32 @@ export function viewSentence(graph: ViewGraph, modelName: string, drawn: LinksDr
   const beside = others > 0 ? `, with ${boxesOf(graph, others, "others")}` : "";
   const links = linksOf(graph, drawn);
   if (graph.kind === "sections") return `Groups of ${modelName}: ${plural(graph.local, "group")}, ${links}.`;
+  if (graph.kind === "sources") return `Source inputs of ${graph.name}: ${plural(graph.layers.find(layer => layer.key === LAYER.input)?.count ?? 0, "input")}, ${links}.`;
   if (graph.kind === "modules") return `${graph.name}: ${plural(graph.local, "module")}${beside}, ${links}.`;
   return `Line items of ${graph.name}: ${plural(graph.local, "line item")}${beside}, ${links}.`;
+}
+
+/** More boxes than this make a large trace, which the list of source inputs says it is: every box is on the map all the
+ * same. */
+export const LARGE_TRACE = 150;
+
+/** One input in the details' list of source inputs: its box on the map, by its name there, and its line item, module,
+ * kind, steps and the line item it feeds, as the list says them. */
+export interface SourceRow { node: string; name: string; module: string; kind: string; steps: number; feeds: string }
+
+/** The details' list of a line item's source inputs (map-sources.ts), in words: how many inputs there are, or nothing
+ * where the line item is an input itself; a line before the inputs, for a trace of more than `LARGE_TRACE` boxes, for a
+ * line item that is an input itself, and for one that no input feeds; the inputs; and the lines after them. */
+export interface SourcesSection { count?: number; lead?: string; rows: SourceRow[]; notes: string[] }
+
+/** What the details list of the source inputs of the line item a trace is of. `boxes` is how many boxes the map of them
+ * has. */
+export function sourcesSection(model: MapModel, trace: SourceTrace, boxes: number): SourcesSection {
+  if (trace.input) return { lead: "This line item has no formula: it is an input itself.", rows: [], notes: [] };
+  const rows = trace.inputs.map((input): SourceRow => ({ node: String(input.node.id), name: input.node.name, module: input.module?.name ?? "", kind: kindWords(input),
+    steps: input.steps, feeds: input.feeds.name }));
+  const properties = propertiesLine(model, trace.properties);
+  const lead = boxes > LARGE_TRACE ? `A large trace: all ${formatCount(boxes)} boxes are on the map.` : !rows.length ? "No line item without a formula feeds it." : undefined;
+  return { count: rows.length, ...(lead === undefined ? {} : { lead }), rows,
+    notes: properties === undefined ? [] : [properties] };
 }

@@ -1,5 +1,5 @@
 import { minimapTransform, toWorld, type Camera, type MinimapTransform } from "./map-camera.js";
-import { edgeDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { edgeDrawn, LAYER, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, hasSmallLine, ITEM } from "./map-layout.js";
 import { layerColour, layerStriped, type MapPalette } from "./map-palette.js";
 import { KEY_SHAPES } from "./map-marks.js";
@@ -298,6 +298,8 @@ function drawText(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: numbe
   const item = node.kind === "lineItem";
   const role: Role = item ? "item" : "label";
   const quiet = node.external || node.layer === "heading";
+  // An input among a line item's source inputs has its name in the accent's ink, on its tint.
+  const name = node.layer === LAYER.input ? palette.inputText : quiet ? palette.nodeTextMuted : palette.nodeText;
   if (k >= (item ? FULL_ITEM_ZOOM : FULL_CARD_ZOOM)) {
     const left = x + (item ? ITEM.padLeft : CARD.padLeft) * k;
     let top = y + (item ? ITEM.top : CARD.top) * k;
@@ -313,7 +315,7 @@ function drawText(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: numbe
     const size = (item ? ITEM.font : CARD.font) * k;
     const step = (item ? ITEM.line : CARD.line) * k;
     pen.font = fonts.css(role, size);
-    pen.fillStyle = quiet ? palette.nodeTextMuted : palette.nodeText;
+    pen.fillStyle = name;
     node.lines.forEach((line, index) => pen.fillText(line, left, top + step * index + step * 0.74));
     return;
   }
@@ -327,7 +329,7 @@ function drawText(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: numbe
   const size = lines >= 1 ? SMALL_TYPE : LEAST_TYPE;
   const written = wrapLines(node.fullName, room / size, Math.max(1, lines), fonts.measure(role));
   pen.font = fonts.css(role, size);
-  pen.fillStyle = quiet ? palette.nodeTextMuted : palette.nodeText;
+  pen.fillStyle = name;
   const step = size + 2;
   const first = y + (height - written.length * step) / 2 + size * 0.86;
   written.forEach((line, index) => pen.fillText(line, x + padLeft, first + index * step));
@@ -459,6 +461,9 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     let colour = colours.get(node.layer);
     if (colour === undefined) colours.set(node.layer, colour = layerColour(palette, node.layer));
     const selected = trace?.selected === index;
+    // An input among a line item's source inputs is tinted in the accent's colours, selected or not: it stands out from the
+    // calculations, whatever the trace marks.
+    const input = node.layer === LAYER.input;
     const feeds = !!trace && !selected && trace.up.has(index);
     const fed = !!trace && !selected && trace.down.has(index);
     let alpha = trace && !selected && !feeds && !fed ? 0.18 : 1;
@@ -475,7 +480,7 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     } else {
       pen.globalAlpha = alpha;
       roundedRect(pen, x, y, w, h, radius);
-      pen.fillStyle = selected ? palette.nodeFillSelected : palette.nodeFill;
+      pen.fillStyle = input ? palette.inputFill : selected ? palette.nodeFillSelected : palette.nodeFill;
       pen.fill();
       if (dotted) {
         // Round dots in the box's quieter text colour, or the selection's: the same on screen at every zoom.
@@ -488,8 +493,8 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
         pen.setLineDash([]);
       } else {
         if (node.external) pen.setLineDash([4, 4]);
-        pen.lineWidth = selected ? 1.8 : Math.max(1, 1.1 * k);
-        pen.strokeStyle = selected ? palette.select : node.external ? palette.external : palette.nodeBorder;
+        pen.lineWidth = selected ? 1.8 : Math.max(1, (input ? 1.4 : 1.1) * k);
+        pen.strokeStyle = selected ? palette.select : node.external ? palette.external : input ? palette.input : palette.nodeBorder;
         pen.stroke();
         if (node.external) pen.setLineDash([]);
       }
@@ -505,7 +510,7 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
           pen.moveTo(x + railWidth / 2, y + radius);
           pen.lineTo(x + railWidth / 2, y + h - radius);
           pen.lineWidth = railWidth;
-          pen.strokeStyle = selected ? palette.nodeFillSelected : palette.nodeFill;
+          pen.strokeStyle = input ? palette.inputFill : selected ? palette.nodeFillSelected : palette.nodeFill;
           pen.stroke();
           pen.setLineDash([]);
         }

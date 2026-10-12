@@ -3,6 +3,7 @@ import { hasModelMap } from "../polaris.js";
 import { buildPolarisGraph } from "../polaris-map.js";
 import type { GraphNode, MapOpen, MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
+import { importLoads } from "../model/import-loads.js";
 import { MISSING_LINE_ITEMS_MODULE, missingIn, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES, type MissingKind } from "../page-files.js";
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
@@ -1482,11 +1483,11 @@ const SETTINGS_PAGES: ReadonlyMap<string, { id: string; page: string }> = new Ma
   ["Import Data Sources.csv", ACTIONS_PAGE], ["Source Models.csv", { id: "-13", page: "Source Models" }],
 ]);
 
-/** A button under the name in a row's details, with where it leads: a box of the model map; a module, a list or a
- * settings page in Model Building, which the model's tab opens (`openInModel`), inside its page by the object's ID where
- * it can; or an app or a
+/** A button under the name in a row's details, with where it leads: a box of the model map, or a line item's source
+ * inputs there; a module, a list or a settings page in Model Building, which the model's tab opens (`openInModel`), inside
+ * its page by the object's ID where it can; or an app or a
  * page, which the tab of apps and pages opens (`openInAppTab`). `what` names it in the run's log. */
-type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module"; url: string; object?: string; what: string } | { kind: "app" | "page"; url: string; what: string });
+type Open = OpenButton & ({ kind: "map" | "sources"; node: number } | { kind: "module"; url: string; object?: string; what: string } | { kind: "app" | "page"; url: string; what: string });
 /** The buttons of the row the details show, by their place: what a click on one of them opens. */
 let drawerOpens: readonly Open[] = [];
 /** For a process's row in the details, the row of each action it runs, by the action's place among them, where the page
@@ -1559,7 +1560,8 @@ function listOfDimension(name: string): string | undefined {
  * one that the result keeps from every row is not there. Model Building opens modules and lists, not line items: a line
  * item opens its module. The button that opens a row's one object in Model Building is Model, as the user named it (9 and
  * 10 Oct 2026); a row with several says which each is.
- * - Line Items and Modules: the row's box on the model map, and its module in Model Building.
+ * - Line Items and Modules: the row's box on the model map, and its module in Model Building. A line item that is no
+ *   heading has Find source inputs beside its box: the map shows the line items without a formula that feed it.
  * - General Lists: the list, on the map and in Model Building.
  * - Module Usage: the module, on the map and in Model Building, and the app and the page that use it.
  * - Page Filters: the condition line item's module and the filtered module in Model Building, by those names, one Model
@@ -1585,8 +1587,12 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
     return at === undefined ? "" : cellText(row[at]).trim();
   };
   const node = mapNodeOf(entry, row);
-  if (node !== undefined) opens.push({ kind: "map", node, label: "Model map",
-    title: `Show ${modelGraph?.nodes.find(each => each.id === node)?.name ?? cellText(row[0]).trim()} on the Model map` });
+  const box = node === undefined ? undefined : modelGraph?.nodes.find(each => each.id === node);
+  if (node !== undefined) opens.push({ kind: "map", node, label: "Model map", title: `Show ${box?.name ?? cellText(row[0]).trim()} on the Model map` });
+  // A line item's own row, and no heading's: a module's own row and a heading hold no value to trace.
+  if (node !== undefined && file === LINE_ITEMS_FILE && box?.kind === "lineItem" && box.format?.toUpperCase() !== "NONE") {
+    opens.push({ kind: "sources", node, label: "Find source inputs", title: `Find the source inputs of ${box.name} on the Model map` });
+  }
   /** The kinds of what the row names Missing where a Model button would open it. */
   const gone = new Set<MissingKind>();
   /** Whether a name is of something the model doesn't have, which is then noted in `gone`. */
@@ -1997,8 +2003,12 @@ function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void):
   const workspace = detailValue(detailsOf(model), "Model", "Workspace")?.trim() ?? "";
   let grouping: string | null = null;
   try { grouping = localStorage.getItem(MAP_GROUPING); } catch { /* no storage: the map picks */ }
+  // What each import loads into a module's line items, which the map's source inputs name: from the result alone.
+  const modules = new Set(graphFor(model).nodes.filter(node => node.kind === "module").map(node => node.name.trim()));
+  const imports = importLoads(model.tables.find(table => table.file === IMPORTS_FILE), model.importMappings, name => modules.has(name));
   return {
     modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure, ...(grouping ? { grouping } : {}),
+    ...(imports.length ? { imports } : {}),
     opens: node => result === model ? mapOpens(node) : [],
     // The map's own pick is kept as no choice: the next map picks for itself again.
     onGrouping: kind => {
@@ -2271,9 +2281,10 @@ document.addEventListener("click", event => {
         const open = drawerOpens[Number(act.dataset.open)];
         if (!open) return;
         if (open.kind === "module") return void openInModel(open.url, open.what, open.object);
-        if (open.kind !== "map") return void openInAppTab(open.url, open.what);
+        if (!("node" in open)) return void openInAppTab(open.url, open.what);
         navTo("map", { keepDetails: true });
-        if (modelMap && modelMap !== "failed" && !modelMap.reveal(open.node)) toast("Not found on the map");
+        // Find source inputs shows the line item's source inputs on the map, with their list in its details.
+        if (modelMap && modelMap !== "failed" && !(open.kind === "sources" ? modelMap.sources(open.node) : modelMap.reveal(open.node))) toast("Not found on the map");
         return;
       }
       // A name under About this export, by its place among them (`aboutLinks`): the model, in the model's tab, which is only

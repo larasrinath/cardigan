@@ -1,10 +1,10 @@
 import type { MapOpen, ModelGraph } from "./graph-types.js";
-import type { ViewGraph, ViewLayer } from "./map-graphs.js";
-import type { InspectLink, InspectList, Inspection, TraceWords } from "./map-inspect.js";
+import { LAYER, type ViewGraph, type ViewLayer } from "./map-graphs.js";
+import type { InspectLink, InspectList, Inspection, SourceRow, SourcesSection, TraceWords } from "./map-inspect.js";
 import { layerClass } from "./map-palette.js";
 import type { SearchOutcome } from "./map-search.js";
-import { formatCount } from "./map-text.js";
-import { KEY_PATH } from "./map-marks.js";
+import { formatCount, plural } from "./map-text.js";
+import { KEY_PATH, SOURCES_PATH } from "./map-marks.js";
 
 /** The model map's markup: each function turns data into the HTML text the view then shows inside its own element.
  * Every name, note and formula of a model was typed by an Anaplan user, so every value that comes from the graph goes
@@ -26,6 +26,10 @@ const MINIMAP_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none
 const FIT_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2"/><path d="M6.5 6.5 4 4M4 6.5V4h2.5"/><path d="M9.5 6.5 12 4M9.5 4H12v2.5"/><path d="M6.5 9.5 4 12M4 9.5V12h2.5"/><path d="M9.5 9.5 12 12M9.5 12H12V9.5"/></svg>';
 const LEGEND_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="3" height="3" rx=".7"/><rect x="2" y="10" width="3" height="3" rx=".7"/><path d="M8 3.5h6M8 11.5h6"/></svg>';
 const ABOUT_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5a3 3 0 0 1 6 0c0 2.25-3 2.25-3 4.5M8 13.4v.1"/></svg>';
+/** Find source inputs, drawn as the menu bar's icons are: 14 pixels, a stroke of 1.5, round ends and joins. */
+export const SOURCES_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SOURCES_PATH}</svg>`;
+/** The path's way back from the source inputs: a chevron pointing back, drawn as the path's other chevrons are. */
+const BACK_ICON = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4 6 8l4 4"/></svg>';
 const zoomIcon = (plus: boolean): string => `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10${plus ? 'M8 3v10' : ''}"/></svg>`;
 const dot = (layer: string): string => `<span class="map-dot ${layerClass(layer)}" aria-hidden="true"></span>`;
 /** The sign a box of a trace carries, beside the words that say which side it is on: the same mark the canvas draws on
@@ -88,25 +92,31 @@ export function filtersNote(graph: Pick<ModelGraph, "pageFilterTable" | "pageFil
 /** What a page filter's link looks like and means, by the kind of picture, said in the legend while those links are
  * drawn: among a module's line items it ends at a line item it filters, or at the module of others, as one link stands
  * for those; between modules and groups it stands for the filter of one module's grid. */
-export const FILTER_LINK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
+/** The kinds of picture that draw the pages' filters and the marks of filters and access drivers: a line item's source
+ * inputs draw none of them. */
+export type MarkedKind = Exclude<ViewGraph["kind"], "sources">;
+export const FILTER_LINK_SAYS: Readonly<Record<MarkedKind, string>> = {
   sections: "Dashed: a page filter, from the group of its line item to the group of a module it filters.",
   modules: "Dashed: a page filter, from the module of its line item to a module it filters.",
   drill: "Dashed: a page filter, from its line item to a line item it filters, or to the module of those.",
 };
 /** What a filter mark on a box means (map-canvas.ts `drawMarks`), by the kind of picture, said in the legend while
  * one is drawn. */
-export const FILTER_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
+export const FILTER_MARK_SAYS: Readonly<Record<MarkedKind, string>> = {
   sections: "Filter mark: how many of the group's modules their own line items filter on pages.",
   modules: "Filter mark: how many of the module's own line items filter it on pages.",
   drill: "Filter mark: the line item filters itself on a page: the grid it filters shows it too, or does not say which line items it shows.",
 };
 /** A filter mark's funnel, as the canvas draws it (map-canvas.ts `funnel`). */
 const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 .8h10L6.2 5.2v3.4L3.8 10V5.2Z"/></svg>';
-export const ACCESS_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
+export const ACCESS_MARK_SAYS: Readonly<Record<MarkedKind, string>> = {
   sections: "Key mark: how many of the group's modules hold access drivers.",
   modules: "Key mark: how many of the module's line items are access drivers.",
-  drill: "Key mark: the line item is a read or write access driver. On another module, how many of its line items are drivers.",
+  drill: "Key mark: the line item is a read or write access driver.",
 };
+/** Said after the key mark's words among a module's line items while a box there that stands for another module carries
+ * one: other modules' line items grouped by module, or a link to a whole module. */
+export const ACCESS_MARK_MODULE_SAYS = "On another module, how many of its line items are drivers.";
 const KEY = `<svg width="14" height="8" viewBox="0 0 14 8" fill="currentColor" aria-hidden="true"><path d="${KEY_PATH}" fill-rule="evenodd"/></svg>`;
 /** What unticking the switch of formulas' links leaves, said under the switch, which is ticked unless the viewer unticks it. */
 export const FORMULAS_SAY = "Untick to see only access drivers and page filters.";
@@ -117,8 +127,22 @@ export const ACCESS_LINK_SAYS = "An arrow from an access driver to what it contr
 /** What the legend says where the Links panel has no kind of link ticked. */
 export const NO_LINKS_SAYS = "No links are drawn. Tick Formulas, Access drivers or Page filters under Links.";
 /** Why a box beside a module's line items can be marked as part of a trace with no coloured link leading to it: there
- * the trace follows the model from line item to line item (map-trace.ts), and draws only the links of this module. */
-export const BESIDE_SAYS = "Among a module's line items, a box that stands for another module can carry a sign without a coloured link: it feeds the line item selected, or is fed by it, by way of line items that are not on this map.";
+ * the trace follows the model from line item to line item (map-trace.ts), and the map draws only the links of the
+ * module's own line items. The way can run through line items that are not on the map, or from one box beside them to
+ * another, a link the map does not draw: so any box beside them, another module's line item as well as a module. */
+export const BESIDE_SAYS = "Among a module's line items, any box beside them can carry a sign without a coloured link: it feeds the box selected, or is fed by it, by way of links this map does not draw.";
+/** What Find source inputs does, said in the notes about the map. */
+export const SOURCES_SAYS = "Find source inputs, in a line item's details, lists the line items without a formula that feed it, entered or imported, and maps them with the calculations in between.";
+/** The button that finds a line item's source inputs: its words, and what it does on hover. */
+export const FIND_SOURCES = "Find source inputs";
+export const FIND_SOURCES_TITLE = "Find the line items without a formula that feed this one";
+/** What a tinted box means, said in the legend while the map shows a line item's source inputs. */
+export const INPUT_MARK_SAYS = "A tinted box is an input: a line item without a formula, entered or imported.";
+/** How a long list of source inputs folds, as a long list in the details of a table's row does (results/markup.ts
+ * `LIST_WHOLE`, `LIST_SHOWN`): up to `SOURCES_WHOLE` are listed whole, and of more the first `SOURCES_SHOWN`, with a button
+ * under them that shows the rest in place. */
+export const SOURCES_WHOLE = 15;
+export const SOURCES_SHOWN = 12;
 
 /** The names the view gives the elements that others point at. */
 export interface ShellIds { results: string; hints: string; legend: string; about: string; formulas: string; access: string; filters: string; links: string; picker: string }
@@ -183,6 +207,11 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
             <div class="map-picker-list" id="${esc(ids.picker)}" role="listbox" aria-label="Modules"></div><p class="map-picker-note" hidden></p>
           </div>
         </span>
+        <span class="map-sep map-sources-sep" aria-hidden="true" hidden>${PATH_CHEVRON}</span>
+        <span class="map-sources-step" hidden>
+          <button type="button" class="map-btn map-small map-sources-back" data-map-act="sources-back" aria-label="Back" title="Back">${BACK_ICON}<span>Back</span></button>
+          <span class="map-sources-name" aria-current="location"></span>
+        </span>
       </nav>
     </div>
     <div class="map-zone map-zone-tools">
@@ -196,7 +225,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
           <p class="map-links-note map-access-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
           <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
           <p class="map-links-note map-filters-note" id="${esc(ids.filters)}">${esc(FILTERS_SAY)}</p>
-          <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external">Other modules' line items</label>
+          <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external" checked>Other modules' line items</label>
         </div>
       </div>
       <div class="map-searchwrap">
@@ -231,6 +260,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <h3 class="map-about-title">How to read the map</h3>
       <p class="map-about-line">${esc(LINK_SAYS)} Click a box to see everything that feeds it and everything it feeds: ${SIGN} at a box's right edge means it feeds the box selected, ${SIGN} at its left edge means the box selected feeds it.</p>
       <p class="map-about-line">${esc(BESIDE_SAYS)}</p>
+      <p class="map-about-line">${esc(SOURCES_SAYS)}</p>
       <h3 class="map-about-title">Mouse and keys</h3>
       <p class="map-hints" id="${esc(ids.hints)}">
         <b>Click</b> a box: what feeds it and what it feeds · <b>Double-click</b>: show what is inside<br>
@@ -297,17 +327,21 @@ const MODULES_ONLY_MARK = '<svg class="map-c-modules-only" width="22" height="14
  * what the mark means on that kind of picture (`marks`), beside one. What a formula's arrow means is said in the notes
  * about the map, not here. Where no kind of link is ticked, it says so plainly. A hidden layer says so in more than its
  * colour: its name is struck through, and the button is not pressed. While the picture has a box of a module from
- * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark. */
-export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: ViewGraph["kind"], marks?: ViewGraph["kind"],
-  links: LegendLinks = NO_LINK_NOTES, accessMarks?: ViewGraph["kind"], modulesOnly = false): string {
+ * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark. Among a
+ * module's line items the key mark's words speak of another module's box only while one of those carries a key mark
+ * (`moduleKeys`): with other modules' line items one by one, the boxes beside them are mostly line items. */
+export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: MarkedKind, marks?: MarkedKind,
+  links: LegendLinks = NO_LINK_NOTES, accessMarks?: MarkedKind, modulesOnly = false, inputs = false, moduleKeys = false): string {
+  const keySays = accessMarks === undefined ? "" : accessMarks === "drill" && moduleKeys ? `${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}` : ACCESS_MARK_SAYS[accessMarks];
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
-  }).join("")}${modulesOnly ? `<p class="map-legend-note map-legend-mark">${MODULES_ONLY_MARK}${esc(MODULES_ONLY_SAYS)}</p>` : ""}${
+  }).join("")}${inputs ? `<p class="map-legend-note map-legend-mark map-legend-input"><span class="map-mark-input" aria-hidden="true"></span>${esc(INPUT_MARK_SAYS)}</p>` : ""}${
+    modulesOnly ? `<p class="map-legend-note map-legend-mark">${MODULES_ONLY_MARK}${esc(MODULES_ONLY_SAYS)}</p>` : ""}${
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
     links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${
     marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}${
-    accessMarks ? `<p class="map-legend-note map-legend-mark map-legend-key"><span class="map-mark-access" aria-hidden="true">${KEY}</span>${esc(ACCESS_MARK_SAYS[accessMarks])}</p>` : ""}`;
+    accessMarks ? `<p class="map-legend-note map-legend-mark map-legend-key"><span class="map-mark-access" aria-hidden="true">${KEY}</span>${esc(keySays)}</p>` : ""}`;
 }
 
 /** What the trace's button does, on its face, on hover and to a screen reader. */
@@ -354,23 +388,47 @@ export function listHtml(list: InspectList, all: boolean): string {
   return `<summary>${PATH_CHEVRON}${esc(list.title)}</summary>${shown.map(linkHtml).join("")}${more}`;
 }
 
+/** One input in the list of source inputs: a button that selects its box on the map, with its line item's name, its
+ * module, and under that its kind, its steps and the line item it feeds, in the list's order. */
+const sourceRowHtml = (row: SourceRow): string =>
+  `<button type="button" class="map-link map-source" data-map-act="node" data-map-node="${esc(row.node)}">${dot(LAYER.input)}<span class="map-link-text">${esc(row.name)}<small>${esc(row.module)}</small>`
+  + `<small>${esc(row.kind)} · ${esc(plural(row.steps, "step"))} · Feeds ${esc(row.feeds)}</small></span></button>`;
+
+/** The list of a line item's source inputs, open, under its title and the count of its inputs (`SourcesSection`): the line
+ * before them, the inputs, folded as a long list of a table's row's details is (`SOURCES_WHOLE`), and the lines after
+ * them. */
+export function sourcesHtml(section: SourcesSection): string {
+  const title = section.count === undefined ? "Source inputs" : `Source inputs (${formatCount(section.count)})`;
+  const { rows } = section;
+  const list = rows.length <= SOURCES_WHOLE ? rows.map(sourceRowHtml).join("")
+    : `${rows.slice(0, SOURCES_SHOWN).map(sourceRowHtml).join("")}<div class="map-sources-rest" hidden>${rows.slice(SOURCES_SHOWN).map(sourceRowHtml).join("")}</div>`
+      + `<button type="button" class="map-more" data-map-act="sources-more" data-map-all="${rows.length}" aria-expanded="false">Show all ${esc(formatCount(rows.length))}</button>`;
+  const line = (text: string): string => `<p class="map-insp-note">${esc(text)}</p>`;
+  return `<details class="map-details map-sources" data-map-list="sources" open><summary>${PATH_CHEVRON}${esc(title)}</summary>${section.lead === undefined ? "" : line(section.lead)}${list}${section.notes.map(line).join("")}</details>`;
+}
+
+/** What the details have besides a box's own: Find source inputs among the buttons, for a line item whose source inputs
+ * can be found and are not shown, and the list of them at the top of the body, for the line item they are shown for. */
+export interface InspectorMore { findSources?: boolean; sources?: SourcesSection }
+
 /** A fixed header with the name, kind and opening buttons, then a scrolling body of details and folded raw values. The
  * body of a module from Modules alone (`modulesOnly`) starts with the line that says so. */
-export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens: readonly MapOpen[] = [], focused = false, modulesOnly = false): string {
+export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens: readonly MapOpen[] = [], focused = false, modulesOnly = false, more: InspectorMore = {}): string {
   const rows = inspection.rows.length ? `<dl class="map-dl">${inspection.rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>` : "";
   const action = inspection.action;
   const button = !action ? "" : `<button type="button" class="map-btn map-small map-primary" data-map-act="open"${action.section === undefined ? "" : ` data-map-section="${esc(action.section)}"`}${
     action.module === undefined ? "" : ` data-map-module="${esc(action.module)}"`}${action.select === undefined ? "" : ` data-map-select="${esc(action.select)}"`}>${esc(action.label)}</button>`;
   const formula = inspection.formula !== undefined ? `<h4 class="map-insp-sec">Formula</h4><pre class="map-formula">${esc(inspection.formula)}</pre>`
     : inspection.remark !== undefined ? `<p class="map-insp-note">${esc(inspection.remark)}</p>` : "";
-  const buttons = button + opens.map((open, index) => `<button type="button" class="map-btn map-small" data-map-act="page-open" data-map-open="${index}" title="${esc(open.title)}">${openIcon(open.label)}${esc(open.label)}</button>`).join("");
+  const find = more.findSources ? `<button type="button" class="map-btn map-small" data-map-act="sources" title="${esc(FIND_SOURCES_TITLE)}">${SOURCES_ICON}${esc(FIND_SOURCES)}</button>` : "";
+  const buttons = button + find + opens.map((open, index) => `<button type="button" class="map-btn map-small" data-map-act="page-open" data-map-open="${index}" title="${esc(open.title)}">${openIcon(open.label)}${esc(open.label)}</button>`).join("");
   const traced = !trace ? "" : `<div class="map-insp-trace">${traceHtml(trace, focused)}</div>`;
   const lists = inspection.lists.map(list => `<details class="map-details" data-map-list="${esc(list.key)}"${list.open ? " open" : ""}>${listHtml(list, false)}</details>`).join("");
   const texts = inspection.texts.map(text => `<details class="map-details"><summary>${PATH_CHEVRON}${esc(text.title)}</summary><ul class="map-lines">${text.lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul></details>`).join("");
   const notes = inspection.notes === undefined ? "" : `<h4 class="map-insp-sec">Notes</h4><p class="map-insp-note">${esc(inspection.notes)}</p>`;
   const raw = !inspection.asRead?.length ? "" : `<details class="map-details map-as-read"><summary>${PATH_CHEVRON}As read</summary>${inspection.asRead.map(([label, value]) => `<h4 class="map-insp-sec">${esc(label)}</h4><pre class="map-formula">${esc(value)}</pre>`).join("")}</details>`;
   return `<div class="map-insp-header"><div class="map-insp-head"><div><h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span></div><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
-    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}</div><div class="map-insp-body">${modulesOnly ? `<p class="map-insp-note">${esc(MODULES_ONLY_SAYS)}</p>` : ""}${traced}${formula}${rows}${lists}${texts}${notes}${raw}</div>`;
+    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}</div><div class="map-insp-body">${modulesOnly ? `<p class="map-insp-note">${esc(MODULES_ONLY_SAYS)}</p>` : ""}${more.sources ? sourcesHtml(more.sources) : ""}${traced}${formula}${rows}${lists}${texts}${notes}${raw}</div>`;
 }
 
 /** What a map that stopped after a failure says in its own place: that it could not be drawn, the failure's own words

@@ -90,6 +90,7 @@ The map shows how a model's groups, modules and line items connect. It is built 
 - Choose a **Group** or **Module** to explore it, or search for a group, module or line item.
 - **Links** lets you show formula, access-driver and page-filter connections.
 - Click a box for details and its connections. **Hide the other boxes** keeps its chain in view; **Show all boxes** brings the others back. **Table** and **Model** open the matching row or place in Anaplan where available.
+- **Find source inputs**, in a line item's details or its row of **Line Items**, lists the line items without a formula that feed it, entered or imported, and maps them with the calculations in between; **Back** or Esc returns.
 - The details' name, kind and opening buttons stay in place while the content below scrolls, as in the tables' details. Selecting another box starts its details at the top. Very long names wrap and scroll within the header so the content keeps room.
 - Zoom out, Zoom in, Fit, Legend, Minimap and About share the controls row at the bottom left. **About** explains the map and its limits.
 - **Minimap** and **Legend** start open; the legend starts closed on very small maps and is absent when there are no layers. Both keep your open or closed choice for the tab. **Fit** leaves room for the open panels.

@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { parseMarkup } from "../results/dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "../results/markup.test-support.js";
 import type { PageFilterCheck } from "./graph-types.js";
-import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
+import type { InspectLink, Inspection, SourceRow, SourcesSection, TraceWords } from "./map-inspect.js";
+import { LIST_SHOWN, LIST_WHOLE } from "../results/markup.js";
 import {
-  ACCESS_LINK_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
+  ACCESS_LINK_SAYS, ACCESS_MARK_MODULE_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
   groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, MODULES_ONLY_SAYS, NO_LINKS_SAYS, notesHtml, type LegendLinks,
-  pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
+  pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, SOURCES_SAYS, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
+  FIND_SOURCES, FIND_SOURCES_TITLE, INPUT_MARK_SAYS, SOURCES_ICON, SOURCES_SHOWN, SOURCES_WHOLE, sourcesHtml,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
 
@@ -188,7 +190,8 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll(".map-tabs")).toHaveLength(0);
     expect(shell.querySelectorAll(".map-picker")).toHaveLength(3);
     expect(shell.querySelectorAll(".map-step-name").map(name => name.textContent)).toEqual(["Group by", "Group", "Module"]);
-    expect(shell.querySelectorAll(".map-crumbs button")).toHaveLength(4);
+    // The model's name, Group by and its explanation, Group, Module, and the step back from a line item's source inputs.
+    expect(shell.querySelectorAll(".map-crumbs button")).toHaveLength(5);
     expect(shell.querySelectorAll(".map-step-list")).toHaveLength(0);
     for (const button of shell.querySelectorAll(".map-step")) {
       expect([button.localName, button.getAttribute("type"), button.getAttribute("aria-haspopup")]).toEqual(["button", "button", "listbox"]);
@@ -206,7 +209,10 @@ describe("The map's own markup", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     // Each separator is a drawn chevron, with no text of its own, that a screen reader is not told of.
     expect(shell.querySelectorAll(".map-sep").map(sep => [sep.dataset.mapSep, sep.getAttribute("aria-hidden"), sep.textContent, sep.children.map(child => child.getAttribute("class"))]))
-      .toEqual(Array(3).fill([undefined, "true", "", ["map-sep-chevron"]]));
+      .toEqual(Array(4).fill([undefined, "true", "", ["map-sep-chevron"]]));
+    // The step back from a line item's source inputs says Back beside a drawn chevron, and where it goes in its name.
+    const back = shell.querySelector('[data-map-act="sources-back"]');
+    expect([back?.textContent, back?.getAttribute("aria-label"), back?.querySelectorAll("svg").length, back?.closest(".map-sources-step")?.hidden]).toEqual(["Back", "Back", 1, true]);
     // The details' main button says where it leads in its words alone.
     const details = inspectorHtml(inspectionOf(harmless));
     expect(parseMarkup(details).querySelector('[data-map-act="open"]')?.textContent).toBe("word 6");
@@ -216,7 +222,7 @@ describe("The map's own markup", () => {
   it("makes every control a real button, list or box with a name", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const controls = shell.querySelectorAll("button, select, input");
-    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 12 }, () => "button"), "input", "input", "input", "input", "input", "input"]);
+    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 13 }, () => "button"), "input", "input", "input", "input", "input", "input"]);
     const names: string[] = [];
     for (const control of controls) {
       const label = control.closest("label");
@@ -227,7 +233,7 @@ describe("The map's own markup", () => {
     }
     // In the bar's order: where the map is, how it is built, and its tools. Each list and box is named as its label reads.
     expect(names).toEqual([
-      "Group by", "How this grouping works", "Choose a group", "Choose a module", "Find a module", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
+      "Group by", "How this grouping works", "Choose a group", "Choose a module", "Find a module", "Back", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
       "Zoom out", "Zoom in", "Fit to screen", "Legend", "Minimap", "About this map",
     ]);
     expect(shell.querySelector(".map-grouping-name")?.textContent).toBe("Group by");
@@ -271,6 +277,11 @@ describe("The map's own markup", () => {
     expect(FILTERS_SAY).toBe("Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, "
       + "and between their modules.");
     expect(Object.keys(FILTERS_NONE)).toEqual(["table", "links", "empty", "unfound", "nowhere"]);
+    // Other modules' line items come last, ticked as the map opens: inside a module they stand one by one unless unticked.
+    // The view shows the box only there.
+    const others = panel.querySelector(".map-external")!;
+    expect([others.getAttribute("type"), others.getAttribute("checked"), others.closest("label")?.textContent, others.closest("label")?.hidden])
+      .toEqual(["checkbox", "", "Other modules' line items", true]);
   });
 
   it("says under the switch of the pages' filters what ticking it shows, by what the model has, or why it has nothing", () => {
@@ -452,14 +463,19 @@ describe("The map's own markup", () => {
     const about = shell.querySelector(".map-about")!;
     expect([about.id, about.hidden, about.getAttribute("tabindex")]).toEqual(["map-about-1", true, "0"]);
     // What is of this model comes first in the notes, then how any map is read.
-    expect(about.children.map(child => child.getAttribute("class"))).toEqual(["map-notes", "map-about-title", "map-about-line", "map-about-line", "map-about-title", "map-hints"]);
+    expect(about.children.map(child => child.getAttribute("class"))).toEqual(["map-notes", "map-about-title", "map-about-line", "map-about-line", "map-about-line", "map-about-title", "map-hints"]);
     expect(about.querySelectorAll(".map-about-title").map(title => title.textContent)).toEqual(["How to read the map", "Mouse and keys"]);
     expect(about.querySelector(".map-about-line")?.textContent).toContain(LINK_SAYS);
     // What a sign means, and why a box beside a module's line items can carry one with no coloured link to it.
     expect(about.querySelectorAll(".map-about-line").map(line => line.textContent)).toEqual([
       `${LINK_SAYS} Click a box to see everything that feeds it and everything it feeds:  at a box's right edge means it feeds the box selected,  at its left edge means the box selected feeds it.`, BESIDE_SAYS,
+      SOURCES_SAYS,
     ]);
+    expect(SOURCES_SAYS).toBe("Find source inputs, in a line item's details, lists the line items without a formula that feed it, entered or imported, and maps them with the calculations in between.");
     expect(LINK_SAYS).toBe("An arrow from A to B: B reads A.");
+    // Any box beside a module's line items, another module's line item as well as a module, can carry a sign that no
+    // coloured link explains (map-trace.test.ts shows one).
+    expect(BESIDE_SAYS).toBe("Among a module's line items, any box beside them can carry a sign without a coloured link: it feeds the box selected, or is fed by it, by way of links this map does not draw.");
   });
 
   it("starts with the panels of a selection hidden, and the first view's controls shown", () => {
@@ -468,15 +484,20 @@ describe("The map's own markup", () => {
       expect(shell.querySelector(selector)?.hidden, selector).toBe(true);
     }
     for (const selector of [".map-status", ".map-navigation"]) expect(shell.querySelector(selector)?.hidden, selector).toBe(false);
-    // Each separator of the path stands or goes with the list after it.
-    expect(shell.querySelectorAll(".map-sep").map(sep => [sep.dataset.mapSep, sep.hidden, sep.getAttribute("aria-hidden")])).toEqual(Array(3).fill([undefined, false, "true"]));
+    // Each separator of the path stands or goes with the list after it; the last one with the step back from a line item's
+    // source inputs, which the map shows only while it shows them.
+    expect(shell.querySelectorAll(".map-sep").map(sep => [sep.dataset.mapSep, sep.hidden, sep.getAttribute("aria-hidden")]))
+      .toEqual([...Array(3).fill([undefined, false, "true"]), [undefined, true, "true"]]);
+    expect(shell.querySelector(".map-sources-step")?.hidden).toBe(true);
     expect(shell.querySelectorAll(".map-tab").map(tab => [tab.textContent, tab.dataset.mapView, tab.getAttribute("aria-pressed")])).toEqual([]);
     // The line of what is shown and the small picture stand over the graph's own room, with the bar above it.
     expect(shell.querySelector(".map-chrome")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-bar", "map-selection", "map-free"]);
     // The path comes first, followed by its tools, the last of which is full screen.
     expect(shell.querySelector(".map-bar")?.children.map(child => child.getAttribute("class"))).toEqual(["map-zone map-zone-path", "map-zone map-zone-tools"]);
     expect(shell.querySelector(".map-zone-path")?.children.map(child => child.getAttribute("class"))).toEqual(["map-crumbs"]);
-    expect(shell.querySelector(".map-crumbs")?.children.map(child => child.getAttribute("class"))).toEqual(["map-path-root", "map-sep", "map-grouping-field", "map-sep", "map-picker map-group-picker", "map-sep", "map-picker map-module-picker"]);
+    // After the module, the step back from a line item's source inputs, shown only while they are.
+    expect(shell.querySelector(".map-crumbs")?.children.map(child => child.getAttribute("class"))).toEqual(["map-path-root", "map-sep", "map-grouping-field", "map-sep", "map-picker map-group-picker", "map-sep", "map-picker map-module-picker",
+      "map-sep map-sources-sep", "map-sources-step"]);
     expect(shell.querySelector(".map-zone-tools")?.children.map(child => child.getAttribute("class"))).toEqual(["map-links", "map-searchwrap", "map-btn map-icon map-full-btn"]);
     expect(shell.querySelector(".map-free")?.children.map(child => child.getAttribute("class"))).toEqual(["map-foot", "map-empty"]);
     // The legend and the notes stand over the line at the foot, whatever its height.
@@ -616,15 +637,17 @@ describe("The map's panels", () => {
 
   it("has no line for formulas' arrows whatever the picture draws, and each other line of the legend only while its link or mark is drawn", () => {
     const kinds = [undefined, "sections", "modules", "drill"] as const;
-    for (const access of [false, true]) for (const none of [false, true]) for (const modulesOnly of [false, true]) {
+    for (const access of [false, true]) for (const none of [false, true]) for (const modulesOnly of [false, true]) for (const moduleKeys of [false, true]) {
       for (const filters of kinds) for (const marks of kinds) for (const accessMarks of kinds) {
-        const drawn = JSON.stringify({ access, none, modulesOnly, filters, marks, accessMarks });
-        const legend = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), filters, marks, { access, none }, accessMarks, modulesOnly)}</div>`);
+        const drawn = JSON.stringify({ access, none, modulesOnly, moduleKeys, filters, marks, accessMarks });
+        const legend = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), filters, marks, { access, none }, accessMarks, modulesOnly, false, moduleKeys)}</div>`);
         expect(legend.textContent, drawn).not.toContain(LINK_SAYS);
         // Every line under the layers is one of these, in this order, and none stands empty: nothing else follows the layers.
+        // Among a module's line items, a key mark on another module's box adds what it counts to the key's line.
+        const keySays = accessMarks === "drill" && moduleKeys ? `${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}` : accessMarks ? ACCESS_MARK_SAYS[accessMarks] : undefined;
         const lines = [
           ...(modulesOnly ? [MODULES_ONLY_SAYS] : []), ...(access ? [ACCESS_LINK_SAYS] : []), ...(none ? [NO_LINKS_SAYS] : []),
-          ...(filters ? [FILTER_LINK_SAYS[filters]] : []), ...(marks ? [FILTER_MARK_SAYS[marks]] : []), ...(accessMarks ? [ACCESS_MARK_SAYS[accessMarks]] : []),
+          ...(filters ? [FILTER_LINK_SAYS[filters]] : []), ...(marks ? [FILTER_MARK_SAYS[marks]] : []), ...(keySays ? [keySays] : []),
         ];
         expect(legend.querySelectorAll("p").map(line => line.textContent), drawn).toEqual(lines);
         expect(legend.children[0]?.children.map(child => child.localName), drawn).toEqual(["div", "button", ...lines.map(() => "p")]);
@@ -817,5 +840,69 @@ describe("The details' markup", () => {
     expect(whole.querySelector(".map-more")).toBeNull();
     // A list that fits has no such button.
     expect(parseMarkup(`<details>${listHtml({ ...list, links: links.slice(0, LIST_CAP) }, false)}</details>`).querySelector(".map-more")).toBeNull();
+  });
+});
+
+describe("The markup of a line item's source inputs", () => {
+  const row = (index: number, name = `Input ${index}`): SourceRow => ({ node: String(index), name, module: "INP01 Volumes", kind: "Entered", steps: index % 3 + 1, feeds: "Gross Revenue" });
+  const section = (count: number, more: Partial<SourcesSection> = {}): SourcesSection => ({ count, rows: Array.from({ length: count }, (_, index) => row(index)), notes: ["A note."], ...more });
+
+  it("lists each input as one button that selects its box, with its line item, module, kind, steps and what it feeds, under the count", () => {
+    const list = parseMarkup(sourcesHtml(section(2, { lead: "A lead." })));
+    const details = list.querySelector("details")!;
+    expect([details.getAttribute("class"), details.hasAttribute("open"), details.dataset.mapList, list.querySelector("summary")?.textContent]).toEqual(["map-details map-sources", true, "sources", "Source inputs (2)"]);
+    const buttons = list.querySelectorAll(".map-source");
+    expect(buttons.map(button => [button.localName, button.getAttribute("type"), button.dataset.mapAct, button.dataset.mapNode, button.querySelector(".map-dot")?.getAttribute("class"),
+      button.querySelector(".map-link-text")?.childNodes[0].textContent, ...button.querySelectorAll("small").map(small => small.textContent)])).toEqual([
+      ["button", "button", "node", "0", "map-dot map-c-input", "Input 0", "INP01 Volumes", "Entered · 1 step · Feeds Gross Revenue"],
+      ["button", "button", "node", "1", "map-dot map-c-input", "Input 1", "INP01 Volumes", "Entered · 2 steps · Feeds Gross Revenue"]]);
+    // The line before the inputs, then the inputs, then the lines after them; no table, and nothing but buttons to click.
+    expect(details.children.map(child => child.getAttribute("class") ?? child.localName)).toEqual(["summary", "map-insp-note", "map-link map-source", "map-link map-source", "map-insp-note"]);
+    expect(list.querySelectorAll("table, a")).toHaveLength(0);
+    // A line item that is an input itself has no count.
+    expect(parseMarkup(sourcesHtml({ lead: "An input.", rows: [], notes: [] })).querySelector("summary")?.textContent).toBe("Source inputs");
+  });
+
+  it("lists up to fifteen inputs whole, and of more the first twelve, with the rest hidden under Show all, as a table's details fold a long list", () => {
+    expect([SOURCES_WHOLE, SOURCES_SHOWN]).toEqual([LIST_WHOLE, LIST_SHOWN]);
+    const whole = parseMarkup(sourcesHtml(section(SOURCES_WHOLE)));
+    expect([whole.querySelectorAll(".map-source").length, whole.querySelector(".map-sources-rest"), whole.querySelector('[data-map-act="sources-more"]')]).toEqual([15, null, null]);
+    const folded = parseMarkup(sourcesHtml(section(SOURCES_WHOLE + 1)));
+    const rest = folded.querySelector(".map-sources-rest")!;
+    const more = folded.querySelector('[data-map-act="sources-more"]')!;
+    expect([folded.querySelectorAll(".map-source").length - rest.querySelectorAll(".map-source").length, rest.querySelectorAll(".map-source").length, rest.hidden,
+      more.localName, more.getAttribute("class"), more.textContent, more.getAttribute("aria-expanded"), more.dataset.mapAll]).toEqual([12, 4, true, "button", "map-more", "Show all 16", "false", "16"]);
+  });
+
+  it("writes every name of the model as text, and no arrow glyph", () => {
+    for (const text of HOSTILE) {
+      const html = sourcesHtml({ count: 1, lead: text, rows: [{ node: text, name: text, module: text, kind: `Imported by ${text}`, steps: 2, feeds: text }], notes: [text] });
+      const list = parseMarkup(html);
+      expect(list.querySelectorAll("img, script, iframe, a").length, text).toBe(0);
+      expect(list.querySelector(".map-link-text")?.childNodes[0].textContent).toBe(text);
+      expect(list.querySelector(".map-source")?.dataset.mapNode).toBe(text);
+      expect(html).not.toMatch(ARROWS);
+    }
+  });
+
+  it("offers Find source inputs among the details' buttons with its icon, and puts the list first in the body", () => {
+    const words: TraceWords = { feeds: "Fed by 3 boxes", fed: "Feeds nothing", sentence: "Line item Total selected." };
+    const shown = parseMarkup(inspectorHtml(inspectionOf(harmless), words, [{ label: "Table", title: "Open its row", open: () => undefined }], false, false, { findSources: true }));
+    const find = shown.querySelector('[data-map-act="sources"]')!;
+    expect(shown.querySelectorAll(".map-insp-opens button").map(button => button.textContent)).toEqual(["word 6", FIND_SOURCES, "Table"]);
+    expect([find.getAttribute("class"), find.title, find.querySelector("svg")?.outerHTML, FIND_SOURCES]).toEqual(["map-btn map-small", FIND_SOURCES_TITLE, parseMarkup(SOURCES_ICON).innerHTML, "Find source inputs"]);
+    // Drawn as the menu bar's icons are.
+    expect([find.querySelector("svg")?.getAttribute("width"), find.querySelector("svg")?.getAttribute("stroke-width"), find.querySelector("svg")?.getAttribute("stroke-linecap")]).toEqual(["14", "1.5", "round"]);
+    const listed = parseMarkup(inspectorHtml(inspectionOf(harmless), words, [], false, false, { sources: section(1) }));
+    expect([listed.querySelector('[data-map-act="sources"]'), listed.querySelector(".map-insp-body")?.children[0].getAttribute("class")]).toEqual([null, "map-details map-sources"]);
+    expect(parseMarkup(inspectorHtml(inspectionOf(harmless), words)).querySelector('[data-map-act="sources"], .map-sources')).toBeNull();
+  });
+
+  it("says in the legend what a tinted box is, only where asked to", () => {
+    const legend = (inputs: boolean) => parseMarkup(`<div>${legendHtml("On this map", [{ key: "input", label: "Inputs", count: 3 }], new Set(), undefined, undefined, undefined, undefined, false, inputs)}</div>`);
+    const line = legend(true).querySelector(".map-legend-input");
+    expect([line?.getAttribute("class"), line?.textContent, line?.querySelector(".map-mark-input")?.getAttribute("aria-hidden"), INPUT_MARK_SAYS])
+      .toEqual(["map-legend-note map-legend-mark map-legend-input", INPUT_MARK_SAYS, "true", "A tinted box is an input: a line item without a formula, entered or imported."]);
+    expect(legend(false).querySelector(".map-legend-input")).toBeNull();
   });
 });

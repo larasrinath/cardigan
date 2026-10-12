@@ -311,8 +311,10 @@ export function layoutGraph(graph: ViewGraph, rooms: readonly Room[] = [DEFAULT_
     const ordered = bands.flat();
     const ranked = best(RANK_ROWS.map(rows => () => placeRanked(bands, rows)));
     const packed = best(counts.map(count => () => placePacked(ordered, count, COLUMN_GAP, ROW_GAP)));
-    // The ranks show what feeds what at a glance: they are kept while every name on them can be read in full.
-    how = ranked.zoom >= fullFrom(graph) || ranked.zoom >= packed.zoom ? "ranked" : "packed";
+    // The ranks show what feeds what at a glance: they are kept while every name on them can be read in full. A line item's
+    // source inputs keep them whatever the zoom, from the inputs at the left to the line item at the right: the depth is
+    // what they show, and a trace too wide to be read whole opens at its start, the inputs.
+    how = graph.kind === "sources" || ranked.zoom >= fullFrom(graph) || ranked.zoom >= packed.zoom ? "ranked" : "packed";
     (how === "ranked" ? ranked : packed).way();
   }
   graph.bounds = boundsOf(nodes);

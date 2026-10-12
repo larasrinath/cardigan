@@ -1,24 +1,30 @@
 import type { GraphEdge, GraphNode } from "./graph-types.js";
 import { isFilter, isFormula, type MapModel } from "./map-model.js";
 import { plural, splitName } from "./map-text.js";
+import type { SourceTrace } from "./map-sources.js";
 
-/** The three graphs the map draws of one model, each made of the model's own links counted together:
+/** The graphs the map draws of one model, each made of the model's own links counted together:
  * - its sections, linked where a line item of one reads a line item of another;
  * - the modules of one section, or all modules, linked the same way; a module of another section that one of the
  *   section's modules reads or feeds stands beside them as an external node;
- * - the line items of one module, with what they read and feed outside it: line items of other modules, as one node
- *   for each module or one by one, and the lists and properties their formulas name.
+ * - the line items of one module, with what they read and feed outside it: line items of other modules, one by one or
+ *   as one node for each module, and the lists and properties their formulas name;
+ * - and the source inputs of one line item (map-sources.ts): the line item, its inputs and the calculations between,
+ *   each box with its module, linked as their values flow.
  * A link from a thing to itself is no link between two modules or sections; between line items it stays, as the loop a
  * formula that reads its own line item makes. The links of the pages' filters, where they are drawn, are counted apart
  * from the others between the same two boxes: they are drawn in a style of their own (`ViewEdge.filter`). Among a
  * module's line items they run from a filter's line item to each line item it filters, and between modules and groups
  * one stands for each filter line item and module it filters. */
 
-export type ViewNodeKind = "section" | "module" | "lineItem" | "externalModule" | "externalItem" | "list" | "property";
+/** A `sourceItem` is a line item among a line item's source inputs: a box with its module above its name. */
+export type ViewNodeKind = "section" | "module" | "lineItem" | "externalModule" | "externalItem" | "list" | "property" | "sourceItem";
 
 /** What the legend groups nodes by, and what gives a node its colour: a module's section (`sectionLayer`), or one of
- * these for what is in a module's own graph. */
-export const LAYER = { lineItem: "lineitem", heading: "heading", external: "external", list: "list", property: "property" } as const;
+ * these for what is in a module's own graph, and among a line item's source inputs for its inputs, the calculations
+ * between and the line item itself. */
+export const LAYER = { lineItem: "lineitem", heading: "heading", external: "external", list: "list", property: "property",
+  input: "input", calculation: "calculation", result: "result" } as const;
 export const sectionLayer = (index: number): string => `s${index}`;
 
 export interface ViewNode {
@@ -97,7 +103,7 @@ export interface ViewLayer { key: string; label: string; count: number }
 export interface Box { x: number; y: number; w: number; h: number }
 
 export interface ViewGraph {
-  readonly kind: "sections" | "modules" | "drill";
+  readonly kind: "sections" | "modules" | "drill" | "sources";
   readonly name: string;
   readonly nodes: ViewNode[];
   readonly edges: ViewEdge[];
@@ -117,6 +123,7 @@ export interface ViewGraph {
 /** A box's size before its name is measured (map-layout.ts `sizeNodes` gives the real one). */
 const SIZE: Record<ViewNodeKind, readonly [width: number, height: number]> = {
   section: [232, 49], lineItem: [216, 32], module: [232, 49], externalModule: [232, 49], externalItem: [232, 49], list: [232, 49], property: [232, 49],
+  sourceItem: [232, 49],
 };
 
 /** A node before it has its place in a graph. */
@@ -141,7 +148,8 @@ interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: b
 /** The key a link is counted under: its two ends, and apart for a page filter's link. */
 const linkKey = (s: string, t: string, filter: boolean): string => `${s}>${t}${filter ? ">filter" : ""}`;
 
-const LAYER_LABELS: Record<string, string> = { [LAYER.lineItem]: "Line items", [LAYER.heading]: "No Data line items (headings)", [LAYER.list]: "Lists and subsets", [LAYER.property]: "List properties" };
+const LAYER_LABELS: Record<string, string> = { [LAYER.lineItem]: "Line items", [LAYER.heading]: "No Data line items (headings)", [LAYER.list]: "Lists and subsets", [LAYER.property]: "List properties",
+  [LAYER.input]: "Inputs", [LAYER.calculation]: "Calculations", [LAYER.result]: "Result" };
 
 /** What the layer of what stands beside the graph is called: by what it holds, and by the graph it stands beside. */
 function externalLabel(kind: ViewGraph["kind"], nodes: readonly Draft[]): string {
@@ -366,6 +374,21 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     if (draft.external) draft.side = fed.has(draft.id) && read.has(draft.id) ? "both" : fed.has(draft.id) ? "out" : "in";
   }
   return finish(model, "drill", module?.name ?? "", [...drafts.values()], [...links.values()], owned.length);
+}
+
+/** The source inputs of a line item as a graph of their own (map-sources.ts `SourceTrace`): its inputs, the calculations
+ * on the ways from them and the line item, in that order, each a box with its module, or its list for a property, above
+ * its name, linked from what feeds to what it feeds. Every box is the graph's own: nothing stands beside it. Its name is
+ * the line item's, behind its module's. */
+export function sourcesGraph(model: MapModel, trace: SourceTrace): ViewGraph {
+  const draft = (raw: GraphNode, layer: string): Draft => {
+    const id = String(raw.id);
+    if (raw.kind === "property") return { id, kind: "property", layer, code: "PROPERTY", label: raw.name, fullName: raw.name, meta: model.node(raw.parent)?.name ?? "", raw, external: false };
+    return { id, kind: "sourceItem", layer, code: "", label: raw.name, fullName: raw.name, meta: model.node(model.moduleOf(raw))?.name ?? "", raw, external: false };
+  };
+  const drafts = [...trace.inputs.map(input => draft(input.node, LAYER.input)), ...trace.between.map(node => draft(node, LAYER.calculation)), draft(trace.result, LAYER.result)];
+  const links = trace.links.map(([from, to]): Link => ({ s: String(from), t: String(to), w: 1, formula: 1 }));
+  return finish(model, "sources", `${trace.module?.name ?? ""} · ${trace.result.name}`, drafts, links, drafts.length);
 }
 
 /** Draw other links over the complete view's boxes. The complete view supplies their order, sizes and places;

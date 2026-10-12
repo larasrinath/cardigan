@@ -72,6 +72,11 @@ export interface MapPalette {
   match: string;
   traceUp: string;
   traceDown: string;
+  /** An input among a line item's source inputs (map-sources.ts): its rail and edge, its fill and its name, in the
+   * page's accent colours, as the page marks what is selected (results.css, the one selection highlight). */
+  input: string;
+  inputFill: string;
+  inputText: string;
   /** A section's colour, by the section's place: after the last the first comes again. */
   sections: string[];
   lineItem: string;
@@ -90,6 +95,7 @@ export const COLOUR_TOKENS: Record<Colour, string> = {
   canvas: "--map-canvas-bg", grid: "--map-grid",
   nodeFill: "--map-node-fill", nodeFillSelected: "--map-node-fill-selected", nodeBorder: "--map-node-border", nodeText: "--map-node-text", nodeTextMuted: "--map-node-text-2",
   edge: "--map-edge", filter: "--map-filter", access: "--map-access", select: "--text", match: "--accent", traceUp: "--map-trace-up", traceDown: "--map-trace-down",
+  input: "--accent", inputFill: "--accent-soft", inputText: "--accent-ink",
   lineItem: "--map-line-item", heading: "--map-heading", external: "--map-external", list: "--map-list", property: "--map-property",
 };
 export const SECTION_COLOURS = 8;
@@ -105,6 +111,7 @@ export const FALLBACK: MapPalette = {
   canvas: "#f6f4ee", grid: "rgba(25, 25, 25, 0.1)",
   nodeFill: "#ffffff", nodeFillSelected: "#f3f1ea", nodeBorder: "#d4d2c8", nodeText: "#191919", nodeTextMuted: "#5b584f",
   edge: "#8b8880", filter: "#a8458f", access: "#087a7f", select: "#191919", match: "#2b5bd7", traceUp: "#2a78d6", traceDown: "#e34948",
+  input: "#2b5bd7", inputFill: "#e9eefb", inputText: "#1f46b4",
   sections: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
   lineItem: "#4a3aa7", heading: "#b3b0a5", external: "#898781", list: "#1baf7a", property: "#eb6834",
   sans: "sans-serif", mono: "monospace",
@@ -126,8 +133,11 @@ export function readPalette(read: (token: string) => string, colour: (value: str
   };
 }
 
-/** The colour of each layer that is no section's. A layer is looked up as a key of this map and of nothing else. */
-const LAYER_COLOURS: ReadonlyMap<string, Colour> = new Map<string, Colour>([["lineitem", "lineItem"], ["heading", "heading"], ["external", "external"], ["list", "list"], ["property", "property"]]);
+/** The colour of each layer that is no section's. A layer is looked up as a key of this map and of nothing else. Among a
+ * line item's source inputs, an input has the accent's colour, a calculation the quiet colour of a heading, and the line
+ * item itself the colour of the box selected. */
+const LAYER_COLOURS: ReadonlyMap<string, Colour> = new Map<string, Colour>([["lineitem", "lineItem"], ["heading", "heading"], ["external", "external"], ["list", "list"], ["property", "property"],
+  ["input", "input"], ["calculation", "heading"], ["result", "select"]]);
 const SECTION_LAYER = /^s(\d+)$/;
 
 /** The colour of a layer (map-graphs.ts): a section's by its place, or the colour of what the node is. A layer the map

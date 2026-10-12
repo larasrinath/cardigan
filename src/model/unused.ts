@@ -1,5 +1,5 @@
 import { diagnosticRows, stampLine, type DetailRow } from "../details.js";
-import { readsFile, SOURCE_TYPE } from "../file-imports.js";
+import { SOURCE_TYPE } from "../file-imports.js";
 import { FILTERED_LINE_ITEMS, readFilteredLineItems } from "../filtered-line-items.js";
 import { definitionOf, idOf, moduleHeadings, nothing, splitOutside, unquote } from "../map/graph-names.js";
 import { missingIn, PAGE_FILTERS_FILE } from "../page-files.js";
@@ -7,6 +7,7 @@ import { plainRows, textOf } from "../result-plain.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { formatType, formatWords } from "../results/readable-cells.js";
 import { sourceObjectOf } from "../results/source-object.js";
+import { importLoads } from "./import-loads.js";
 import { UNUSED_LINE_ITEMS, UNUSED_LINE_ITEMS_FILE, UNUSED_LINE_ITEMS_HEADERS, UNUSED_MODULES, UNUSED_MODULES_FILE, UNUSED_MODULES_HEADERS, UNUSED_NOTES, WHY } from "../unused-files.js";
 import { message } from "../util.js";
 
@@ -58,12 +59,6 @@ const ACCESS_FILE = "Dynamic Cell Access.csv";
 const IMPORTS_FILE = "Imports.csv";
 const EXPORTS_FILE = "Exports.csv";
 const OTHER_ACTIONS_FILE = "Other Actions.csv";
-/** The kind of import that loads a module's line items (model/import-mappings.ts `MODULE_DATA`). */
-const MODULE_DATA = "MODULE_DATA";
-/** The words an import's mapping has for the line items as a dimension, and for the values of the line item each row names
- * (model/import-mappings.ts `targetOf`). */
-const LINE_ITEMS_TARGET = "Line Items";
-const VALUE_TARGET = "Value";
 /** A Source Type that reads one of a model's modules, or a saved view of one (results/result-view.ts `READS_A_MODULE`). */
 const READS_A_MODULE = /view|module/i;
 /** How the report joins the modules of a filter on sections of more than one module (report.ts). */
@@ -352,50 +347,16 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
   if (!exports && !others) notes.push("The Actions list was not read, so exports and actions are not known: some line items may be used after all.");
   if (counts.ids && !idsFit) notes.push("The line items that actions name by ID could not be matched, so some line items may be used by actions after all.");
 
-  // Imports into line items, each import of the Imports table into a module by its Target Object. An import loads what its
-  // mapping says, whatever its source: its targets, and its headers mapped manually; where its line items come from a column
-  // or from the header row matched by name when it runs, any of them. Where the mapping is not known (it could not be read,
-  // or a result an earlier version kept has none for an import from a model), any of them too. Any line item is every
-  // line item of the module that holds data and has no formula, which an import can load. An import's mapping is found as
-  // the results page finds it (results/import-mapping-view.ts `mappingOfRow`): by its name, in its place among the imports
-  // of that name and Source Type.
-  const mappings = result.importMappings;
-  const taken = new Map<string, number>();
-  for (const row of imports?.table.rows ?? []) {
-    // The mapping of an import of this name and Source Type, in its place among those, as the results page finds it: every
-    // import is counted, whatever it loads, as the mappings are listed for every one.
-    const kind = cellText(imports!.cell(row, SOURCE_TYPE)).trim().toUpperCase();
-    const file = readsFile(imports!.cell(row, SOURCE_TYPE));
-    const name = cellText(row[0]).trim();
-    const key = `${kind}
-${name}`;
-    const place = taken.get(key) ?? 0;
-    if (kind !== "") taken.set(key, place + 1);
-    const module = unquote(imports!.cell(row, "Target Object")).trim();
-    const type = imports!.cell(row, "Target Type").toLowerCase().split(/[^a-z]+/);
-    if (!(type.includes("module") || (type.every(word => word === "") && moduleRows.has(module)))) continue;
-    const into = (lineItem: string | undefined): void => {
-      const found = lineItem === undefined ? undefined : find(module, lineItem);
+  // Imports into line items: what each import of the Imports table into a module loads, as its mapping says
+  // (import-loads.ts), found among the module's line items. Any line item is every line item of the module that holds data
+  // and has no formula, which an import can load.
+  for (const load of importLoads(imports?.table, result.importMappings, module => moduleRows.has(module))) {
+    if (load.unread) counts.mappingsUnread++;
+    if (load.any) for (const item of byModule.get(load.module) ?? []) if (!item.heading && item.formula.trim() === "") imported.add(item);
+    for (const lineItem of load.lineItems) {
+      const found = find(load.module, lineItem);
       if (found) imported.add(found);
-    };
-    const any = (): void => { for (const item of byModule.get(module) ?? []) if (!item.heading && item.formula.trim() === "") imported.add(item); };
-    const mapping = kind === "" ? undefined
-      : mappings?.filter(each => each.name.trim() === name && (each.sourceType ?? "FILE").trim().toUpperCase() === kind)[place];
-    if (!mapping || mapping.note !== undefined) {
-      // An import from a model in a result an earlier version kept has no mapping: that is no mapping that failed.
-      if (file || mappings?.some(each => each.sourceType !== undefined)) counts.mappingsUnread++;
-      any();
-      continue;
     }
-    if (mapping.importType !== MODULE_DATA) continue;
-    for (const target of mapping.targets) {
-      if (target.source === "ignore" || target.source === "none") continue;
-      if (target.target === LINE_ITEMS_TARGET) {
-        if (target.source === "constant") into(target.text);
-        else if (!(target.source === "headerRow" && mapping.headers?.length)) any();
-      } else if (target.target !== VALUE_TARGET) into(target.target);
-    }
-    for (const header of mapping.headers ?? []) into(header.lineItem);
   }
   counts.imported = imported.size;
   if (counts.mappingsUnread) {

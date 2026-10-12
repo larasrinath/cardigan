@@ -6,6 +6,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Imports in three tables.** In Actions, File Imports, Model-to-Model Imports and In-Model Imports take the place of Imports, each listing one kind of import with the columns that apply to it shown and the rest hidden. An import of a module, a saved view or a list is placed by its data source, else by the model its Source Object names, and Source List names a list it reads. Links to an import open it in its table. Refresh the Anaplan tab once after updating.
 
+## 0.39.1 (12 October 2026)
+
+- **Other modules' line items one by one.** Inside a module, the Model map shows other modules' line items one by one, each with its module's code or name above it; a module keeps a box of its own only where a link is to the whole module. Untick **Other modules' line items** under **Links** to group them by module. (#6)
+
+## 0.39.0 (12 October 2026)
+
+- **Find source inputs.** From a line item's details on the Model map or in Line Items, Find source inputs lists every line item without a formula that feeds it, however many calculations away, labelled Entered, Imported by or May be imported by its import, with its steps away and the line item it feeds. The map then shows just those inputs, the calculations between and the result; Back and Esc return to where you were. (#5)
+
 ## 0.38.1 (12 October 2026)
 
 - **Import mappings stop at the list.** List items mapped manually are no longer listed item by item: an import's Mapping stops at the list, whose row says how many of its items are mapped manually and how many are ignored, and only line items are listed pair by pair. Refresh the Anaplan tab once after updating. (#4)
