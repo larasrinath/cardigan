@@ -616,8 +616,8 @@ describe("A model's result on the results page, with the map's real graph and th
       page.all("#tableWrap tbody tr").find(row => !row.classList.contains("heading"))?.querySelector('[data-act="row"]')?.press();
       page.id("drawerClose").press();
     }
-    expect([opened, page.texts("#view h1"), host().hidden]).toEqual([["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "DCA", "Processes", "Imports",
-      "Data Sources", "Exports", "Other Actions"], ["Model map"], false]);
+    expect([opened, page.texts("#view h1"), host().hidden]).toEqual([["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "DCA", "Processes",
+      "File Imports", "Model-to-Model Imports", "Data Sources", "Exports", "Other Actions"], ["Model map"], false]);
     // The map as it opens, then what it says of itself and of what it leaves out, its legend, and the details of a line
     // item that another drives and of its module: each as the browser shows it.
     const shows = (): void => {

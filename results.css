@@ -461,8 +461,11 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
    others room between the two, never above the name. A button would centre what it holds, so a tile lays its lines out
    itself. Each tile is the container its number is sized by (cqi). */
 .stat{min-width:0;height:100%;min-height:120px;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;container-type:inline-size}
-/* A name keeps to one line, cut with an ellipsis where it is too long; the table's icon stands before it, at its size. */
-.stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* A name stands on one line where it fits, and goes on to a second where it does not, as Model-to-Model Imports does in a
+   narrow tile: only a name too long for two lines is cut with an ellipsis, and the name's title holds it whole. The
+   table's icon stands before it, on its first line, at its size. The browser lays the lines out as it draws the tile,
+   and the tile's least height has room for them, so a name that wraps moves nothing. */
+.stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);line-height:16px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 .stat .s-lab svg{width:12px;height:12px;margin-right:6px;vertical-align:-2px}
 /* The number in large figures of one width, at the tile's bottom right: a count of up to four figures at full size in
    the narrowest tile, and a longer one, or the Model Calendar's word, as large as the tile's width leaves it whole, up to
@@ -479,7 +482,7 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 /* A tile opens its table: a button with the tile's look, a little lifted under the pointer. */
 .stat-open{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;transition:background .15s,border-color .15s}
 .stat-open:hover{background:var(--panel-2);border-color:var(--border-strong)}
-.stat .s-lab,.stat .s-num,.stat .s-detail{display:block}
+.stat .s-num,.stat .s-detail{display:block}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px}
 .panel h2,.panel h3{font-size:13px;margin-bottom:10px}
 .warn-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}

@@ -14,7 +14,9 @@ import { columnWidths } from "./column-widths.js";
 import { resizeDetails } from "./details-size.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { askShown, describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { IMPORT_TABLES, resultFileOf } from "./import-files.js";
 import { mappingOfRow } from "./import-mapping-view.js";
+import { importSplitLine } from "./import-tables.js";
 import { serveIcon } from "./icon-entry.js";
 import { spreadLine } from "./nav-spread.js";
 import { itemRows, type NamedRows } from "./item-links.js";
@@ -781,6 +783,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     entry.links = { ...entry.links, card: entry.links.page, hasCard: row => cardIds.has(row) };
     shown.set(index, everyUse ? entry : object);
   }
+  noteImportSplit(next);
   state.view = "overview";
   if (same && file) state.view = [...shown.values()].find(entry => entry.table.file === file)?.index ?? "overview";
   else if (same && view === "map" && hasModelMap(next)) state.view = "map";
@@ -798,6 +801,18 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const line = analysedLine(at, new Date());
   showNote(line, false);
   announce(`${analysed.name}. ${line}`);
+}
+
+/** The results whose imports the run's log has said how the page placed: each once. */
+const notedSplits = new WeakSet<AnalysisResult>();
+/** Notes in the run's log how a model's imports stand in the three tables of imports (import-tables.ts `importSplitLine`),
+ * how many by what, and how many could not be told and are listed in Model-to-Model Imports: once for each result, and
+ * nothing for a result whose Imports file the page shows as it stands. */
+function noteImportSplit(model: AnalysisResult): void {
+  if (notedSplits.has(model)) return;
+  notedSplits.add(model);
+  const line = importSplitLine(model);
+  if (line) client.note(line);
 }
 
 /** The page's title while it has no result: the shell's own. */
@@ -1290,13 +1305,17 @@ function sourceOpens(view: SourceModelView): { view: SourceModelView; sources: (
 }
 /** The page's table of a file, as it shows it. */
 const shownOf = (file: string): Shown | undefined => [...shown.values()].find(candidate => candidate.table.file === file);
-/** The one row of `file`'s table whose name is `name`, or none where no row, or more than one, has it. */
+/** The page's tables of a file of the result: the one table of most files, and the three a model's Imports file is shown
+ * as (import-files.ts), each with the file's rows of one kind. */
+const shownOfFile = (file: string): Shown[] => [...shown.values()].filter(candidate => resultFileOf(candidate.table.file) === file);
+/** The one row of `file`'s tables whose name is `name`, in the table that shows it, or none where no row, or more than one,
+ * has it: an import by its name, in whichever of the three tables of imports holds it. */
 function rowOfName(file: string, name: string): { entry: Shown; row: Row } | undefined {
-  const entry = shownOf(file);
-  if (!entry) return undefined;
-  const named = entry.opensFrom ?? rowNameIndex(entry.table) ?? 0;
-  const found = entry.table.rows.filter(candidate => cellText(candidate[named]).trim() === name.trim());
-  return found.length === 1 ? { entry, row: found[0] } : undefined;
+  const found = shownOfFile(file).flatMap(entry => {
+    const named = entry.opensFrom ?? rowNameIndex(entry.table) ?? 0;
+    return entry.table.rows.filter(candidate => cellText(candidate[named]).trim() === name.trim()).map(row => ({ entry, row }));
+  });
+  return found.length === 1 ? found[0] : undefined;
 }
 /** The source models whose details found none of their objects or imports, by result: the log says so once for each. */
 const notedSources = new WeakMap<AnalysisResult, Set<string>>();
@@ -1330,14 +1349,24 @@ document.addEventListener("beforematch", event => {
   if (control) showRest(control, true);
 }, true);
 /** The rows the single values and listed items of a row name (item-links.ts), each kept in `drawerItems` and named in its link by its place
- * there: by the column's place, and in it the item's. A model's tables only: an app's items name no row. */
+ * there: by the column's place, and in it the item's. A model's tables only: an app's items name no row. An item that
+ * names an import is looked up among the rows of all three tables of imports, and opens in the one that holds it. */
 function itemOpens(entry: Shown, row: Row, items: ReadonlyMap<number, readonly string[]>): ReadonlyMap<number, readonly (number | undefined)[]> {
   drawerItems = [];
   const opens = new Map<number, (number | undefined)[]>();
   if (result?.kind !== "model") return opens;
   const byFile = new Map<string, Shown>();
   const tables = new Map<string, NamedRows>();
+  /** The table each row of a file the page shows as several tables stands in. */
+  const holders = new Map<Row, Shown>();
   for (const candidate of shown.values()) {
+    const file = resultFileOf(candidate.table.file);
+    if (file !== candidate.table.file) {
+      for (const each of candidate.table.rows) holders.set(each, candidate);
+      const held = tables.get(file)?.table.rows ?? [];
+      tables.set(file, { table: { ...candidate.table, file, rows: [...held, ...candidate.table.rows] }, name: candidate.opensFrom ?? rowNameIndex(candidate.table) ?? 0 });
+      continue;
+    }
     if (byFile.has(candidate.table.file)) continue;
     byFile.set(candidate.table.file, candidate);
     const module = columnIndex(candidate.table, MODULE_NAME);
@@ -1346,7 +1375,7 @@ function itemOpens(entry: Shown, row: Row, items: ReadonlyMap<number, readonly s
   for (const { index } of entry.columns) {
     const list = items.get(index) ?? [cellText(row[index])];
     opens.set(index, itemRows(entry.table, cellText(entry.table.headers[index]), list, row, tables).map(found => {
-      const to = found && byFile.get(found.file);
+      const to = found && (holders.get(found.row) ?? byFile.get(found.file));
       if (!found || !to) return undefined;
       drawerItems.push({ entry: to, row: found.row });
       return drawerItems.length - 1;
@@ -1354,15 +1383,11 @@ function itemOpens(entry: Shown, row: Row, items: ReadonlyMap<number, readonly s
   }
   return opens;
 }
-/** The row of an action a process runs: the one row of its name in the table of its kind, as the page shows that table.
- * None where the result has no such table, or where none of its rows, or more than one, has the name: which is meant is
- * then not known. */
+/** The row of an action a process runs: the one row of its name in the tables of its kind, as the page shows them (an
+ * import's in whichever of the three tables of imports holds it). None where the result has no such table, or where none
+ * of its rows, or more than one, has the name: which is meant is then not known. */
 function stepRow(step: StepView): { entry: Shown; row: Row } | undefined {
-  const entry = step.file === undefined ? undefined : [...shown.values()].find(candidate => candidate.table.file === step.file);
-  if (!entry) return undefined;
-  const named = entry.opensFrom ?? rowNameIndex(entry.table) ?? 0;
-  const found = entry.table.rows.filter(candidate => cellText(candidate[named]).trim() === step.name.trim());
-  return found.length === 1 ? { entry, row: found[0] } : undefined;
+  return step.file === undefined ? undefined : rowOfName(step.file, step.name);
 }
 /** What an object's uses may link to: a page's cards and a card's details, where the result has the cards to show. */
 const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== undefined });
@@ -1453,7 +1478,8 @@ const ACTIONS_PAGE = { id: "-19", page: "Actions" } as const;
 const SETTINGS_PAGES: ReadonlyMap<string, { id: string; page: string }> = new Map([
   [MODEL_CALENDAR_FILE, { id: "9000000001", page: "Time" }], ["Time Ranges.csv", { id: "9000000001", page: "Time" }],
   ["Versions.csv", { id: "9000000002", page: "Versions" }], ["Line Item Subsets.csv", { id: "-5", page: "Line Item Subsets" }],
-  ["Processes.csv", ACTIONS_PAGE], ["Imports.csv", ACTIONS_PAGE], ["Exports.csv", ACTIONS_PAGE], ["Other Actions.csv", ACTIONS_PAGE],
+  ["Processes.csv", ACTIONS_PAGE], ["Imports.csv", ACTIONS_PAGE], ...IMPORT_TABLES.map((table): [string, { id: string; page: string }] => [table.file, ACTIONS_PAGE]),
+  ["Exports.csv", ACTIONS_PAGE], ["Other Actions.csv", ACTIONS_PAGE],
   ["Import Data Sources.csv", ACTIONS_PAGE], ["Source Models.csv", { id: "-13", page: "Source Models" }],
 ]);
 

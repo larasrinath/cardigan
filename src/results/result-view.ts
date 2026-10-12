@@ -1,3 +1,4 @@
+import { readsFile } from "../file-imports.js";
 import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { LINE_ITEM_SUBSETS_FILE } from "../model/line-item-subsets.js";
@@ -5,6 +6,8 @@ import { lineItemSubsetsView } from "./line-item-subsets-view.js";
 import { calendarTile } from "./calendar-tile.js";
 import { cellLists, type Items } from "./cell-lists.js";
 import { APP_FILES, blanksDash, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
+import { IMPORT_TABLES, IMPORTS_FILE } from "./import-files.js";
+import { importTables, ownModel, READS_A_MODULE, readsAList, SOURCE_OBJECT, THIS_MODEL } from "./import-tables.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
 import { actionNamesByRow } from "./process-actions-view.js";
 import { mappingWords, READABLE_HEADERS, readableCell, type CellNames } from "./readable-cells.js";
@@ -268,10 +271,10 @@ const saysNothing = (cell: Cell): boolean => {
  *
  * A cell that is not read is left as it is: its text stands under the first of the columns, the others are empty, and
  * nothing is kept for it, as a cell that cannot be said in words stays as it is in any of a model's tables (`inWords`).
- * For a cell that is read, the text that was read is kept (`exported`) under the last of the columns, and a row's drawer
- * names it by the file's own header for the column (`readUnder`): it is what each of them was read from, and is shown
- * once. Undefined when no cell is read: the file is then not as the rule expects it, and is shown as it stands, under
- * its own header, so that no column is named for what none of its cells holds. */
+ * For a cell that is read and says something, the text that was read is kept (`exported`) under the last of the
+ * columns, and a row's drawer names it by the file's own header for the column (`readUnder`): it is what each of them
+ * was read from, and is shown once. Undefined when no cell is read: the file is then not as the rule expects it, and is
+ * shown as it stands, under its own header, so that no column is named for what none of its cells holds. */
 function splitColumn(file: ResultTable, at: number, headers: readonly string[], split: (cell: Cell, row: readonly Cell[]) => readonly Cell[] | undefined): SplitView | undefined {
   if (!file.rows.every(row => Array.isArray(row))) return undefined;
   const said = file.rows.map(row => split(row[at] ?? "", row));
@@ -286,7 +289,7 @@ function splitColumn(file: ResultTable, at: number, headers: readonly string[], 
     const shown: Cell[] = file.headers.flatMap((_, column) => (column !== at ? [row[column] ?? ""] : cells ? [...cells] : [cell, ...headers.slice(1).map(() => "")]));
     // The cells a row holds beyond the headers stay after them, as the file has them.
     for (let column = file.headers.length; column < row.length; column++) shown.push(row[column] ?? "");
-    if (cells) exported.set(shown, new Map([[kept, cell]]));
+    if (cells && !saysNothing(cell)) exported.set(shown, new Map([[kept, cell]]));
     return shown;
   });
   return {
@@ -303,31 +306,28 @@ function unreadLine(unread: number, column: string, why: string, under: string):
     : ` ${unread} rows have a ${column} that ${why}: their text stands as it is under ${under}.`;
 }
 
-/** A model's Imports file (model/export.ts writes it under this name): the Imports tab of Model settings, one import a
- * row, with the import's columns from the Actions list after the tab's own. */
-export const IMPORTS_FILE = "Imports.csv";
-/** The tab's columns for where an import takes its data from: the object it reads (source-object.ts), and what kind of
- * object that is. */
-const SOURCE_OBJECT = "Source Object";
+/** A model's Imports file (model/export.ts writes it under this name), the Imports tab of Model settings, one import a
+ * row, with the import's columns from the Actions list after the tab's own; and what Source Model says for an import of
+ * this model's own object where the export knew the model by its ID alone. The page shows the file as three tables
+ * (import-tables.ts), each by this rule. */
+export { IMPORTS_FILE, THIS_MODEL };
+/** The tab's column for what kind of object an import reads. */
 const SOURCE_TYPE = "Source Type";
-/** The three columns the page shows in Source Object's place, in this order. */
-const SOURCE_PARTS = ["Source Model", "Source Module", "Saved View"] as const;
-/** What Source Model says for an import from one of this model's own modules where the export knew the model by its ID
- * alone (`ownModel`). */
-export const THIS_MODEL = "This model";
-/** The Source Types of the imports the three columns are for: one that reads a saved view, which the tab writes as
- * "SAVED VIEW", or a module. Any other import, of a file or of a list, names no module and no saved view. */
-const READS_A_MODULE = /view|module/i;
+/** The four columns the page shows in Source Object's place, in this order. */
+const SOURCE_PARTS = ["Source Model", "Source Module", "Saved View", "Source List"] as const;
 
-/** The table is the file with three columns in the place of Source Object, for each import from a module or a saved view:
- * Source Model, Source Module and Saved View, each a name as the cell writes it, out of its quotes. An import from one of
- * this model's own modules names no model, and Source Model names this model (`ownModel`). A module read without a
- * saved view leaves Saved View empty.
- *
- * Only a row whose Source Type says that it reads a saved view or a module is read. A file's name is written as a module
- * and a saved view would be ("prices.csv"), and a list is no module: their rows, the dash Anaplan writes for a file's
- * import, and text that is not written as a model's object are left as they are, under Source Model (`splitColumn`).
- * A warning under the table's name counts the rows that are not read where their cell says something. A file without the Source Type column, or without a row that is read, is shown as it stands.
+/** The table is the file with four columns in the place of Source Object: Source Model, Source Module, Saved View and
+ * Source List, each a name as the cell writes it, out of its quotes.
+ * - An import of a module or a saved view names its model, its module and its saved view; one of a module without a
+ *   saved view leaves Saved View empty.
+ * - An import of a list names its model and its list, under Source List, where the cell is written as a model's object
+ *   is; a cell written otherwise stands whole under Source List, with no Source Model, so that the list is always named.
+ * - An import of one of this model's own objects names no model, and Source Model names this model (`ownModel`).
+ * - Uploaded data names no model's object: its row leaves the four empty, and what its cell says, the dash Anaplan writes
+ *   or a file's name, is no model's.
+ * Any other row, as one whose Source Type says nothing or names no such object, or whose cell is not written as a model's
+ * object, is left as it is, under Source Model (`splitColumn`). A warning under the table's name counts those rows where
+ * their cell says something. A file without the Source Type column, or without a row that is read, is shown as it stands.
  * The file itself stays as the export wrote it: a model's map is built from the result's own tables, and asks of this
  * column only whether the file has it (map/build-graph.ts). */
 const importsRule: FileRule = (file, result) => {
@@ -335,21 +335,20 @@ const importsRule: FileRule = (file, result) => {
   const type = columnIndex(file, SOURCE_TYPE);
   const own = ownModel(result);
   const split = at === undefined || type === undefined ? undefined : splitColumn(file, at, SOURCE_PARTS, (cell, row) => {
+    if (readsFile(row[type])) return ["", "", "", ""];
+    if (readsAList(row[type])) {
+      if (saysNothing(cell)) return undefined;
+      const object = sourceObjectOf(cell);
+      return object && object.view === undefined ? [object.model ?? own, "", "", object.module] : ["", "", "", cellText(cell).trim()];
+    }
     if (!READS_A_MODULE.test(cellText(row[type]))) return undefined;
     const object = sourceObjectOf(cell);
-    return object && [object.model ?? own, object.module, object.view ?? ""];
+    return object && [object.model ?? own, object.module, object.view ?? "", ""];
   });
   if (!split) return undefined;
   const { unread, ...view } = split;
-  return { ...view, note: unreadLine(unread, SOURCE_OBJECT, "is not a module or a saved view", SOURCE_PARTS[0]).trim() || undefined };
+  return { ...view, note: unreadLine(unread, SOURCE_OBJECT, "is not a module, a saved view or a list", SOURCE_PARTS[0]).trim() || undefined };
 };
-
-/** This model's name, which Source Model gives an import from one of its own modules: the result's name, unless the export
- * knew the model by its ID alone (model/export.ts), when Source Model says This model. */
-function ownModel(result: AnalysisResult): string {
-  const name = cellText(result.name);
-  return name.trim() === "" || name === cellText(result.id) ? THIS_MODEL : name;
-}
 
 /** A model's Source Models file (model/export.ts writes it under this name): one row for each model that this model's
  * imports read from, with what it is mapped to under Mapped To. Anaplan's own export of the grid writes that cell as an
@@ -456,7 +455,8 @@ const missingRule: FileRule = file => {
  * missing references and unread cells keep their warnings here. Page row ordering is applied afterwards. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
-  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule],
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule],
+    ...IMPORT_TABLES.map((table): [string, FileRule] => [table.file, importsRule]), [SOURCE_MODELS_FILE, sourceModelsRule],
     [LINE_ITEM_SUBSETS_FILE, lineItemSubsetsView], [UNUSED_LINE_ITEMS_FILE, unusedRule], [UNUSED_MODULES_FILE, unusedRule],
     ...MODEL_PAGE_FILES.map((file): [string, FileRule] => [file, missingRule])]),
 };
@@ -631,19 +631,22 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
  * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
- * it, followed by the two tables of what nothing uses (unused-files.ts). Line Item Subsets follows General Lists. After
- * the settings come the tables of the
- * pages built on the model, Module Usage, Page Filters and Page Actions (page-files.ts), last before the map. A file of a
- * result that is not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to
- * the end and does not go missing. */
+ * it, followed by the two tables of what nothing uses (unused-files.ts). Line Item Subsets follows General Lists. The
+ * three tables the page shows the Imports file as (import-files.ts) stand in its place. After the settings come the
+ * tables of the pages built on the model, Module Usage, Page Filters and Page Actions (page-files.ts), last before the
+ * map. A file of a result that is not listed here comes after these, in the result's own order: a file that is renamed,
+ * or new, moves to the end and does not go missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
   MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
-  UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE, "Processes.csv", IMPORTS_FILE, "Import Data Sources.csv", "Exports.csv", OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
+  UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE, "Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv",
+  OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
 ];
 
-/** The result's files as the page lists them in the navigation: every file but the Details
- * file, each with its place in the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`.
- * Only this list is ordered: the result keeps its own order. */
+/** The result's files as the page lists them in the navigation: every file but the Details file, each with its place in
+ * the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`, with its Imports file as the
+ * three tables of its imports' kinds that have rows, each with a place of its own after the result's tables
+ * (import-tables.ts `importTables`). A model's Imports file that is not split, without a Source Type column or without
+ * rows, stands as it is. Only this list is ordered: the result keeps its own order and its one Imports file. */
 export function listedTables(result: AnalysisResult): { index: number; table: ResultTable }[] {
   const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true);
   if (result.kind !== "model") return tables;
@@ -652,7 +655,7 @@ export function listedTables(result: AnalysisResult): { index: number; table: Re
     return place < 0 ? MODEL_FILE_ORDER.length : place;
   };
   // The sort keeps the result's order among the files that are not listed, and among files of one name.
-  return tables.sort((a, b) => rank(a.table) - rank(b.table));
+  return tables.flatMap(entry => importTables(result, entry.index) ?? [entry]).sort((a, b) => rank(a.table) - rank(b.table));
 }
 
 /** What the header says was analysed. */

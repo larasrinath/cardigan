@@ -582,10 +582,11 @@ describe("The results page's escaping", () => {
     // Each name stands in its column as it was typed, and the text that was read is the file's cell, whole, as Source Object.
     for (const entry of HOSTILE) {
       const view = shown([[entry, object(entry, entry, entry), "SAVED VIEW"]]);
-      expect(view.table.rows, entry).toEqual([[entry, entry, entry, entry, "SAVED VIEW"]]);
+      expect(view.table.rows, entry).toEqual([[entry, entry, entry, entry, "", "SAVED VIEW"]]);
       const drawer = parseMarkup(rowDrawerHtml(columnsOf(view.table), view.table.rows[0], NO_LINKS, view.exported?.get(view.table.rows[0]), undefined, view.readUnder));
       expect([drawer.querySelectorAll("dt").map(name => name.textContent), drawer.querySelectorAll("dd").map(value => value.textContent)], entry)
-        .toEqual([["Name", "Source Type", "Source Model", "Source Module", "Saved View", "Source Object as read"], [entry, "SAVED VIEW", entry, entry, entry, object(entry, entry, entry)]]);
+        .toEqual([["Name", "Source Type", "Source Model", "Source Module", "Saved View", "Source List", "Source Object as read"],
+          [entry, "SAVED VIEW", entry, entry, entry, "", object(entry, entry, entry)]]);
     }
   });
 
@@ -891,9 +892,14 @@ describe("A result whose every text is hostile, through every view of the page",
     const entries = MODEL_FILE_ORDER.map((file, index) => ({ id: String(index + 1), label: file.replace(/\.csv$/, ""), file }));
     const items = navItems(entries, true);
     // Dimensions gathers Time, Versions and Lists; Modules gathers Modules, Line Items, DCA and the two tables of what nothing
-    // uses; App Usage gathers the tables of the pages built on the model.
-    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Dimensions: 5", "Modules: 5", "Actions: 5", "Source Models", "App Usage: 3"]);
+    // uses; Actions the Actions list's tables, with the three the Imports file is shown as in its place, which a result has
+    // in the file's stead (import-tables.ts); App Usage gathers the tables of the pages built on the model.
+    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Dimensions: 5", "Modules: 5", "Actions: 8", "Source Models", "App Usage: 3"]);
     expect(NAV_GROUPS.find(group => group.label === "Modules")?.files).toEqual(["Modules.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv"]);
+    // The three tables of imports stand in the Imports file's place among the Actions list's other tables, with no heading.
+    const actions = NAV_GROUPS.find(group => group.label === "Actions");
+    expect([actions?.files, actions?.subgroups]).toEqual([["Processes.csv", "Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv",
+      "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"], undefined]);
     // Nothing is left out, and nothing moves: the items, opened up, are the order itself.
     expect(items.flatMap(item => ("entries" in item ? item.entries : [item])).map(entry => entry.file)).toEqual([...MODEL_FILE_ORDER]);
     // Every file of a group is one the order names, and none is in two groups. Each group's ID is its menu's, of letters

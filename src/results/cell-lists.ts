@@ -6,6 +6,7 @@ import { readProcessActions } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { UNUSED_LINE_ITEMS_FILE } from "../unused-files.js";
 import { APP_FILES, columnIndex } from "./columns.js";
+import { IMPORT_TABLES } from "./import-files.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
@@ -279,6 +280,8 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   // A process's Used in Processes is no column of the page's table, which adds the actions it runs instead.
   [PROCESSES_FILE]: { Actions: processActions },
   [IMPORTS_FILE]: { "Used in Processes": usedInProcesses },
+  // The three tables the page shows the Imports file as (import-files.ts) list theirs as it does.
+  ...Object.fromEntries(IMPORT_TABLES.map(table => [table.file, { "Used in Processes": usedInProcesses }])),
   // Anaplan's grid heads the column Imports; the tests' exports, as earlier ones, write it Used in Imports.
   [DATA_SOURCES_FILE]: { "Used in Imports": namesIn(IMPORTS_FILE), Imports: namesIn(IMPORTS_FILE) },
   [EXPORTS_FILE]: { "Used in Processes": usedInProcesses },

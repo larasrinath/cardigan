@@ -131,9 +131,10 @@ function readMatch(value: unknown): ItemMatch | undefined | false {
 /** A model's imports with their mappings (result-types.ts `ImportMapping`), every field checked, or nothing when anything
  * else is there. As for the modules' IDs, a result is not refused for them: the page only shows no mapping. The results
  * page checks a result's mappings so too before it shows one, whoever kept the result. A mapping an earlier version kept,
- * without a Source Type, a clear setting, File Options or the kinds of its targets, is read as it is. One that 0.38.0
- * kept is read without the module's ID it held for a list's items mapped manually (`moduleId`), and without those items
- * (`readTarget`), whatever they are: they never keep a result's mappings from being read. */
+ * without a Source Type, a clear setting, File Options, whether its source is this model's or the kinds of its targets,
+ * is read as it is. One that 0.38.0 kept is read without the module's ID it held for a list's items mapped manually
+ * (`moduleId`), and without those items (`readTarget`), whatever they are: they never keep a result's mappings from being
+ * read. */
 export function readImportMappings(value: unknown): ImportMapping[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const mappings: ImportMapping[] = [];
@@ -142,7 +143,8 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
     if (!mapping || typeof mapping !== "object" || typeof mapping.id !== "string" || !/^\d{0,19}$/.test(mapping.id) || typeof mapping.name !== "string"
         || typeof mapping.importType !== "string" || !Array.isArray(mapping.targets) || (mapping.note !== undefined && typeof mapping.note !== "string")
         || (mapping.sourceType !== undefined && typeof mapping.sourceType !== "string")
-        || (mapping.clear !== undefined && mapping.clear !== "clear" && mapping.clear !== "update")) return undefined;
+        || (mapping.clear !== undefined && mapping.clear !== "clear" && mapping.clear !== "update")
+        || (mapping.sourceInThisModel !== undefined && typeof mapping.sourceInThisModel !== "boolean")) return undefined;
     const targets: MappedTarget[] = [];
     for (const item of Array.from(mapping.targets as unknown[])) {
       const target = readTarget(item);
@@ -155,7 +157,8 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
     if (matchedBy === false || headers === false || fileOptions === false) return undefined;
     mappings.push({ id: mapping.id, name: mapping.name, ...(mapping.sourceType !== undefined ? { sourceType: mapping.sourceType } : {}), importType: mapping.importType,
       targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}), ...(mapping.clear !== undefined ? { clear: mapping.clear } : {}),
-      ...(fileOptions ? { fileOptions } : {}), ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
+      ...(fileOptions ? { fileOptions } : {}), ...(mapping.sourceInThisModel !== undefined ? { sourceInThisModel: mapping.sourceInThisModel } : {}),
+      ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
   }
   return mappings;
 }

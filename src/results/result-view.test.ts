@@ -315,11 +315,12 @@ describe("What the results page reads out of a result", () => {
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
     // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it,
     // followed by the run's two tables of what nothing uses (model/unused.ts). After the settings, the tables of the pages
-    // built on the model, which a model's run adds (model-pages.ts): last before the map.
+    // built on the model, which a model's run adds (model-pages.ts): last before the map. The three tables the page shows
+    // the Imports file as stand in its place (import-files.ts).
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
-      "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv",
-      "Source Models.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]);
-    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 19, ACCESS_FILE]);
+      "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv", "Processes.csv", "Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv",
+      "In-Model Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 22, ACCESS_FILE]);
     const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
     /** The files of a result as the page lists them: each one's name and its place in the result. */
     const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);
@@ -385,9 +386,12 @@ describe("What the results page reads out of a result", () => {
     // Any other file lists every row, the same rows, whatever its columns are called and hold; so does the Details file.
     expect([fileView(model, lineItems), fileView(model, modelDetails)]).toEqual([{ table: lineItems }, { table: modelDetails }]);
     expect(fileView(model, lineItems).table).toBe(lineItems);
-    // The rules are few and each is one file's own, by the kind of result and the file's name.
-    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Source Models.csv",
+    // The rules are few and each is one file's own, by the kind of result and the file's name: the Imports file's is the
+    // three tables' it is shown as too.
+    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv",
+      "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv", "Source Models.csv",
       "Line Item Subsets.csv", "Unused Line Items.csv", "Unused Modules.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"], []]);
+    expect(new Set(["File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv"].map(name => FILE_RULES.model.get(name)))).toEqual(new Set([FILE_RULES.model.get("Imports.csv")]));
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
@@ -522,45 +526,48 @@ describe("What the results page reads out of a result", () => {
   const HUB_VIEW = "M0 Data Hub [DEV] / 'HRY01 ORG Hierarchy Builder'.'DATA & LIST: ORG3 Area'";
   const OWN_VIEW = "'SYS ORG1 Campus #'.'DATA: SYS ORG1 Campus # (Reset)'";
 
-  it("shows a model's Imports with Source Object as three columns, the source's model, module and saved view, and keeps the text that was read for a row's details", () => {
+  it("shows a model's Imports with Source Object as four columns, the source's model, module, saved view and list, and keeps the text that was read for a row's details", () => {
     const file = imports([
       ["Load areas", "M0 Data Hub [DEV] / HRY01 ORG Hierarchy Builder", HUB_VIEW, "SAVED VIEW", "ORG3 Area", "LIST", "Nightly load"],
       ["Reset campus", "SYS ORG1 Campus #", OWN_VIEW, "SAVED VIEW", "SYS ORG1 Campus", "MODULE", ""],
       ["Load regions", "Hub / Regions", "Hub / 'LIST - Regions'", "MODULE", "Regions", "LIST", ""],
-      ["Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "Nightly load"]]);
+      ["Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "Nightly load"],
+      ["Products from the hub", "Hub / Products", "Hub / Products", "LIST", "Products", "LIST", ""]]);
     const kept = structuredClone(file);
     expect([IMPORTS_FILE, THIS_MODEL]).toEqual(["Imports.csv", "This model"]);
     const model = result("model", [modelDetails, file]);
     const shown = fileView(model, file);
-    // The three columns stand in Source Object's place, and every other cell is the file's own, in its order.
-    expect(shown.table.headers).toEqual(["", "Source Label", "Source Model", "Source Module", "Saved View", "Source Type", "Target Object", "Target Type", "Used in Processes"]);
-    expect(shown.table.rows.map(row => [...row.slice(0, 2), ...row.slice(5)])).toEqual(file.rows.map(row => [...row.slice(0, 2), ...row.slice(3)]));
-    expect(shown.table.rows.map(row => row.slice(2, 5))).toEqual([
-      ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area"],
+    // The four columns stand in Source Object's place, and every other cell is the file's own, in its order.
+    expect(shown.table.headers).toEqual(["", "Source Label", "Source Model", "Source Module", "Saved View", "Source List", "Source Type", "Target Object", "Target Type", "Used in Processes"]);
+    expect(shown.table.rows.map(row => [...row.slice(0, 2), ...row.slice(6)])).toEqual(file.rows.map(row => [...row.slice(0, 2), ...row.slice(3)]));
+    expect(shown.table.rows.map(row => row.slice(2, 6))).toEqual([
+      ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area", ""],
       // A Source Object that names no model reads from this model itself: Source Model names it.
-      ["Model one", "SYS ORG1 Campus #", "DATA: SYS ORG1 Campus # (Reset)"],
+      ["Model one", "SYS ORG1 Campus #", "DATA: SYS ORG1 Campus # (Reset)", ""],
       // A module named without a saved view leaves Saved View empty.
-      ["Hub", "LIST - Regions", ""],
+      ["Hub", "LIST - Regions", "", ""],
       // A file's import names no model's object: its dash shows blank.
-      ["", "", ""]]);
-    // The text that was read is kept for each row read, once: by the last of the three columns, and named as the file
-    // names its column, so that a row's details show it as Source Object.
+      ["", "", "", ""],
+      // A list is named under Source List, behind the model the cell names.
+      ["Hub", "", "", "Products"]]);
+    // The text that was read is kept for each row read whose cell says something, once: by the last of the four columns,
+    // and named as the file names its column, so that a row's details show it as Source Object.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
-      .toEqual([[0, [[4, HUB_VIEW]]], [1, [[4, OWN_VIEW]]], [2, [[4, "Hub / 'LIST - Regions'"]]]]);
-    expect([[...shown.readUnder ?? []], shown.note]).toEqual([[[4, "Source Object"]], undefined]);
+      .toEqual([[0, [[5, HUB_VIEW]]], [1, [[5, OWN_VIEW]]], [2, [[5, "Hub / 'LIST - Regions'"]]], [4, [[5, "Hub / Products"]]]]);
+    expect([[...shown.readUnder ?? []], shown.note]).toEqual([[[5, "Source Object"]], undefined]);
     // Where the export knew the model by its ID alone, Source Model says This model.
     const byId = fileView({ ...model, name: model.id }, file);
-    expect([byId.table.rows[1].slice(2, 5), byId.note]).toEqual([[THIS_MODEL, "SYS ORG1 Campus #", "DATA: SYS ORG1 Campus # (Reset)"], undefined]);
-    // The file itself is as it was: a model's map is made of the result's own tables. The rule keeps every row, so the tile
-    // counts the file's own number.
+    expect([byId.table.rows[1].slice(2, 6), byId.note]).toEqual([[THIS_MODEL, "SYS ORG1 Campus #", "DATA: SYS ORG1 Campus # (Reset)", ""], undefined]);
+    // The file itself is as it was: a model's map is made of the result's own tables. The rule keeps every row, so the
+    // three tables the page shows the file as count the file's own number between them (import-tables.ts).
     expect(file).toEqual(kept);
-    expect(overviewOf(model).tiles).toEqual([expect.objectContaining({ label: "Imports", count: 4 })]);
+    expect(overviewOf(model).tiles.map(tile => [tile.label, tile.count])).toEqual([["File Imports", 1], ["Model-to-Model Imports", 3], ["In-Model Imports", 1]]);
     // The rule is that file's alone, in a model's result: an app's file of that name, and a file of another name, are shown as they stand.
     const renamed: ResultTable = { ...file, file: "Imports (2).csv" };
     expect([fileView(result("app", [appDetails, file]), file), fileView(model, renamed)]).toEqual([{ table: blankTable(file) }, { table: blankTable(renamed) }]);
   });
 
-  it("reads an import's Source Object only where its Source Type is a saved view's or a module's, and leaves any other as it is under Source Model", () => {
+  it("reads an import's Source Object where its Source Type is a saved view's, a module's or a list's, leaves uploaded data's empty, and any other as it is under Source Model", () => {
     const file = imports([
       // Quoted names that hold a slash, a dot or a quote of their own.
       ["Slashed", "", "Hub / 'A / B'.'C.D'", "SAVED VIEW", "", "", ""],
@@ -568,8 +575,11 @@ describe("What the results page reads out of a result", () => {
       // A file's import: the dash Anaplan writes, and a file's name, which is written as a module and a saved view would be.
       ["Dash", "prices.csv", "-", "FILE", "", "", ""],
       ["Named", "prices.csv", "prices.csv", "FILE", "", "", ""],
-      // A list is no module, and a Source Type the rule does not know, or none, says no module either.
+      // A list, written as a model's object is, of another model and of this one; and one written in no way the page reads.
       ["List", "Hub / Products", "Hub / Products", "LIST", "", "", ""],
+      ["Own list", "", "'G1 Regions'", "LIST", "", "", ""],
+      ["Loose list", "", "Hub / G1 Regions", "LIST", "", "", ""],
+      // A Source Type the rule does not know, or none, says no model's object.
       ["Other", "", "Hub / 'M'.V", "DATASET", "", "", ""],
       ["Untyped", "", "Hub / 'M'.V", "", "", "", ""],
       // A saved view's import whose cell is not written as a model's object.
@@ -577,20 +587,30 @@ describe("What the results page reads out of a result", () => {
       // An import the Imports tab did not return: the row the Actions list gives it has nothing here.
       ["Old import", "", "", "", "", "", ""]]);
     const shown = fileView(result("model", [file]), file);
-    expect(shown.table.rows.map(row => row.slice(2, 5))).toEqual([["Hub", "A / B", "C.D"], ["Model one", "Editor's lock", "Grid"],
-      ...file.rows.slice(2).map(row => [tableText(row[2]), "", ""])]);
-    expect([...shown.exported ?? []].map(([row]) => row[0])).toEqual(["Slashed", "Quoted"]);
+    expect(shown.table.rows.map(row => row.slice(2, 6))).toEqual([["Hub", "A / B", "C.D", ""], ["Model one", "Editor's lock", "Grid", ""],
+      // Uploaded data names no model's object, whatever its cell says.
+      ["", "", "", ""], ["", "", "", ""],
+      // A list is always named: under Source List, behind its model where the cell is written as a model's object, and
+      // else whole, with no model.
+      ["Hub", "", "", "Products"], ["Model one", "", "", "G1 Regions"], ["", "", "", "Hub / G1 Regions"],
+      ...file.rows.slice(7).map(row => [tableText(row[2]), "", "", ""])]);
+    expect([...shown.exported ?? []].map(([row]) => row[0])).toEqual(["Slashed", "Quoted", "Named", "List", "Own list", "Loose list"]);
     // The line counts the rows not read whose cell says something, and says where their text is: not the dash, and not an empty cell.
-    expect(shown.note).toBe(`5 rows have a Source Object that is not a module or a saved view: their text stands as it is under Source Model.`);
-    const one = imports([file.rows[0], file.rows[2], file.rows[4]]);
-    expect(fileView(result("model", [one]), one).note).toBe(`1 row has a Source Object that is not a module or a saved view: its text stands as it is under Source Model.`);
+    expect(shown.note).toBe(`3 rows have a Source Object that is not a module, a saved view or a list: their text stands as it is under Source Model.`);
+    const one = imports([file.rows[0], file.rows[2], file.rows[7]]);
+    expect(fileView(result("model", [one]), one).note).toBe(`1 row has a Source Object that is not a module, a saved view or a list: its text stands as it is under Source Model.`);
+    // Rows of uploaded data alone have the four columns, empty, as any other rows read: a file's name is kept for the details.
+    const files = imports(file.rows.slice(2, 4));
+    const read = fileView(result("model", [files]), files);
+    expect([read.table.headers.slice(2, 6), read.table.rows.map(row => row.slice(2, 6)), [...read.exported ?? []].map(([row, texts]) => [row[0], [...texts]]), read.note])
+      .toEqual([["Source Model", "Source Module", "Saved View", "Source List"], [["", "", "", ""], ["", "", "", ""]], [["Named", [[5, "prices.csv"]]]], undefined]);
     // A file without a row that is read, one without the Source Type column, and one without rows are shown as they stand,
     // with Source Object as the tab writes it: no column is named for what none of its cells holds.
-    const files = imports(file.rows.slice(2, 4));
+    const unread = imports(file.rows.slice(7));
     const untyped = imports(file.rows.map(row => row.filter((_, index) => index !== 3)), IMPORT_HEADERS.filter(header => header !== "Source Type"));
     const none = imports([]);
-    expect([fileView(result("model", [files]), files), fileView(result("model", [untyped]), untyped), fileView(result("model", [none]), none)])
-      .toEqual([{ table: blankTable(files) }, { table: blankTable(untyped) }, { table: none }]);
+    expect([fileView(result("model", [unread]), unread), fileView(result("model", [untyped]), untyped), fileView(result("model", [none]), none)])
+      .toEqual([{ table: blankTable(unread) }, { table: blankTable(untyped) }, { table: none }]);
   });
 
   // A model's Source Models file as the export writes it, as Anaplan's own export of the grid: each source model's name

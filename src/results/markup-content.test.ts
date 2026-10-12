@@ -571,6 +571,13 @@ describe("What the results page's markup shows", () => {
     expect(view.querySelectorAll(".stat .s-lab").map(label => label.getAttribute("title"))).toEqual(["Line Items", "Model Calendar", "Odd", "Bare"]);
   });
 
+  it("gives a long name its words whole, after the table's icon, with its title whole, for the tile to set on two lines (page.test.ts)", () => {
+    // The name holds the table's icon first, and is its own title, whole, whatever the tile shows of it: no short name.
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ index: 12, file: "Model-to-Model Imports.csv", label: "Model-to-Model Imports", count: 3 }] })));
+    const label = view.querySelector(".stat .s-lab")!;
+    expect([label.children.map(child => child.localName), label.getAttribute("title"), label.textContent]).toEqual([["svg"], "Model-to-Model Imports", "Model-to-Model Imports"]);
+  });
+
   it("sizes a tile's number by its length: full size up to four figures, and a longer count and the calendar's word by the tile's width", () => {
     const counts = [7, 5279, 15389, 153890, 1538900, 15389000];
     const view = parseMarkup(overviewHtml(overviewWith({ tiles: [...counts.map(count => ({ index: 0, file: "Line Items.csv", label: "Line Items", count })), { index: 0, file: "Model Calendar.csv", label: "Model Calendar", count: 21, value: "Monthly" }] })));

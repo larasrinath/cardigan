@@ -9,13 +9,29 @@ const cssGap = (slots: readonly number[], line: number): number => Math.max(1, (
 /** How wide a text is written, in the stand-in for the browser: a little wider in bold. */
 const textWidth = ([text, weight]: WeightedText): number => text.length * (weight === MARKED_WEIGHT ? 7.5 : 7);
 
+/** How wide Chrome writes each word of a model's bar, plain and in bold, as measured in the built page at 1,000px wide, in
+ * the headless Chrome the README's pictures are taken with (12 Oct 2026), at the page's own font: every one narrower than
+ * the stand-in's letters, a long name of narrow letters most of all. Model-to-Model Imports is 148.6px in bold, where the
+ * stand-in makes it 165px. Each item's own width beside its words measured as the stand-in has it: 30px for an entry and
+ * 42px for a group's button. */
+const CHROME_WIDTHS: ReadonlyMap<string, readonly [plain: number, bold: number]> = new Map([
+  ["Overview", [52.9, 55.3]], ["Dimensions", [66.8, 68.7]], ["Model Calendar", [91.2, 93.7]], ["Time Ranges", [73.2, 75.4]], ["Versions", [47.7, 49.3]],
+  ["General Lists", [72.4, 74.7]], ["Line Item Subsets", [100.5, 103.5]], ["Modules", [49.8, 51.1]], ["Line Items", [58.4, 60.3]], ["DCA", [25.6, 26.1]],
+  ["Unused Line Items", [105.5, 108.5]], ["Unused Modules", [97, 99.3]], ["Actions", [42.4, 43.9]], ["Processes", [55.6, 56.8]], ["Imports", [44.4, 46.4]],
+  ["File Imports", [67.4, 70.2]], ["Model-to-Model Imports", [144.1, 148.6]], ["In-Model Imports", [100.8, 104.5]], ["Data Sources", [75, 76.9]],
+  ["Exports", [42.3, 44.3]], ["Other Actions", [78.9, 81.3]], ["Source Models", [85.2, 87.3]], ["App Usage", [62.8, 64.3]], ["Module Usage", [83.3, 85.4]],
+  ["Page Filters", [65.4, 67.7]], ["Page Actions", [73.9, 76.2]], ["Model map", [65.9, 67.6]],
+] as const);
+const chromeWidth = ([text, weight]: WeightedText): number => CHROME_WIDTHS.get(text)?.[weight === MARKED_WEIGHT ? 1 : 0] ?? textWidth([text, weight]);
+
 /** An item of the line as the browser lays it out: an entry, or a group whose button carries the texts it can show. The
- * item is as wide as the width set on it, or else as its own width beside its words, and its words as written. */
-function item(words: string, marked: boolean, labels?: readonly string[]) {
+ * item is as wide as the width set on it, or else as its own width beside its words, and its words as written, by
+ * `measure`. */
+function item(words: string, marked: boolean, labels?: readonly string[], measure = textWidth) {
   const style = new Map<string, string>();
   const own = labels ? 42 : 30;
   const shown = { textContent: words };
-  const natural = () => own + textWidth([words, marked ? MARKED_WEIGHT : PLAIN_WEIGHT]);
+  const natural = () => own + measure([words, marked ? MARKED_WEIGHT : PLAIN_WEIGHT]);
   const button = {
     querySelector: (selector: string) => (selector === "span" ? shown : null),
     hasAttribute: (name: string) => name === "aria-current" && marked,
@@ -34,11 +50,12 @@ function item(words: string, marked: boolean, labels?: readonly string[]) {
   return { element: group as unknown as HTMLElement, style };
 }
 
-/** A line of the navigation: its items, the properties the page sets on it, and a reader of what it lays out. */
-function line(items: ReturnType<typeof item>[], width: number) {
+/** A line of the navigation: its items, the properties the page sets on it, and a reader of what it lays out, its texts
+ * by `measure`. */
+function line(items: ReturnType<typeof item>[], width: number, measure = textWidth) {
   const set = new Map<string, string>();
   const list = { children: items.map(each => each.element), style: { setProperty: (name: string, value: string) => void set.set(name, value) } } as unknown as HTMLElement;
-  const read: LineReader = { texts: asked => asked.map(({ texts }) => texts.map(textWidth)), line: () => width };
+  const read: LineReader = { texts: asked => asked.map(({ texts }) => texts.map(measure)), line: () => width };
   return { list, set, read, styles: items.map(each => each.style) };
 }
 
@@ -58,14 +75,17 @@ describe("The navigation's line, spread over its width", () => {
       { id: "map", label: "Model map" },
     ];
     const items = navItems(entries.map(entry => entry.file ? { ...entry, label: tableLabel(entry) } : entry), true);
+    // Every word the bar can show is written as Chrome writes it (`CHROME_WIDTHS`): a new one is to be measured there.
+    const words = items.flatMap(entry => ("entries" in entry ? [entry.group.label, ...entry.entries.map(each => each.label)] : [entry.label]));
+    expect(words.filter(each => !CHROME_WIDTHS.has(each))).toEqual([]);
     // Room after the page's gutters and scrollbar. The browser check measures the actual font and spacing too.
     const available = width - 64;
     const laid = entries.map(shown => {
       const bar = line(items.map(entry => {
-        if (!("entries" in entry)) return item(entry.label, entry.id === shown.id);
+        if (!("entries" in entry)) return item(entry.label, entry.id === shown.id, undefined, chromeWidth);
         const selected = entry.entries.find(each => each.id === shown.id);
-        return item(selected?.label ?? entry.group.label, !!selected, [entry.group.label, ...entry.entries.map(each => each.label)]);
-      }), available);
+        return item(selected?.label ?? entry.group.label, !!selected, [entry.group.label, ...entry.entries.map(each => each.label)], chromeWidth);
+      }), available, chromeWidth);
       spreadLine(bar.list, bar.read);
       const widths = bar.styles.map(style => Number.parseFloat(style.get("width")!));
       expect(widths.reduce((sum, room) => sum + room, 0) + widths.length - 1).toBeLessThan(available);

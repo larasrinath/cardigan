@@ -49,7 +49,8 @@ export interface AnalysisResult {
   listIds?: [name: string, id: string][];
   /** The mapping of each of a model's imports, whatever its Source Type in the Imports tab, in the order of that tab: what
    * feeds each target of the import, as the import's own definition says it. The results page shows it in the details of
-   * the import's row of Imports. Empty for a model that has no import; none in an app's result, in a model's whose Imports
+   * the import's row of File Imports, Model-to-Model Imports or In-Model Imports, the three tables it shows the Imports
+   * table as. Empty for a model that has no import; none in an app's result, in a model's whose Imports
    * tab could not be read, nor in one that an earlier version kept. An earlier version kept those of the imports from a
    * file alone (Source Type FILE), each without its `sourceType`. */
   importMappings?: ImportMapping[];
@@ -118,8 +119,14 @@ export interface ImportMapping {
   clear?: "clear" | "update";
   /** For an import of uploaded data, how its data source reads it, as the source's own definition holds it: the import's
    * File Options. None where the source's definition was not read or holds none of them, and none in a result an earlier
-   * version kept. Nothing else of a source is kept: never the model, the workspace or the object a model's import reads. */
+   * version kept. Nothing else of a source is kept but `sourceInThisModel`: never the model, the workspace or the object a
+   * model's import reads, by name or by ID. */
   fileOptions?: FileOptions;
+  /** For an import of a model's module, saved view or list, whether that object is this model's: true where its data
+   * source's definition names no model or this one, false where it names another. The results page lists the import under
+   * In-Model Imports or Model-to-Model Imports by it (results/import-tables.ts). None where that definition was not read
+   * or is no model's object, for an import of uploaded data, and in a result an earlier version kept. */
+  sourceInThisModel?: boolean;
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
 }
