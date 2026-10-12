@@ -7,8 +7,8 @@ import type { SourceTrace } from "./map-sources.js";
  * - its sections, linked where a line item of one reads a line item of another;
  * - the modules of one section, or all modules, linked the same way; a module of another section that one of the
  *   section's modules reads or feeds stands beside them as an external node;
- * - the line items of one module, with what they read and feed outside it: line items of other modules, as one node
- *   for each module or one by one, and the lists and properties their formulas name;
+ * - the line items of one module, with what they read and feed outside it: line items of other modules, one by one or
+ *   as one node for each module, and the lists and properties their formulas name;
  * - and the source inputs of one line item (map-sources.ts): the line item, its inputs and the calculations between,
  *   each box with its module, linked as their values flow.
  * A link from a thing to itself is no link between two modules or sections; between line items it stays, as the loop a

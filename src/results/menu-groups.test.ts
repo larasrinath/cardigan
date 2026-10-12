@@ -68,6 +68,49 @@ describe("The model's shorter menu bar", () => {
     }
   });
 
+  it.each([
+    [["File Imports"]],
+    [["Model-to-Model Imports"]],
+    [["File Imports", "In-Model Imports"]],
+    [["Model-to-Model Imports", "In-Model Imports"]],
+    [["File Imports", "Model-to-Model Imports", "In-Model Imports"]],
+  ])("lists the tables of imports in Actions in the Imports file's place, with no heading, at the indent of its other tables: %j", present => {
+    const names = ["Processes", ...present, "Import Data Sources", "Exports", "Other Actions"];
+    const items = navItems(entries(names), true);
+    const wide = parseMarkup(navHtml(items, ""));
+    const compact = parseMarkup(navMenuHtml(items, "", "Overview"));
+    for (const actions of [wide.querySelector("#navGroupActions")!, compact.querySelector('[aria-label="Actions"]')!]) {
+      // No heading but the narrow window's one menu's for the group itself, and every table one step under the menu.
+      expect(actions.querySelectorAll(".nav-heading").map(heading => heading.textContent).filter(label => label !== "Actions")).toEqual([]);
+      expect(tree(actions)).toEqual(names);
+      expect(actions.querySelectorAll(".nav-item").map(entry => [words(entry), entry.parentElement === actions])).toEqual(names.map(name => [name, true]));
+    }
+  });
+
+  it("gives the tables of imports no heading where they are Actions' only tables, and makes one of them alone the bar's own entry", () => {
+    const items = navItems(entries(["File Imports", "Model-to-Model Imports"]), true);
+    for (const html of [navHtml(items, ""), navMenuHtml(items, "", "Overview")]) {
+      expect(parseMarkup(html).querySelectorAll(".nav-heading").map(heading => heading.textContent).filter(label => label !== "Actions")).toEqual([]);
+    }
+    const one = entries(["In-Model Imports"]);
+    expect(navItems(one, true)).toEqual(one);
+  });
+
+  it("draws each table of imports with an icon of its own, in the menu bar's style, and the Actions button names the one shown", () => {
+    const tables = entries(["Processes", "File Imports", "Model-to-Model Imports", "In-Model Imports", "Import Data Sources"]);
+    const items = navItems(tables, true);
+    const icons = ["File Imports", "Model-to-Model Imports", "In-Model Imports"].map(label => FILE_ICONS.get(`${label}.csv`));
+    expect(new Set([...icons, FILE_ICONS.get("Imports.csv")]).size).toBe(4);
+    for (const icon of icons) {
+      expect(icon).toContain('viewBox="0 0 16 16"');
+      expect(icon).toContain('stroke-width="1.5"');
+      expect(icon).toContain('stroke-linecap="round"');
+    }
+    const button = parseMarkup(navHtml(items, "Model-to-Model Imports")).querySelector(".nav-group-btn")!;
+    expect([words(button), button.dataset.labels?.split("\n"), button.querySelector("svg")?.outerHTML])
+      .toEqual(["Model-to-Model Imports", ["Actions", ...tables.map(table => table.label)], parseMarkup(icons[1]!).innerHTML]);
+  });
+
   it.each([...DIMENSIONS, ...USAGE])("makes %s a standalone entry when it is the group's only table", label => {
     const tables = entries([label]);
     const items = navItems(tables, true);

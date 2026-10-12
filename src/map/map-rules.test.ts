@@ -297,7 +297,7 @@ describe("The map's stylesheet", () => {
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
       groupingOptionsHtml([{ kind: "role", label: "DISCO" }], "role"),
-      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), "modules", "modules", undefined, "modules", true, true, true), traceHtml(words, false), traceHtml(words, true),
+      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), "modules", "modules", undefined, "modules", true, true, true, true), traceHtml(words, false), traceHtml(words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Group" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],

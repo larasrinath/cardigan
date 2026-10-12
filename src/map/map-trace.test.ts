@@ -168,6 +168,34 @@ describe("The trace of a line item in its module's graph", () => {
     expect(names(graph, trace.down)).toEqual(["Taken"]);
   });
 
+  it("marks an outside line item's box that feeds the line item traced through another, with no coloured link to it", () => {
+    // Origin, of a far module, feeds One, of another, which feeds the middle's First, which feeds Last. Origin stands on
+    // the map because it feeds Spare too, a line item of the middle that has nothing to do with Last.
+    const make = new GraphMaker();
+    const far = make.module("FAR - Far Source", "01: All");
+    const source = make.module("SRC - Source", "01: All");
+    const middle = make.module("MID - Middle", "01: All");
+    const origin = make.item(far, "Origin");
+    const one = make.item(source, "One");
+    const first = make.item(middle, "First");
+    const last = make.item(middle, "Last");
+    const spare = make.item(middle, "Spare");
+    make.link(origin, one).link(one, first).link(first, last).link(origin, spare);
+    const model = indexModel(make.graph());
+    const graph = moduleGraph(model, middle, true, false);
+    // The map draws the links of the middle's own line items alone: Origin to Spare, and not Origin to One.
+    expect(graph.edges.map(edge => `${graph.nodes[edge.s].fullName} > ${graph.nodes[edge.t].fullName}`).sort()).toEqual(["First > Last", "One > First", "Origin > Spare"]);
+    // Origin feeds Last by way of One: its box carries the sign, and no link the trace colours leads to it.
+    const trace = traceNode(graph, model, place(graph, "Last"), false);
+    expect([names(graph, trace.up), trace.down.size]).toEqual([["First", "One", "Origin"], 0]);
+    expect(marked(graph, trace.edges)).toEqual(["First > Last: 1", "One > First: 1"]);
+    expect(graph.edges.some((edge, index) => trace.edges[index] > 0 && (edge.s === place(graph, "Origin") || edge.t === place(graph, "Origin")))).toBe(false);
+    // Grouped, the far module's box carries it the same way.
+    const grouped = moduleGraph(model, middle, false, false);
+    const before = traceNode(grouped, model, place(grouped, "Last"), false);
+    expect([names(grouped, before.up), marked(grouped, before.edges)]).toEqual([["FAR - Far Source", "First", "SRC - Source"], ["First > Last: 1", "SRC - Source > First: 1"]]);
+  });
+
   it("does not count a line item that reads itself as feeding itself", () => {
     const make = new GraphMaker();
     const module = make.module("RUN - Running", "01: All");

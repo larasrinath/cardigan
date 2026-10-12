@@ -3,6 +3,7 @@ import { HEADER_ROW_BY_HAND, MISSING_LINE_ITEM_NOTE, mappingView } from "../resu
 import { exportModel } from "./export.js";
 import type { Grid } from "./grid.js";
 import { IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, readImportMappings, SOURCE_DEFINITION, type ImportNames } from "./import-mappings.js";
+import type { ImportMapping } from "../result-types.js";
 import { readGrid, type Native } from "./native.js";
 
 // Import definitions as Anaplan's import dialog saves them (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
@@ -520,7 +521,7 @@ describe("The sources of a model's imports", () => {
     const log: string[] = [];
     const mappings = read(log);
     const own = mappings.find(mapping => mapping.name === "Bands from staff costs")!;
-    expect(own).toEqual({ id: "112000000058", name: "Bands from staff costs", sourceType: "MODULE", importType: "MODULE_DATA", clear: "update", targets: [
+    expect(own).toEqual({ id: "112000000058", name: "Bands from staff costs", sourceType: "MODULE", importType: "MODULE_DATA", clear: "update", sourceInThisModel: true, targets: [
       // The name the definition writes stays as it is written.
       { target: "Time", source: "column", text: "Time", kind: "time" },
       // An entity the definition names by its ID alone is named as this model names it.
@@ -615,6 +616,30 @@ describe("The sources of a model's imports", () => {
     expect(refused.result.importMappings?.map(mapping => mapping.targets)).toEqual(result.importMappings?.map(mapping => mapping.targets));
     expect([refused.result.importMappings?.some(mapping => mapping.fileOptions), refused.log.filter(line => line.startsWith("Import mapping sources"))])
       .toEqual([false, ["Import mapping sources: The model rejected the read."]]);
+  });
+
+  it("keeps whether a model's object is this model's only where its source's definition was read, and never for uploaded data", () => {
+    const here = (mappings: readonly ImportMapping[]) => mappings.map(mapping => [mapping.name, mapping.sourceInThisModel]);
+    // This model's object (an empty modelId) and another model's; the imports of uploaded data say nothing, whatever their sources.
+    expect(here(read())).toEqual([["Load joiners", undefined], ["Load joiners again", undefined], ["Load unset", undefined], ["Load null", undefined],
+      ["Load broken", undefined], ["Load sourceless", undefined], ["Load elsewhere", undefined], ["Bands from staff costs", true], ["Bands from the hub", false]]);
+    // This model's own ID, in any case, is this model.
+    const upper = importMappings(IMPORTS, DEFINED, BAND_NAMES, () => undefined, IMPORT_DEFINITION, { grid: { ...SOURCES, rows: SOURCES.rows.map(row => (row.ids[0] === 113000000017
+      ? { ...row, cells: ["", OTHER_OBJECT.replace(OTHER_MODEL, THIS_MODEL.toLowerCase())] } : row)) }, column: SOURCE_DEFINITION, model: THIS_MODEL });
+    expect(upper.find(mapping => mapping.name === "Bands from the hub")?.sourceInThisModel).toBe(true);
+    // Without the sources' grid, or where an import's source is not in it, not set up, or of uploaded data, nothing is said:
+    // the stand-in the names take for a source not known is no evidence.
+    expect(here(importMappings(IMPORTS, DEFINED, BAND_NAMES, () => undefined)).every(([, said]) => said === undefined)).toBe(true);
+    const unknownSources = grid([[SOURCE_DEFINITION, "Data Source Definition"]], [[113000000016, "PLN08 Staff Costs", ""], [113000000017, "Hub", UPLOADED()]]);
+    expect(here(importMappings(IMPORTS, DEFINED, BAND_NAMES, () => undefined, IMPORT_DEFINITION, { grid: unknownSources, column: SOURCE_DEFINITION, model: THIS_MODEL }))
+      .filter(([name]) => String(name).startsWith("Bands"))).toEqual([["Bands from staff costs", undefined], ["Bands from the hub", undefined]]);
+    // A file import whose definition names a model's object is still uploaded data.
+    const fileFromObject = importMappings(grid([[4000000003, "Source Type"]], [[112000000051, "Load joiners", "FILE"]]),
+      grid([[IMPORT_DEFINITION, "Import Definition"]], [[112000000051, "Load joiners", JOINERS(113000000016)]]), BAND_NAMES, () => undefined, IMPORT_DEFINITION,
+      { grid: SOURCES, column: SOURCE_DEFINITION, model: THIS_MODEL });
+    expect(fileFromObject[0].sourceInThisModel).toBeUndefined();
+    // Nothing else of the source comes with it: no model, workspace or object, by name or by ID.
+    expect(JSON.stringify(read())).not.toMatch(new RegExp(`${THIS_MODEL}|${OTHER_MODEL}|8a81b09c|${STAFF_COSTS}|PLN08|HUB08|Invented`));
   });
 
   it("names no column of another model's object by this model's names: its entities are that model's", () => {

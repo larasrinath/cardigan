@@ -6,7 +6,7 @@ import { accessMarkedModel, FakePen } from "./map-fakes.test-support.js";
 import { drawLinks, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { accessTipLines, inspect } from "./map-inspect.js";
 import { layoutGraph, sizeNodes } from "./map-layout.js";
-import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_SAYS, ACCESS_UNMATCHED, ACCESS_UNREAD, accessNote, inspectorHtml, legendHtml } from "./map-markup.js";
+import { ACCESS_MARK_MODULE_SAYS, ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_SAYS, ACCESS_UNMATCHED, ACCESS_UNREAD, accessNote, inspectorHtml, legendHtml } from "./map-markup.js";
 import { KEY_PATH } from "./map-marks.js";
 import { indexModel, withGrouping } from "./map-model.js";
 import { FALLBACK } from "./map-palette.js";
@@ -86,6 +86,13 @@ describe("Access marks and their meaning", () => {
       expect(html.querySelector(".map-mark-access path")?.getAttribute("d")).toBe(KEY_PATH);
       expect(html.querySelector(".map-mark-filter")).not.toBeNull();
     }
+    // Among a module's line items, what a key on another module's box counts is said only while such a box carries one.
+    // At the other levels every box is a module or a group, and their words say so already.
+    for (const kind of ["sections", "modules", "drill"] as const) {
+      const html = parseMarkup(legendHtml("On this map", [], new Set(), undefined, undefined, undefined, kind, false, false, true));
+      expect(html.querySelector(".map-legend-key")?.textContent).toBe(kind === "drill" ? `${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}` : ACCESS_MARK_SAYS[kind]);
+    }
+    expect([ACCESS_MARK_SAYS.drill, ACCESS_MARK_MODULE_SAYS]).toEqual(["Key mark: the line item is a read or write access driver.", "On another module, how many of its line items are drivers."]);
     expect(legendHtml("On this map", [], new Set())).not.toContain("map-mark-access");
   });
 

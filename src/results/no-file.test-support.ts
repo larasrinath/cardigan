@@ -65,9 +65,16 @@ export function watchForFiles(): FileWatch {
   };
 }
 
+/** The page's own name for its table of imports of uploaded data (import-files.ts), which the owner chose in the words
+ * Anaplan's model builders use: it names what an import reads, as Anaplan's Source Type FILE does, and no file of the
+ * page's. It is the one name of the page's own that says File, as it is written, and is taken out with `theirs`. */
+export const FILE_IMPORTS_NAME = /\bFile Imports\b/g;
+
 /** Each place where one of the texts names a file, a CSV or a zip, or a download, with the words around it. `theirs`
  * is what the app or the model itself says and the page shows as it was read, such as the name of the file an import
- * reads: it is taken out first, so that what is left is the page's own words. */
+ * reads: it is taken out first, with the name of the page's table of imports of uploaded data (`FILE_IMPORTS_NAME`), so
+ * that what is left is the page's own words. */
 export function fileWords(texts: readonly string[], theirs?: RegExp): string[] {
-  return texts.flatMap(text => (theirs ? text.replace(theirs, "") : text).match(/.{0,40}(?:\.csv|\bcsv\b|\bzip\b|download|\bfiles?\b).{0,40}/gi) ?? []);
+  return texts.flatMap(text => (theirs ? text.replace(theirs, "") : text).replace(FILE_IMPORTS_NAME, "")
+    .match(/.{0,40}(?:\.csv|\bcsv\b|\bzip\b|download|\bfiles?\b).{0,40}/gi) ?? []);
 }

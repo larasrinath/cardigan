@@ -93,6 +93,28 @@ describe("The map's search", () => {
     expect(drill.nodes.filter((_, index) => matchNodes(drill, model, "net")![index]).map(node => node.fullName)).toEqual(["Net"]);
   });
 
+  it("marks another module's line item, one by one beside a module's, by its name and by its module's code and name, as grouped it marks the module's box", () => {
+    const make = new GraphMaker();
+    const volumes = make.module("INP01 - Volumes", "01: Inputs");
+    const workings = make.module("Margin Workings", "02: Calculations");
+    const revenue = make.module("CAL01 - Revenue", "02: Calculations");
+    const units = make.item(volumes, "Units");
+    const cost = make.item(workings, "Cost");
+    const gross = make.item(revenue, "Gross");
+    make.link(units, gross).link(cost, gross);
+    const model = indexModel(make.graph());
+    const marked = (expanded: boolean, typed: string): string[] => {
+      const drill = moduleGraph(model, revenue, expanded, false);
+      const found = matchNodes(drill, model, typed);
+      return found ? drill.nodes.filter((_, index) => found[index]).map(node => node.fullName) : [];
+    };
+    for (const typed of ["units", "inp01", "volumes", "INP01 - Volumes"]) expect([marked(true, typed), marked(false, typed)], typed).toEqual([["Units"], ["INP01 - Volumes"]]);
+    // A module without a code stands above its line item by its whole name, which marks it either way.
+    expect([marked(true, "workings"), marked(false, "workings")]).toEqual([["Cost"], ["Margin Workings"]]);
+    // The module shown is no box of its own: its name marks none of its line items, one by one or grouped.
+    expect([marked(true, "cal01 - revenue"), marked(false, "cal01 - revenue")]).toEqual([[], []]);
+  });
+
   it("marks nothing, and so fades nothing, when no box on screen is meant", () => {
     const { model } = sample();
     expect(matchNodes(modulesGraph(model, undefined, false), model, "zzz")).toBeUndefined();

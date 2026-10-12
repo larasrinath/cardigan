@@ -23,8 +23,10 @@ import { axis, readGrid, type Native } from "./native.js";
  * (`dataSourceType` UPLOADED_FILE, with its encoding, separators, text delimiter, decimal separator, header row and first
  * row of data, the rows as text) or of a model's object (MODEL_OBJECT, with the object's ID and name, and the model's and
  * the workspace's IDs, empty for this model). The export reads that grid once, after the imports' definitions, and keeps
- * of uploaded data its settings alone, the import's File Options (`fileOptionsOf`). Of a model's object it keeps nothing:
- * it names the object's columns by this model's names only where the object is this model's (`ModelSource`).
+ * of uploaded data its settings alone, the import's File Options (`fileOptionsOf`). Of a model's object it keeps whether
+ * the object is this model's (`sourceInThisModel`), by which the results page lists the import under In-Model Imports or
+ * Model-to-Model Imports, and nothing else, by name or by ID: it names the object's columns by this model's names only
+ * where the object is this model's (`ModelSource`).
  *
  * A definition is written by the dialog (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
  * view/LineItemImportMapper.js, view/ImportDefinitionHierarchyMapping.js) as
@@ -761,8 +763,9 @@ export async function readImportMappings(native: Native, tab: Grid, definitions:
  *
  * With `sources`, the data sources' definitions, each import is linked to its source by its definition's `source`: an
  * import of uploaded data keeps its File Options, and an import of a model's object has the object's columns named
- * (`ModelSource`). An import of a model's object whose source is not known names its columns by what the definition
- * writes, and by their IDs. A last line then says of the sources how they are made and what each kind of import found,
+ * (`ModelSource`) and keeps whether the object is this model's (`sourceInThisModel`). An import of a model's object whose
+ * source is not known names its columns by what the definition writes, and by their IDs, and says nothing of whose the
+ * object is. A last line then says of the sources how they are made and what each kind of import found,
  * by counts and Anaplan's words alone: no setting and no name (`sourcesLine`). */
 export function importMappings(tab: Grid, definitions: Grid | undefined, names: ImportNames, log: Log, column = IMPORT_DEFINITION,
   sources?: SourceDefinitions): ImportMapping[] {
@@ -804,6 +807,9 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
     const why = !sources || sourceAt < 0 ? undefined : reference === undefined ? "no source in the definition" : !source ? "source not in the grid"
       : source.type === NOT_SET_UP ? "source not set up" : source.type === UNREADABLE ? "source not readable" : undefined;
     const model = source?.model ?? (kind === fromModels && source?.type !== "UPLOADED_FILE" ? { here: false } : undefined);
+    // Whether the object an import of a model's object reads is this model's, as its source's definition says, which was
+    // read: never the stand-in above for a source that is not known, and never for an import of uploaded data.
+    const here = kind === fromModels && source?.model ? { sourceInThisModel: source.model.here } : {};
     try {
       const { mapping, shape, details } = readDefinition(cell, names, target < 0 ? undefined : row.cells[target] || undefined, model);
       log(`Import mapping ${id || "?"}: ${shape}`);
@@ -847,11 +853,11 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
         else add(kind.why, mapping.note !== undefined ? "definition not read" : why ?? (source?.type === own ? empty : `source of type ${source?.type ?? "?"}`));
         if (kind === fromModels && source?.model && !source.model.here) elsewhere++;
       }
-      return { ...known, ...mapping, ...(options ? { fileOptions: options } : {}) };
+      return { ...known, ...mapping, ...(options ? { fileOptions: options } : {}), ...here };
     } catch (error) {
       log(`Import mapping ${id || "?"}: ${error instanceof Error ? error.name : "error"} while reading the definition`);
       if (kind) add(kind.why, "definition not read");
-      return { ...known, importType: "", targets: [], note: MAPPING_NOTES.unknown };
+      return { ...known, importType: "", targets: [], note: MAPPING_NOTES.unknown, ...here };
     }
   });
   // The page shows the log, and no word of the page names a file: nor do these lines.

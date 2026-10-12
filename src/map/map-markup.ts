@@ -112,8 +112,11 @@ const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 1
 export const ACCESS_MARK_SAYS: Readonly<Record<MarkedKind, string>> = {
   sections: "Key mark: how many of the group's modules hold access drivers.",
   modules: "Key mark: how many of the module's line items are access drivers.",
-  drill: "Key mark: the line item is a read or write access driver. On another module, how many of its line items are drivers.",
+  drill: "Key mark: the line item is a read or write access driver.",
 };
+/** Said after the key mark's words among a module's line items while a box there that stands for another module carries
+ * one: other modules' line items grouped by module, or a link to a whole module. */
+export const ACCESS_MARK_MODULE_SAYS = "On another module, how many of its line items are drivers.";
 const KEY = `<svg width="14" height="8" viewBox="0 0 14 8" fill="currentColor" aria-hidden="true"><path d="${KEY_PATH}" fill-rule="evenodd"/></svg>`;
 /** What unticking the switch of formulas' links leaves, said under the switch, which is ticked unless the viewer unticks it. */
 export const FORMULAS_SAY = "Untick to see only access drivers and page filters.";
@@ -124,8 +127,10 @@ export const ACCESS_LINK_SAYS = "An arrow from an access driver to what it contr
 /** What the legend says where the Links panel has no kind of link ticked. */
 export const NO_LINKS_SAYS = "No links are drawn. Tick Formulas, Access drivers or Page filters under Links.";
 /** Why a box beside a module's line items can be marked as part of a trace with no coloured link leading to it: there
- * the trace follows the model from line item to line item (map-trace.ts), and draws only the links of this module. */
-export const BESIDE_SAYS = "Among a module's line items, a box that stands for another module can carry a sign without a coloured link: it feeds the line item selected, or is fed by it, by way of line items that are not on this map.";
+ * the trace follows the model from line item to line item (map-trace.ts), and the map draws only the links of the
+ * module's own line items. The way can run through line items that are not on the map, or from one box beside them to
+ * another, a link the map does not draw: so any box beside them, another module's line item as well as a module. */
+export const BESIDE_SAYS = "Among a module's line items, any box beside them can carry a sign without a coloured link: it feeds the box selected, or is fed by it, by way of links this map does not draw.";
 /** What Find source inputs does, said in the notes about the map. */
 export const SOURCES_SAYS = "Find source inputs, in a line item's details, lists the line items without a formula that feed it, entered or imported, and maps them with the calculations in between.";
 /** The button that finds a line item's source inputs: its words, and what it does on hover. */
@@ -220,7 +225,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
           <p class="map-links-note map-access-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
           <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
           <p class="map-links-note map-filters-note" id="${esc(ids.filters)}">${esc(FILTERS_SAY)}</p>
-          <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external">Other modules' line items</label>
+          <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external" checked>Other modules' line items</label>
         </div>
       </div>
       <div class="map-searchwrap">
@@ -326,12 +331,15 @@ export const FAINT_SAYS = "Faint: through calculations that are hidden.";
  * what the mark means on that kind of picture (`marks`), beside one. What a formula's arrow means is said in the notes
  * about the map, not here. Where no kind of link is ticked, it says so plainly. A hidden layer says so in more than its
  * colour: its name is struck through, and the button is not pressed. While the picture has a box of a module from
- * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark.
+ * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark. Among a
+ * module's line items the key mark's words speak of another module's box only while one of those carries a key mark
+ * (`moduleKeys`): with other modules' line items one by one, the boxes beside them are mostly line items.
  * Among a line item's source inputs, where hiding a layer can draw a faint line (`faint`), a line under the input's says
  * what one is, beside a piece of it, whether or not one is drawn now: the legend keeps one height as layers are hidden and
  * shown, and none of its lines moves. Nothing where no faint line can be drawn. */
 export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: MarkedKind, marks?: MarkedKind,
-  links: LegendLinks = NO_LINK_NOTES, accessMarks?: MarkedKind, modulesOnly = false, inputs = false, faint = false): string {
+  links: LegendLinks = NO_LINK_NOTES, accessMarks?: MarkedKind, modulesOnly = false, inputs = false, moduleKeys = false, faint = false): string {
+  const keySays = accessMarks === undefined ? "" : accessMarks === "drill" && moduleKeys ? `${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}` : ACCESS_MARK_SAYS[accessMarks];
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
@@ -341,7 +349,7 @@ export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: 
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
     links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${
     marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}${
-    accessMarks ? `<p class="map-legend-note map-legend-mark map-legend-key"><span class="map-mark-access" aria-hidden="true">${KEY}</span>${esc(ACCESS_MARK_SAYS[accessMarks])}</p>` : ""}`;
+    accessMarks ? `<p class="map-legend-note map-legend-mark map-legend-key"><span class="map-mark-access" aria-hidden="true">${KEY}</span>${esc(keySays)}</p>` : ""}`;
 }
 
 /** What the trace's button does, on its face, on hover and to a screen reader. */

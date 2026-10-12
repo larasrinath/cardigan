@@ -169,6 +169,19 @@ describe("A result as plain data", () => {
     }
   });
 
+  it("keeps whether an import's source is this model's, as a truth alone, and reads a mapping without it as an earlier version kept it", () => {
+    const model = { ...result, kind: "model" as const };
+    const own = { id: "112000000058", name: "Bands from staff costs", sourceType: "MODULE", importType: "MODULE_DATA", targets: [], sourceInThisModel: true };
+    const hub = { ...own, id: "112000000059", name: "Bands from the hub", sourceType: "SAVED VIEW", sourceInThisModel: false };
+    const earlier = { id: "112000000060", name: "Bands from elsewhere", sourceType: "LIST", importType: "HIERARCHY_DATA", targets: [] };
+    expect(plainResult({ ...model, importMappings: [own, hub, earlier] })).toEqual({ ...model, importMappings: [own, hub, earlier] });
+    expect(Object.hasOwn(plainResult({ ...model, importMappings: [earlier] })!.importMappings![0], "sourceInThisModel")).toBe(false);
+    // Anything but a truth is no mapping, and none of the result's mappings is kept.
+    for (const odd of [{ ...own, sourceInThisModel: "true" }, { ...own, sourceInThisModel: 1 }, { ...own, sourceInThisModel: null }, { ...own, sourceInThisModel: { here: true } }]) {
+      expect(plainResult({ ...model, importMappings: [odd, hub] }), JSON.stringify(odd)).toEqual(model);
+    }
+  });
+
   it("reads a result 0.38.0 kept, with a list's items mapped manually and their names, without them: whatever they hold, they never keep it from loading", () => {
     const model = { ...result, kind: "model" as const };
     // An import into a module as this version keeps it: of its list mapped manually, how many items, and how many ignored.

@@ -266,7 +266,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let grouped = true;
   let section: string | undefined;
   let moduleId: number | undefined;
-  let expanded = false;
+  /** Whether other modules' line items stand one by one among a module's line items: they do unless the viewer unticks
+   * Other modules' line items, which groups them into one box for each module. */
+  let expanded = true;
   /** Whether formulas' links are drawn. Leaving them out moves no box: only the drawing, the trace and the words follow. */
   let formulas = true;
   let access = false;
@@ -774,13 +776,15 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // alone has an access driver. What a dotted box means is said while the picture has one, whichever of its layers
     // are hidden.
     // Among a line item's source inputs, which draw no page filter and no mark, it says what a tinted box is while one is
-    // on the map, and, where hiding a layer can draw a faint line, what one is, whether or not one is drawn now.
+    // on the map, and, where hiding a layer can draw a faint line, what one is, whether or not one is drawn now. Among a
+    // module's line items, what a key mark on another module's box counts is said while one has a mark.
     const kind = onScreen.kind === "sources" ? undefined : onScreen.kind;
+    const moduleKeys = onScreen.kind === "drill" && onScreen.nodes.some(node => node.accessMark && (node.kind === "externalModule" || node.kind === "module"));
     legend.innerHTML = legendHtml(onScreen.kind === "drill" || onScreen.kind === "sources" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
       kind && onScreen.edges.some(edge => edge.filter) ? kind : undefined, kind && onScreen.nodes.some(node => node.filterMark) ? kind : undefined,
       { access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
       kind && onScreen.nodes.some(node => node.accessMark) ? kind : undefined, onScreen.nodes.some(node => node.raw?.modulesOnly === true),
-      onScreen.kind === "sources" && onScreen.nodes.some(node => node.layer === LAYER.input), mayBridge(onScreen, formulas));
+      onScreen.kind === "sources" && onScreen.nodes.some(node => node.layer === LAYER.input), moduleKeys, mayBridge(onScreen, formulas));
     legendButton.disabled = onScreen.layers.length === 0;
   }
 
@@ -1259,7 +1263,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       ...(shownSources === undefined ? {} : { sources: shownSources, ...(originKey === undefined ? {} : { originSelected: originKey }) }) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
-      if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
+      if (module) return { view: "drill", module: module.name, ...(expanded ? {} : { others: false }), ...drawn };
     }
     if (section !== undefined) return { view: "modules", group: section, ...drawn };
     return { view: "modules", ...(!grouped && !single ? { all: true } : {}), ...drawn };
@@ -1296,7 +1300,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       if (module) {
         view = "drill";
         moduleId = module.id;
-        expanded = left.others === true;
+        // One by one unless the page kept them grouped: a view kept before they stood one by one by default, with no
+        // word of them or with `others: true`, opens one by one.
+        expanded = left.others !== false;
         return;
       }
     }

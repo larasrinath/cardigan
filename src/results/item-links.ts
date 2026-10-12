@@ -4,6 +4,7 @@ import type { ResultTable } from "../result-types.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { Items } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
+import { IMPORT_TABLES } from "./import-files.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
@@ -22,7 +23,9 @@ export interface NamedRows {
   module?: number;
 }
 
-/** The row an item names: in which file, and which row of the page's table of that file. */
+/** The row an item names: in which file, and which row of the page's table of that file. An import is named in the Imports
+ * file, whose rows the page shows in three tables (import-files.ts): the page's own table of that file, as the details
+ * look a name up in it, holds all of them, and the page opens the row in the table that shows it. */
 export interface ItemRow {
   file: string;
   row: Row;
@@ -132,6 +135,8 @@ const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Ob
   "Line Item Subsets.csv": { Modules: rowNamed(MODULES_FILE), "Line Item Names": objectNamed, "Referenced in Applies To": objectNamed, "Referenced By": objectNamed },
   [PROCESSES_FILE]: { Actions: actionNamed },
   [IMPORTS_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE), "Target Object": targetObject },
+  // The three tables the page shows the Imports file as (import-files.ts) name rows as it does.
+  ...Object.fromEntries(IMPORT_TABLES.map(table => [table.file, { "Used in Processes": rowNamed(PROCESSES_FILE), "Target Object": targetObject }])),
   "Exports.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },
   "Other Actions.csv": { "Used in Processes": rowNamed(PROCESSES_FILE), "Action List": rowNamed(LISTS_FILE) },
   "Import Data Sources.csv": { "Used in Imports": rowNamed(IMPORTS_FILE), Imports: rowNamed(IMPORTS_FILE), "Source Model": rowNamed("Source Models.csv") },
