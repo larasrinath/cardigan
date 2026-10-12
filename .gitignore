@@ -1,3 +1,6 @@
 node_modules/
 dist/
 release/
+
+# Real values kept out of git (see local/sensitive-values.md)
+/local/
