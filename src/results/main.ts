@@ -2486,13 +2486,38 @@ el("drawerBack").addEventListener("click", () => {
 el("themeToggle").addEventListener("click", toggleTheme);
 el("timeZone").addEventListener("click", () => setTimeMode(timeMode === "local" ? "utc" : "local"));
 el("runAgain").addEventListener("click", () => client.runAgain());
-// The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
-// for it widens: it is measured only where it is laid out (nav-spread.ts).
-if (typeof ResizeObserver === "function") new ResizeObserver(() => spreadLine(el("navList"))).observe(el("navList"));
-if (typeof ResizeObserver === "function") {
-  const top = find(".top");
-  if (top) new ResizeObserver(placeDrawer).observe(top);
+/** Does `work` for a new size of an element in the frame after the browser tells it, and not while it tells sizes. Work
+ * that lays the page out there leaves sizes the browser cannot tell in that frame, and Chrome lists that among the
+ * extension's errors ("ResizeObserver loop completed with undelivered notifications"): measuring the navigation's line
+ * lays it out on the way (nav-spread.ts), and the size of the top of the page, told after it, was taken from that. The
+ * sizes told before the frame come to one doing, with the last of them; a size that is the last done's, in whole CSS
+ * pixels, does nothing. */
+function onNewSize(element: Element, work: () => void): void {
+  if (typeof ResizeObserver !== "function") return;
+  let told = "";
+  let done = "";
+  let asked = false;
+  new ResizeObserver(entries => {
+    const box = entries[entries.length - 1]?.contentRect;
+    if (!box) return;
+    told = `${Math.round(box.width)} ${Math.round(box.height)}`;
+    if (asked) return;
+    asked = true;
+    requestAnimationFrame(() => {
+      asked = false;
+      if (told === done) return;
+      done = told;
+      work();
+    });
+  }).observe(element);
 }
+// The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
+// for it widens: it is measured only where it is laid out (nav-spread.ts). The drawer starts under the top of the page,
+// whose height the line's wrapping changes: the line is watched first, so that in a frame where both change, it is spread
+// before the drawer is placed.
+onNewSize(el("navList"), () => spreadLine(el("navList")));
+const pageTop = find(".top");
+if (pageTop) onNewSize(pageTop, placeDrawer);
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", event => {
   let stored: string | null = null;
   try { stored = localStorage.getItem("cardigan-theme"); } catch { /* no storage: follow the system */ }

@@ -24,7 +24,8 @@ import { keptSelection, selectionKey } from "./map-selection.js";
 export interface MapEnvironment {
   /** The drawing context of a canvas; nothing where the canvas cannot be drawn on. */
   pen(canvas: HTMLCanvasElement): Pen | null;
-  /** Tells the size of an element's box, in CSS pixels, whenever it changes. Gives back what ends the telling. */
+  /** Tells the size of an element's box, in CSS pixels, when it changes: the browser's in the frame after the change, once
+   * for the changes before that frame (`browserEnvironment`). Gives back what ends the telling. */
   watchSize(element: Element, changed: (width: number, height: number) => void): () => void;
   /** Reads a token of the styles in force on an element; "" for none. */
   token(element: Element, name: string): string;
@@ -51,12 +52,38 @@ export function browserEnvironment(): MapEnvironment {
     pen: canvas => (typeof canvas.getContext === "function" ? canvas.getContext("2d") : null),
     watchSize: (element, changed) => {
       if (typeof ResizeObserver !== "function") return () => undefined;
+      // The size is told in the frame after the browser tells it, and not while it tells sizes: a size that changes with
+      // what is done there cannot be told in that frame, and Chrome lists that among the extension's errors. The sizes
+      // told before that frame come to one telling, with the last of them, and a size the map was told last, in whole CSS
+      // pixels, is not told again. It is told as the browser measures it, in fractions of a pixel. Where there are no
+      // frames, it is told at once.
+      let latest: { width: number; height: number } | undefined;
+      let told = "";
+      let asked = false;
+      let frame = 0;
+      const tell = (): void => {
+        asked = false;
+        if (!latest) return;
+        const size = `${Math.round(latest.width)} ${Math.round(latest.height)}`;
+        if (size === told) return;
+        told = size;
+        changed(latest.width, latest.height);
+      };
       const observer = new ResizeObserver(entries => {
         const box = entries[entries.length - 1]?.contentRect;
-        if (box) changed(box.width, box.height);
+        if (!box) return;
+        latest = { width: box.width, height: box.height };
+        if (typeof requestAnimationFrame !== "function") return tell();
+        if (asked) return;
+        asked = true;
+        frame = requestAnimationFrame(tell);
       });
       observer.observe(element);
-      return () => observer.disconnect();
+      return () => {
+        observer.disconnect();
+        if (asked && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+        asked = false;
+      };
     },
     token: (element, name) => (typeof getComputedStyle === "function" ? getComputedStyle(element).getPropertyValue(name) : ""),
     requestFrame: callback => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(callback) : 0),

@@ -4737,6 +4737,105 @@ describe("The navigation bar of the results page", () => {
   });
 });
 
+describe("The navigation's line and the details panel, as the browser tells the page's sizes", () => {
+  /** The browser's watch on the size of an element, as the page asks for one: what it watches, and a size a test tells it,
+   * as the browser tells it while it lays the page out. */
+  class SizeWatch {
+    static made: SizeWatch[] = [];
+    readonly watched: unknown[] = [];
+    constructor(private readonly told: (entries: { contentRect: { width: number; height: number } }[]) => void) { SizeWatch.made.push(this); }
+    observe(element: unknown): void { this.watched.push(element); }
+    disconnect(): void { /* the page watches for as long as it is open */ }
+    tell(width: number, height: number): void { this.told([{ contentRect: { width, height } }]); }
+  }
+  /** The frames the page asked for and has not been given. */
+  let frames: (() => void)[] = [];
+  /** The browser shows the next picture: each call asked for before it, once. */
+  const frame = () => { for (const callback of frames.splice(0)) callback(); };
+  /** What the page did, in order: the line measured to be spread (nav-spread.ts), and the top of the page measured to place
+   * the drawer under it. */
+  let did: string[] = [];
+  /** How far down the top of the page reaches, in CSS pixels. */
+  let bottom = 96;
+  beforeEach(() => {
+    SizeWatch.made = [];
+    frames = [];
+    did = [];
+    bottom = 96;
+    vi.stubGlobal("ResizeObserver", SizeWatch);
+  });
+  /** A model's result on the page, its Line Items shown and the drawer open on a row; from then on, the frames are held
+   * until the test gives them. Gives the page's watches on the line and on the top of the page, in the order it made them. */
+  const ready = async () => {
+    await openWith(MODEL);
+    const line = page.id("navList");
+    const top = page.find(".top");
+    // Nothing is laid out: the line has no width, so the page measures it and spreads nothing.
+    line.getBoundingClientRect = () => { did.push("line measured"); return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }; };
+    top.getBoundingClientRect = () => { did.push("top measured"); return { left: 0, top: 0, right: 1200, bottom, width: 1200, height: bottom }; };
+    goTo(1);
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { frames.push(callback); return frames.length; });
+    did = [];
+    const named = (element: unknown) => (element === line ? "the line" : element === top ? "the top of the page" : "another element");
+    return { watched: SizeWatch.made.map(watch => watch.watched.map(named)), line: SizeWatch.made[0], top: SizeWatch.made[1] };
+  };
+  const drawerTop = () => page.id("drawer").style.top;
+
+  it("spreads the line and places the drawer in the frame after the browser tells a new size, never while it tells sizes; the line first", async () => {
+    const watches = await ready();
+    // The line is watched before the top of the page: the browser tells the two in that order, and the page does each
+    // one's work in that order too.
+    expect([watches.watched, drawerTop(), page.id("drawer").classList.contains("show")]).toEqual([[["the line"], ["the top of the page"]], "96px", true]);
+    bottom = 129;
+    watches.line.tell(1180, 61);
+    watches.top.tell(1200, 129);
+    // While the browser tells sizes the page lays nothing out: it asks for a frame.
+    expect([did, drawerTop(), frames.length]).toEqual([[], "96px", 2]);
+    frame();
+    expect([did, drawerTop(), frames.length]).toEqual([["line measured", "top measured"], "129px", 0]);
+  });
+
+  it("spreads the line and places the drawer once for the sizes told before a frame, with the last of them", async () => {
+    const watches = await ready();
+    watches.line.tell(1180, 29);
+    watches.line.tell(1100, 61);
+    watches.top.tell(1200, 96);
+    bottom = 129;
+    watches.top.tell(1100, 129);
+    expect(frames.length).toBe(2);
+    frame();
+    expect([did, drawerTop()]).toEqual([["line measured", "top measured"], "129px"]);
+    // What was done was for the last size: that size again does nothing, and the size before it is a new one.
+    did = [];
+    watches.line.tell(1100, 61);
+    watches.top.tell(1100, 129);
+    frame();
+    expect(did).toEqual([]);
+    watches.line.tell(1180, 29);
+    frame();
+    expect(did).toEqual(["line measured"]);
+  });
+
+  it("does nothing for the size it did last, in whole CSS pixels; a new height alone is a new size", async () => {
+    const watches = await ready();
+    watches.line.tell(1180, 29);
+    watches.top.tell(1200, 96);
+    frame();
+    did = [];
+    watches.line.tell(1180.3, 28.8);
+    watches.top.tell(1199.6, 96.4);
+    frame();
+    expect([did, drawerTop(), frames.length]).toEqual([[], "96px", 0]);
+    // The line on a second line, and the top of the page taller for it.
+    bottom = 129;
+    watches.line.tell(1180, 61);
+    watches.top.tell(1200, 129);
+    frame();
+    expect([did, drawerTop()]).toEqual([["line measured", "top measured"], "129px"]);
+  });
+});
+
 describe("A model's map on the results page", () => {
   /** What the view and the navigation each say is shown: the view's heading, and the words of the entry marked as current. */
   const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0]];

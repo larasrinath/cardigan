@@ -8,7 +8,7 @@ import { isMapAtStart, keptText, readKept, VIEW_KEY } from "../results/view-keep
 import { FALLBACK } from "./map-palette.js";
 import { accessMarkedModel, twinBoxesModel } from "./map-fakes.test-support.js";
 import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
-import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
+import { browserEnvironment, mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
 import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, MODULES_ONLY_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
 
@@ -757,6 +757,104 @@ describe("The map in the place the page gives it", () => {
     // A press on the small picture that was never drawn does nothing.
     pointer("pointerdown", 20, 20, part(".map-minimap"));
     expect(env.waiting).toBe(0);
+  });
+});
+
+describe("The size of the map's canvas, as the browser's surroundings tell it", () => {
+  /** The browser's own watch on an element's size, as the surroundings ask for one: what it watches, whether it was ended,
+   * and the sizes a test tells it, in one telling, as the browser tells them while it lays the page out. */
+  class SizeWatch {
+    static made: SizeWatch[] = [];
+    readonly watched: unknown[] = [];
+    ended = false;
+    constructor(private readonly told: (entries: { contentRect: { width: number; height: number } }[]) => void) { SizeWatch.made.push(this); }
+    observe(element: unknown): void { this.watched.push(element); }
+    disconnect(): void { this.ended = true; }
+    tell(...sizes: [number, number][]): void { this.told(sizes.map(([width, height]) => ({ contentRect: { width, height } }))); }
+  }
+  /** The frames asked for and not yet shown, by their numbers. */
+  let frames: Map<number, () => void>;
+  /** The browser shows a picture: each call asked for before it is made, once. */
+  const frame = (): void => {
+    const callbacks = [...frames.values()];
+    frames.clear();
+    for (const callback of callbacks) callback();
+  };
+  /** A watch on the map's element, as `mountModelMap` asks the browser's surroundings for one: the sizes it told, and
+   * what ends it. */
+  const watch = () => {
+    const told: [number, number][] = [];
+    const stop = browserEnvironment().watchSize(host as unknown as Element, (width, height) => { told.push([width, height]); });
+    return { told, stop, browser: SizeWatch.made[0] };
+  };
+  beforeEach(() => {
+    SizeWatch.made = [];
+    frames = new Map();
+    let asked = 0;
+    vi.stubGlobal("ResizeObserver", SizeWatch);
+    vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { frames.set(++asked, callback); return asked; });
+    vi.stubGlobal("cancelAnimationFrame", (number: number) => { frames.delete(number); });
+  });
+
+  it("tells a new size in the frame after the browser tells it, never while the browser tells sizes, in the fractions it is measured in", () => {
+    const { told, browser } = watch();
+    expect(browser.watched).toEqual([host]);
+    browser.tell([1200.4, 799.6]);
+    expect([told, frames.size]).toEqual([[], 1]);
+    frame();
+    expect([told, frames.size]).toEqual([[[1200.4, 799.6]], 0]);
+  });
+
+  it("tells the sizes told before a frame once, with the last of them", () => {
+    const { told, browser } = watch();
+    browser.tell([1000, 600]);
+    browser.tell([1100, 650], [1180, 700]);
+    browser.tell([1200, 800]);
+    expect([told, frames.size]).toEqual([[], 1]);
+    frame();
+    expect(told).toEqual([[1200, 800]]);
+  });
+
+  it("tells nothing for the size it told last, in whole CSS pixels", () => {
+    const { told, browser } = watch();
+    browser.tell([1200, 800]);
+    frame();
+    // Less than half a pixel either way is the same size, and so is a size that went and came back before the frame.
+    browser.tell([1200.3, 799.8]);
+    frame();
+    browser.tell([900, 500]);
+    browser.tell([1200, 800]);
+    frame();
+    expect(told).toEqual([[1200, 800]]);
+    browser.tell([1201, 800]);
+    frame();
+    expect(told).toEqual([[1200, 800], [1201, 800]]);
+  });
+
+  it("tells a size at once where the browser gives no frames, and the size it told last not again", () => {
+    vi.stubGlobal("requestAnimationFrame", undefined);
+    const { told, browser } = watch();
+    browser.tell([1200, 800]);
+    expect(told).toEqual([[1200, 800]]);
+    browser.tell([1200.2, 800]);
+    browser.tell([1000, 600]);
+    expect([told, frames.size]).toEqual([[[1200, 800], [1000, 600]], 0]);
+  });
+
+  it("ends the browser's watch, and the frame it asked for, when the map stops watching", () => {
+    const { told, stop, browser } = watch();
+    browser.tell([1200, 800]);
+    stop();
+    expect([browser.ended, frames.size]).toEqual([true, 0]);
+    frame();
+    expect(told).toEqual([]);
+  });
+
+  it("watches nothing where the browser cannot watch a size", () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+    const { told, stop } = watch();
+    expect([SizeWatch.made, told]).toEqual([[], []]);
+    expect(() => stop()).not.toThrow();
   });
 });
 
