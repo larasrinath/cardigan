@@ -258,10 +258,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([overview.notes, overview.files]).toEqual([["Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."],
       [["DCA", `Not exported: ${NO_ACCESS}`], ["Line Item Subsets", "Not exported: This model page has no LINE_ITEM_SUBSET axis."], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
-    // each one), is in that order. The names in the order that the export does not know are the tables of the pages built on the model, which the run adds after the export.
+    // each one), is in that order. The names in the order that the export does not know are the tables the run adds after
+    // the export: those of what nothing uses (model/unused.ts) and those of the pages built on the model.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
     expect([known.length, known.filter(file => !MODEL_FILE_ORDER.includes(file)), MODEL_FILE_ORDER.filter(file => !known.includes(file))])
-      .toEqual([14, [], [ "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]]);
+      .toEqual([14, [], ["Unused Line Items.csv", "Unused Modules.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]]);
     // So this result's files are listed in the order of Anaplan's Model settings, each one once. (This model has no source
     // models, and no Dynamic Cell Access file.)
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports",

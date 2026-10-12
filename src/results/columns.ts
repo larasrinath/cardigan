@@ -1,6 +1,7 @@
 import { FILTER_USES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
+import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, dayOf, filterItems, groupedCount, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
 import { fileLabel } from "./times.js";
@@ -129,6 +130,8 @@ export const blanksDash = (file: string, header: string): boolean => file !== LI
 const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
 export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
   ["Modules.csv", CELL_COUNTS], ["Line Items.csv", [...CELL_COUNTS, FILTER_USES]], ["General Lists.csv", ["Item Count"]],
+  // The run's tables of what nothing uses count a line item's or a module's cells, and a module's line items (unused-files.ts).
+  [UNUSED_LINE_ITEMS_FILE, ["Cell Count"]], [UNUSED_MODULES_FILE, ["Line Items", "Cell Count"]],
 ]);
 interface ModelLayout { shown: readonly string[]; hidden: readonly string[] }
 
@@ -152,6 +155,8 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
     "Cell Count", "Calculation Effort", FILTER_USES, "Notes"], hidden: ["Applies To from", "Time Range", "Style", "Read Access Driver", "Write Access Driver", "Users List",
     "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback", "Brought-Forward", "Start of Section", "Data Tags", "Ratio Numerator", "Ratio Denominator", "Format List"] }],
   ["Dynamic Cell Access.csv", { shown: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], hidden: [] }],
+  [UNUSED_LINE_ITEMS_FILE, { shown: ["Line Item", "Module", "Why", "Format", "Cell Count", "Notes"], hidden: ["Formula", "Referenced By"] }],
+  [UNUSED_MODULES_FILE, { shown: ["Module", "Why", "Line Items", "Cell Count", "Functional Area"], hidden: ["Notes"] }],
   ["Processes.csv", { shown: ["Name", "Actions", ...RUN, "Notes"], hidden: DASHBOARDS }],
   ["Imports.csv", { shown: ["Name", "Source Type", "Source Label", "Source Model", "Source Module", "Saved View", "Target Type", "Target Object", "Used in Processes",
     ...RUN, "Notes", "Production Data"], hidden: DASHBOARDS }],

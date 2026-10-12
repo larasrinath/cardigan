@@ -7,6 +7,7 @@ import { MISSING_LINE_ITEMS_MODULE, missingIn, MODULE_USAGE_FILE, PAGE_ACTIONS_F
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
+import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { resizeDetails } from "./details-size.js";
@@ -1540,6 +1541,7 @@ function listOfDimension(name: string): string | undefined {
  *   page.
  * - Page Actions: the model's action, on the Actions page, and the button's app and page.
  * - Dynamic Cell Access: the driver's module and the controlled module, one Model button where they are one.
+ * - Unused Line Items and Unused Modules: the row's box on the model map, and its module in Model Building.
  * - Model Calendar, Time Ranges, Versions, Line Item Subsets, the action tables and Source Models: the Model Building page
  *   the table is on (`SETTINGS_PAGES`), opened inside the page where the tab can, as a module is.
  * Only a button whose box or address is known is there. An app's result has none. What a row of the tables of the pages
@@ -1578,6 +1580,7 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   };
   if (file === LINE_ITEMS_FILE) inModel("module", cell(MODULE_NAME), "Model");
   if (file === MODULES_FILE || file === MODULE_USAGE_FILE) inModel("module", cellText(row[0]).trim(), "Model");
+  if (file === UNUSED_LINE_ITEMS_FILE || file === UNUSED_MODULES_FILE) inModel("module", cell("Module"), "Model");
   if (file === LISTS_FILE) inModel("list", cellText(row[0]).trim(), "Model");
   if (file === PAGE_FILTERS_FILE) {
     const [condition, filtered] = [cell("Condition line item's module"), cell("Filtered module")];
@@ -1857,14 +1860,15 @@ function graphFor(model: AnalysisResult): ModelGraph {
   return modelGraph;
 }
 
-/** The map's box for a row of a model's Line Items, Modules, Module Usage, General Lists, DCA or Page Filters: the line item in its module, the
+/** The map's box for a row of a model's Line Items, Modules, Module Usage, General Lists, DCA, Page Filters, Unused Line
+ * Items or Unused Modules: the line item in its module, the
  * module or the list, by their names. A module's own row of Line Items is its module's. None for any other row, for a row
  * the map does not draw (a heading, a line item that names no module, a module or a list the model does not have), and
  * where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
   if (result?.kind !== "model" || !hasModelMap(result) || modelMap === "failed"
-    || ![LINE_ITEMS_FILE, MODULES_FILE, MODULE_USAGE_FILE, LISTS_FILE, "Dynamic Cell Access.csv", PAGE_FILTERS_FILE].includes(file)) {
+    || ![LINE_ITEMS_FILE, MODULES_FILE, MODULE_USAGE_FILE, LISTS_FILE, "Dynamic Cell Access.csv", PAGE_FILTERS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE].includes(file)) {
     return undefined;
   }
   let graph: ModelGraph;
@@ -1885,6 +1889,10 @@ function mapNodeOf(entry: Shown, row: Row): number | undefined {
       : lineItem(cell("Driver Module"), cell("Driver Line Item")) ?? lineItem(cell("Controlled Module"), cell("Controlled Line Item"));
   }
   if (file === LISTS_FILE) return graph.nodes.find(node => node.kind === "list" && node.name.trim() === name)?.id;
+  if (file === UNUSED_LINE_ITEMS_FILE) {
+    const at = columnIndex(entry.table, "Module");
+    return at === undefined ? undefined : lineItem(cellText(row[at]).trim(), name);
+  }
   if (file !== LINE_ITEMS_FILE || entry.headings?.has(row)) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
   const at = columnIndex(entry.table, MODULE_NAME);
   const module = at === undefined ? "" : cellText(row[at]).trim();

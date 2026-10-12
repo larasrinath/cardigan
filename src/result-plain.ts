@@ -1,6 +1,6 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ProcessActions, ProcessStep, ResultTable,
-  TargetKind } from "./result-types.js";
+import type { AnalysisResult, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, PageUses, ProcessActions, ProcessStep,
+  ResultTable, TargetKind } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -177,6 +177,21 @@ export function readProcessActions(value: unknown): ProcessActions[] | undefined
   return processes;
 }
 
+/** What the pages built on a model use of it by name (result-types.ts `PageUses`), every field checked, or nothing when
+ * anything else is there. As for the mappings, a result is not refused for it. */
+export function readPageUses(value: unknown): PageUses | undefined {
+  const uses = value as Partial<PageUses> | null;
+  if (!uses || typeof uses !== "object" || !Array.isArray(uses.lineItems) || !Array.isArray(uses.modules) || !isCount(uses.unread) || !isCount(uses.unnamed)) return undefined;
+  const lineItems: [string, string][] = [];
+  for (const pair of Array.from(uses.lineItems as unknown[])) {
+    if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string" || typeof pair[1] !== "string") return undefined;
+    lineItems.push([pair[0], pair[1]]);
+  }
+  const modules = Array.from(uses.modules as unknown[]);
+  if (!modules.every((module): module is string => typeof module === "string")) return undefined;
+  return { lineItems, modules, unread: uses.unread, unnamed: uses.unnamed };
+}
+
 /** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it. */
 function readResult(value: unknown): AnalysisResult | undefined {
   const data = value as Partial<AnalysisResult> | null;
@@ -198,9 +213,11 @@ function readResult(value: unknown): AnalysisResult | undefined {
   const processActions = data.kind === "model" ? readProcessActions(data.processActions) : undefined;
   const site = data.kind === "model" ? readSite(data.site) : undefined;
   const lineItemIds = data.kind === "model" ? readLineItemIds(data.lineItemIds) : undefined;
+  const pageUses = data.kind === "model" ? readPageUses(data.pageUses) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}), ...(listIds ? { listIds } : {}),
     ...(data.kind === "model" && data.engine === "polaris" ? { engine: "polaris" } : {}),
-    ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
+    ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}),
+    ...(pageUses ? { pageUses } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is

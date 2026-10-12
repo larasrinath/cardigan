@@ -87,6 +87,21 @@ describe("A result as plain data", () => {
     expect(plainResult({ ...result, site })).toEqual(result);
   });
 
+  it("keeps what a model's pages use of it by name, every field checked, and leaves it out whole where anything is not as it should be", () => {
+    const model = { ...result, kind: "model" as const };
+    const pageUses = { lineItems: [["REV01 Revenue", "Units"], ["REP01 Report", "Total"]], modules: ["GRD01 Grid"], unread: 1, unnamed: 0 };
+    const read = plainResult({ ...model, pageUses: { ...pageUses, extra: "<b>" } });
+    expect(read).toEqual({ ...model, pageUses });
+    expect(read!.pageUses!.lineItems).not.toBe(pageUses.lineItems);
+    for (const odd of [{ ...pageUses, lineItems: [["REV01 Revenue"]] }, { ...pageUses, lineItems: [["REV01 Revenue", 7]] }, { ...pageUses, lineItems: "Units" },
+      { ...pageUses, modules: [null] }, { ...pageUses, unread: -1 }, { ...pageUses, unnamed: 1.5 }, { lineItems: [], modules: [] }, "Units", null]) {
+      expect(plainResult({ ...model, pageUses: odd }), JSON.stringify(odd)).toEqual(model);
+    }
+    // An app's result has none; a model's that an earlier version kept has none either, and is read all the same.
+    expect(plainResult({ ...result, pageUses })).toEqual(result);
+    expect(plainResult(model)).toEqual(model);
+  });
+
   it("keeps a model's mappings of its imports from a file, every field checked, and leaves them out whole where anything is not as it should be", () => {
     const importMappings = [
       { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1, text: "Division Name" },

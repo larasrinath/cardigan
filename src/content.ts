@@ -3,6 +3,7 @@ import { greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes
 import { readPolarisModel, startModelPages } from "./model-pages.js";
 import { engineFromColumns, engineLine, POLARIS_FULL_NOTE } from "./model-engine.js";
 import { readModelNames } from "./model-names.js";
+import { addUnused } from "./model/unused.js";
 import { diagnosticRows, stampLine } from "./details.js";
 import { firstLine, ModelUnavailable, type Progress } from "./progress.js";
 import type { AnalysisResult } from "./result-types.js";
@@ -138,7 +139,9 @@ if (window.top === window) {
       result.summary.push(POLARIS_FULL_NOTE);
       result.tables.find(table => table.details)?.rows.push(["Notes", "Engine", POLARIS_FULL_NOTE]);
     }
-    const read = keepEngineLog(await pages.finish(withVersion(result), lineItemIds));
+    // What nothing uses is known once the pages built on the model are read: it is made from the result and the line items'
+    // IDs, which go no further (model/unused.ts).
+    const read = keepEngineLog(addUnused(await pages.finish(withVersion(result), lineItemIds), lineItemIds, progress.log));
     return seen.origin && seen.customer ? { ...read, site: { origin: seen.origin, customer: seen.customer } } : read;
   };
 

@@ -10,6 +10,8 @@ import { actionNamesByRow } from "./process-actions-view.js";
 import { mappingWords, READABLE_HEADERS, readableCell, type CellNames } from "./readable-cells.js";
 import { sourceObjectOf } from "./source-object.js";
 import { cellText, NONE, tableText, type Row } from "./table-engine.js";
+import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
+import { unusedRule } from "./unused-view.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
  * what the overview says: its counts and notes, and everything the Details file holds, which has no view of its own.
@@ -455,7 +457,7 @@ const missingRule: FileRule = file => {
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
   model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule],
-    [LINE_ITEM_SUBSETS_FILE, lineItemSubsetsView],
+    [LINE_ITEM_SUBSETS_FILE, lineItemSubsetsView], [UNUSED_LINE_ITEMS_FILE, unusedRule], [UNUSED_MODULES_FILE, unusedRule],
     ...MODEL_PAGE_FILES.map((file): [string, FileRule] => [file, missingRule])]),
 };
 
@@ -629,13 +631,14 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
  * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
- * it. Line Item Subsets follows General Lists. After the settings come the tables of the
+ * it, followed by the two tables of what nothing uses (unused-files.ts). Line Item Subsets follows General Lists. After
+ * the settings come the tables of the
  * pages built on the model, Module Usage, Page Filters and Page Actions (page-files.ts), last before the map. A file of a
  * result that is not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to
  * the end and does not go missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
   MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
-  "Processes.csv", IMPORTS_FILE, "Import Data Sources.csv", "Exports.csv", OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
+  UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE, "Processes.csv", IMPORTS_FILE, "Import Data Sources.csv", "Exports.csv", OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
 ];
 
 /** The result's files as the page lists them in the navigation: every file but the Details

@@ -1,4 +1,5 @@
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { CalendarTile } from "./calendar-tile.js";
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, textWidth, WIDEST } from "./column-widths.js";
@@ -230,6 +231,12 @@ export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
   [LINE_ITEMS_FILE, navIcon('<path d="M5.3 4H14M8.7 8H14M8.7 12H14M2 4v2.7c0 .7.6 1.3 1.3 1.3h2M2 6.7v4c0 .7.6 1.3 1.3 1.3h2"/>')],
   // A padlock: who may read a cell, and who may write it.
   [ACCESS_FILE, navIcon('<rect x="3" y="7.2" width="10" height="7" rx="1.5"/><path d="M5.5 7.2V5.2a2.5 2.5 0 0 1 5 0v2"/>')],
+  // Line items, as Line Items draws them, with a sign of none: the line items nothing uses.
+  [UNUSED_LINE_ITEMS_FILE, navIcon('<path d="M5.3 3.2h7.2M2 3.2v2.5c0 .7.6 1.3 1.3 1.3h2.2M2 5.7v3.7c0 .7.6 1.3 1.3 1.3h1.7"/><circle cx="11.6" cy="11.6" r="2.9"/>'
+    + '<path d="M9.55 9.55l4.1 4.1"/>')],
+  // A box, as Modules draws a module, with a sign of none: the modules nothing uses.
+  [UNUSED_MODULES_FILE, navIcon('<path d="M6 1.6 10.4 4.1v5L6 11.6 1.6 9.1v-5Z"/><path d="M1.6 4.1 6 6.6l4.4-2.5M6 6.6v5"/><circle cx="11.9" cy="11.9" r="2.7"/>'
+    + '<path d="M10 10l3.8 3.8"/>')],
   // One step that leads to the next.
   ["Processes.csv", navIcon('<rect x="2" y="2" width="5.3" height="5.3" rx="1.3"/><rect x="8.7" y="8.7" width="5.3" height="5.3" rx="1.3"/><path d="M4.7 7.3V10A1.3 1.3 0 0 0 6 11.3h2.7"/>')],
   // An arrow that goes in.
@@ -266,7 +273,7 @@ export const NAV_GROUPS: readonly { id: string; label: string; icon: string; fil
     files: [MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv"],
     subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
       { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
-  { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE] },
+  { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE] },
   { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions, files: ["Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
   { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
 ];

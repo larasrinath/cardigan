@@ -63,10 +63,28 @@ export interface AnalysisResult {
    * reads the pages built on the model with them (model-pages.ts), so that the modules the pages use are not read again:
    * it takes them off the result before the result leaves the Anaplan tab. No results page holds them. */
   lineItemIds?: [id: string, moduleId: string][];
+  /** What the pages built on a model use of it by name, out of the page definitions the run read (page-uses.ts): the run
+   * finds the model's unused line items with it (model/unused.ts). None in an app's result, in a model's whose pages could
+   * not be read, nor in one that an earlier version kept. */
+  pageUses?: PageUses;
   /** Where a model read in Model Building is, as the Anaplan tab's address said it: the site's origin and the customer.
    * The results page opens the model's modules there, and the apps and pages built on it. None in an app's result, in a
    * model's read on the classic model page, whose address names no customer, nor in one that an earlier version kept. */
   site?: { origin: string; customer: string };
+}
+
+/** What the cards of the pages built on a model that work on it use of the model, by name: compact, and read from the
+ * pages' definitions the run read anyway. */
+export interface PageUses {
+  /** Each line item a card names anywhere, by its module's name and its own, once each, in the order the pages name them. */
+  lineItems: [module: string, lineItem: string][];
+  /** Each module a grid or a chart shows whole, by its name, once each: through a saved view, the module's default view, or
+   * a section whose Line Items are not narrowed to a list of them. */
+  modules: string[];
+  /** How many of the pages built on the model could not be read: what they use is not known. */
+  unread: number;
+  /** How many line items and modules the cards name that the model's names could not name. */
+  unnamed: number;
 }
 
 /** One import, with its mapping. The mapping is the import's own: it holds whether the source it was made with is still

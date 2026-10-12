@@ -6073,6 +6073,30 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(options.opens!(module).map(action => action.label)).toEqual(["Model"]);
   });
 
+  it("opens a row of the tables of what nothing uses as a line item's or a module's own row: on the map, in Model Building, and by its names to their rows", async () => {
+    mapNodes = [{ id: 0, kind: "module", name: "REV01 Revenue" }, { id: 1, kind: "lineItem", name: "Margin %", module: 0 }, { id: 2, kind: "module", name: "COST01 Costs" }];
+    const unusedLineItems: ResultTable = { file: "Unused Line Items.csv", label: "Unused Line Items", guard: true,
+      headers: ["Line Item", "Module", "Why", "Format", "Cell Count", "Notes", "Formula", "Referenced By"],
+      rows: [["Margin %", "REV01 Revenue", "Read by nothing", "Number", 120, "", "Margin / Revenue", ""]] };
+    const unusedModules: ResultTable = { file: "Unused Modules.csv", label: "Unused Modules", guard: true, headers: ["Module", "Why", "Line Items", "Cell Count", "Functional Area", "Notes"],
+      rows: [["COST01 Costs", "No line item used", 1, 480, "", ""]] };
+    await openModel({ ...OPENS, tables: [...OPENS.tables, unusedLineItems, unusedModules] });
+    goTo(3);
+    openRow("Margin %");
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, opens()]).toEqual(["Margin %", "Unused Line Items",
+      [["Model map", "Show Margin % on the Model map"], ["Model", "Open REV01 Revenue in Model Building"]]]);
+    // The line item and its module name their own rows: the line item's in Line Items, and the module's in Modules.
+    const links = () => page.all('#drawerBody [data-act="item"]');
+    expect(links().map(link => link.textContent)).toEqual(["Margin %", "REV01 Revenue"]);
+    links()[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Line Items"]);
+    goTo(4);
+    openRow("COST01 Costs");
+    expect([page.id("drawerSub").textContent, opens()]).toEqual(["Unused Modules", [["Model map", "Show COST01 Costs on the Model map"], ["Model", "Open COST01 Costs in Model Building"]]]);
+    links().find(link => link.textContent === "COST01 Costs")!.press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["COST01 Costs", "Modules"]);
+  });
+
   it("gives a tab whose model's frame still holds an earlier reader this build's, and then opens the module inside the page after all; where Chrome refuses, it loads the address", async () => {
     await openModel();
     goTo(1);

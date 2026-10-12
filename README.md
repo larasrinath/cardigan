@@ -43,9 +43,11 @@ The menu bar groups the model's tables:
     <tr><td>Versions</td><td>Versions and their settings.</td></tr>
     <tr><td>General Lists</td><td>Lists, hierarchies, properties and subsets.</td></tr>
     <tr><td>Line Item Subsets</td><td>Subsets, their modules and member counts.</td></tr>
-    <tr><td rowspan="3"><b>Modules</b></td><td>Modules</td><td>Modules, dimensions, functional areas and settings.</td></tr>
+    <tr><td rowspan="5"><b>Modules</b></td><td>Modules</td><td>Modules, dimensions, functional areas and settings.</td></tr>
     <tr><td>Line Items</td><td>Line items, formulas, formats and dimensions.</td></tr>
     <tr><td>DCA (Dynamic Cell Access)</td><td>Read and write access drivers and what they control.</td></tr>
+    <tr><td>Unused Line Items</td><td>Line items nothing Cardigan can see uses, each with why.</td></tr>
+    <tr><td>Unused Modules</td><td>Modules that are empty, or whose line items are all unused.</td></tr>
     <tr><td rowspan="5"><b>Actions</b></td><td>Processes</td><td>Processes and their actions.</td></tr>
     <tr><td>Imports</td><td>Sources, targets and import settings.</td></tr>
     <tr><td>Data Sources</td><td>Import sources and the imports that use them.</td></tr>

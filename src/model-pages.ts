@@ -7,13 +7,14 @@ import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { moduleHeadings } from "./map/graph-names.js";
 import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
 import { missingCards, missingNote, namePlainly, sayMissing } from "./page-missing.js";
+import { mergePageUses, pageUsesOf } from "./page-uses.js";
 import type { EngineDetails, EngineScope } from "./model-engine.js";
 import { describePolarisRead, hasModelMap, polarisResult } from "./polaris.js";
 import { PolarisReader } from "./polaris-read.js";
 import type { Progress } from "./progress.js";
 import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
-import type { AnalysisResult, ResultTable } from "./result-types.js";
+import type { AnalysisResult, PageUses, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
 import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, seconds, stepTimes, text, type Obj } from "./util.js";
 
@@ -106,8 +107,10 @@ interface PagesRead {
 type Named = { catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] };
 const NO_NAMES = (): Named => ({ catalog: emptyCatalog(), notes: [], failedActionTypes: [] });
 /** What a page gives the tables: its app and name, where it is (`PAGE_PLACE_HEADERS`, in their order), its rows of the two
- * tables, the modules it uses, and its cards that point at something the model does not have (page-missing.ts). */
-interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string>; missing: Map<string, Set<string>> }
+ * tables, the modules it uses, its cards that point at something the model does not have (page-missing.ts), and what its
+ * cards that work on this model use of the model by name (page-uses.ts). */
+interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string>; missing: Map<string, Set<string>>;
+  uses: Omit<PageUses, "unread"> }
 
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const isObj = (value: unknown): value is Obj => !!value && typeof value === "object" && !Array.isArray(value);
@@ -608,8 +611,10 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
       if (module !== "" && module !== NONE) modules.add(module);
     }
     return { app, page, place, filters: kept(PAGE_FILTERS_HEADERS, HEADERS.Filters, report.Filters.rows), actions: kept(PAGE_ACTIONS_HEADERS, HEADERS.Actions, report.Actions.rows), modules,
-      missing: missingCards(report, ours) };
+      missing: missingCards(report, ours), uses: pageUsesOf((input.details?.cards ?? []).filter(card => ours.has(card.id))) };
   }).sort((a, b) => byText(a.app, b.app) || byText(a.page, b.page));
+  // What the pages that were read use of the model by name, for the run's tables of what nothing uses (model/unused.ts).
+  result.pageUses = mergePageUses(built.map(page => page.uses), unread.length);
 
   const usage = moduleUsageRows(exportedModules(result), built);
   const filters = built.flatMap(page => page.filters);

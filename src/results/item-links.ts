@@ -1,6 +1,7 @@
 import { splitOutside, unquote } from "../map/graph-names.js";
 import { missingIn, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { ResultTable } from "../result-types.js";
+import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { Items } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -97,6 +98,16 @@ const lineItemIn = (header: string): Resolver => (item, row, table, tables) => {
   const module = cell(table, row, header);
   return module === "" ? undefined : oneRow(tables, LINE_ITEMS_FILE, item, module);
 };
+/** A module or a line item, as `objectNamed` reads one, where the row names its line item's module in the column `header`:
+ * a name alone is a line item of that module, or a module. */
+const objectNamedIn = (header: string): Resolver => (item, row, table, tables) => {
+  const parts = splitOutside(item, ".").map(unquote);
+  if (parts.length === 2) return oneRow(tables, LINE_ITEMS_FILE, parts[1], parts[0]);
+  if (parts.length !== 1) return undefined;
+  const module = oneRow(tables, MODULES_FILE, parts[0]);
+  const sibling = oneRow(tables, LINE_ITEMS_FILE, parts[0], cell(table, row, header));
+  return module && sibling ? undefined : module ?? sibling;
+};
 const targetObject: Resolver = (item, row, table, tables) => {
   const type = cell(table, row, "Target Type").toLowerCase();
   const files = type === "module" ? [MODULES_FILE] : type === "list" ? [LISTS_FILE] : [MODULES_FILE, LISTS_FILE];
@@ -126,6 +137,8 @@ const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Ob
   "Import Data Sources.csv": { "Used in Imports": rowNamed(IMPORTS_FILE), Imports: rowNamed(IMPORTS_FILE), "Source Model": rowNamed("Source Models.csv") },
   "Dynamic Cell Access.csv": { "Driver Module": rowNamed(MODULES_FILE), "Driver Line Item": lineItemIn("Driver Module"),
     "Controlled Module": rowNamed(MODULES_FILE), "Controlled Line Item": lineItemIn("Controlled Module") },
+  [UNUSED_LINE_ITEMS_FILE]: { "Line Item": lineItemIn("Module"), Module: rowNamed(MODULES_FILE), "Referenced By": objectNamedIn("Module") },
+  [UNUSED_MODULES_FILE]: { Module: rowNamed(MODULES_FILE) },
   [MODULE_USAGE_FILE]: { Module: rowNamed(MODULES_FILE) },
   [PAGE_FILTERS_FILE]: { "Condition line item's module": rowNamed(MODULES_FILE), "Condition line item": lineItemIn("Condition line item's module"),
     "Filtered module": rowNamed(MODULES_FILE), "Filtered dimension": rowNamed(LISTS_FILE) },

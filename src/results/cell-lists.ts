@@ -4,6 +4,7 @@ import { subsetModules } from "../model/line-item-subsets.js";
 import type { TabName } from "../report.js";
 import { readProcessActions } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
+import { UNUSED_LINE_ITEMS_FILE } from "../unused-files.js";
 import { APP_FILES, columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
@@ -273,6 +274,8 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   }, "Referenced in Applies To": names, "Referenced By": names },
   [MODULES_FILE]: { "Applies To": names, "Referenced By": names, "Line Items": moduleLineItems },
   [LINE_ITEMS_FILE]: { "Applies To": names, "Referenced By": names },
+  // A line item's Referenced By, as Line Items has it, in the run's table of the line items nothing uses (unused-files.ts).
+  [UNUSED_LINE_ITEMS_FILE]: { "Referenced By": names },
   // A process's Used in Processes is no column of the page's table, which adds the actions it runs instead.
   [PROCESSES_FILE]: { Actions: processActions },
   [IMPORTS_FILE]: { "Used in Processes": usedInProcesses },

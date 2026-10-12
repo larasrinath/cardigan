@@ -236,6 +236,10 @@ describe("The pages built on a model", () => {
     expect(detailsOf(result)[3][2]).toBe("Another app\nPlanning app");
     expect(detailsOf(result).slice(8, 11).map(row => row[2])).toEqual(["4 rows", "2 rows", "2 rows"]);
     expect(result.summary).toEqual(["Modules: 4 rows", "Line Items: 6 rows", "Module Usage: 4 rows", "Page Filters: 2 rows", "Page Actions: 2 rows"]);
+    // What the cards that work on this model use of it by name, kept for the tables of what nothing uses (page-uses.ts):
+    // the filters' condition line item, once, and both grids' modules whole, since neither lists the line items it shows.
+    // The grid and the buttons of the other model name nothing of this one.
+    expect(result.pageUses).toEqual({ lineItems: [["Factors", "Territory demand"]], modules: ["Factors", "Demand"], unread: 0, unnamed: 0 });
     // What the export handed over is as it was.
     expect(given).toEqual(exported());
   });
@@ -393,7 +397,10 @@ describe("The pages built on a model", () => {
 
   it("reads nothing where the address names no customer, and says why the three tables are not there", async () => {
     const use = fake(BOTH, { [PAGE_A]: demandBoard() });
-    expect(await run(exported(), undefined, use)).toEqual(withoutPages(NO_CUSTOMER));
+    const result = await run(exported(), undefined, use);
+    expect(result).toEqual(withoutPages(NO_CUSTOMER));
+    // Nothing is known of what the pages use: the result keeps nothing of it.
+    expect(Object.hasOwn(result, "pageUses")).toBe(false);
     expect([use.asked, use.status, use.log]).toEqual([[], [], []]);
   });
 
@@ -427,6 +434,8 @@ describe("The pages built on a model", () => {
     expect(filterUses(result)).toEqual([["Demand", ""], ["Volume", ""], ["Factors", ""], ["Territory demand", 1], ["Unused", ""], ["Note", ""]]);
     // The apps are those of the list's pages that say theirs: the unread page's app is not known.
     expect(detailsOf(result)[3]).toEqual(["Model", "Apps", "Planning app"]);
+    // What the pages read use is kept with how many could not be read: what those use is not known.
+    expect(result.pageUses).toEqual({ lineItems: [["Factors", "Territory demand"]], modules: ["Demand"], unread: 2, unnamed: 0 });
   });
 
   it("shows an app by its ID where its name cannot be read, and says so", async () => {
