@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { filterTipLines, FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence, type Inspection } from "./map-inspect.js";
+import { LAYER, moduleGraph, modulesGraph, sectionsGraph, sourcesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { filterTipLines, FILTERS_LISTED, inspect, isHeading, LARGE_TRACE, layerOfObject, sourcesSection, statusWords, traceWords, viewSentence, type Inspection } from "./map-inspect.js";
+import { traceSources } from "./map-sources.js";
 import { indexModel } from "./map-model.js";
 import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel, twinBoxesModel } from "./map-fakes.test-support.js";
 
@@ -462,5 +463,58 @@ describe("What the details say of the pages' filters", () => {
       filterTipLines(model, model.node(show)!), filterTipLines(model, byName(own, "--- Checks ---").raw!)]).toEqual([
       ["Page filter on Data Hub · Admin · Card 1 · by Customers"], ["Filtered on pages by Incomplete Records, and 1 more"], ["Filtered on pages by Show? of FLT01 - Filters"],
       ["Page filter on Data Hub · Admin · Card 3 · by Customers"], []]);
+  });
+});
+
+describe("What the details say of a line item's source inputs", () => {
+  /** Total, in REP01 Report, is Net less Fee, Net is Units times List Price, and Products.Weight and Products.Colour are
+   * read beside; Fee reads only a number. Stock, a line item without a formula, is an input itself. */
+  function reported() {
+    const make = new GraphMaker();
+    const inputs = make.module("INP01 Inputs", "01: Inputs");
+    const report = make.module("REP01 Report", "02: Reporting");
+    const products = make.list("Products");
+    make.property(products, "Weight", "NUMBER");
+    make.property(products, "Colour");
+    const units = make.item(inputs, "Units");
+    const price = make.item(inputs, "List Price");
+    const stock = make.item(inputs, "Stock");
+    const net = make.item(report, "Net", { formula: "Units * List Price * Products.Weight" });
+    const fee = make.item(report, "Fee", { formula: "12" });
+    const total = make.item(report, "Total", { formula: "Net - Fee & Products.Colour" });
+    const bare = make.item(report, "Bare", { formula: "Fee * 2" });
+    make.link(units, net).link(price, net).link(net, total).link(fee, total).link(fee, bare);
+    return { model: indexModel(make.graph()), units, stock, net, total, bare };
+  }
+
+  it("lists each input with its module, kind, steps and what it feeds, and says what the list holds and what else is read", () => {
+    const { model, total, units } = reported();
+    const trace = traceSources(model, total, new Map([[units, { sure: ["Load units"], maybe: [] }]]))!;
+    expect(sourcesSection(model, trace, 4)).toEqual({ count: 2, rows: [
+      { node: String(trace.inputs[0].node.id), name: "List Price", module: "INP01 Inputs", kind: "Entered", steps: 2, feeds: "Net" },
+      { node: String(units), name: "Units", module: "INP01 Inputs", kind: "Imported by Load units", steps: 2, feeds: "Net" }],
+    notes: ["It also reads 2 list properties: Products.Colour and Products.Weight."] });
+  });
+
+  it("says a line item without a formula is an input itself, one no input feeds, and a trace of more than 150 boxes", () => {
+    const { model, stock, bare, total } = reported();
+    expect(sourcesSection(model, traceSources(model, stock)!, 1)).toEqual({ lead: "This line item has no formula: it is an input itself.", rows: [], notes: [] });
+    expect(sourcesSection(model, traceSources(model, bare)!, 1)).toEqual({ count: 0, lead: "No line item without a formula feeds it.", rows: [], notes: [] });
+    expect([LARGE_TRACE, sourcesSection(model, traceSources(model, total)!, LARGE_TRACE).lead, sourcesSection(model, traceSources(model, total)!, LARGE_TRACE + 1).lead])
+      .toEqual([150, undefined, "A large trace: all 151 boxes are on the map."]);
+  });
+
+  it("offers a line item among them its module, and says the view and its boxes in the map's words", () => {
+    const { model, total, units } = reported();
+    const graph = sourcesGraph(model, traceSources(model, total)!);
+    expect([graph.kind, graph.name, graph.local, graph.layers.map(layer => [layer.label, layer.count])]).toEqual(["sources", "REP01 Report · Total", 4, [["Inputs", 2], ["Calculations", 1], ["Result", 1]]]);
+    expect(graph.nodes.map(node => [node.kind, node.layer, node.code, node.label, node.meta, node.external])).toEqual([
+      ["sourceItem", LAYER.input, "", "List Price", "INP01 Inputs", false], ["sourceItem", LAYER.input, "", "Units", "INP01 Inputs", false],
+      ["sourceItem", LAYER.calculation, "", "Net", "REP01 Report", false], ["sourceItem", LAYER.result, "", "Total", "REP01 Report", false]]);
+    // Each link counts one formula's: unticking Formulas leaves it undrawn, as any formula's link.
+    expect(graph.edges.every(edge => edge.formulaOnly && edge.w === 1 && edge.formulas === 1)).toBe(true);
+    const info = inspect(model, graph, graph.byId.get(String(units))!, false);
+    expect([info.kind, info.action, info.rows[0]]).toEqual(["Line item", { label: "Show its module with it selected", module: model.moduleOf(model.node(units)), select: units }, ["Module", "INP01 Inputs"]]);
+    expect([statusWords(graph, 4, 4), viewSentence(graph, "Demand Plan")]).toEqual(["4 boxes · 3 links", "Source inputs of REP01 Report · Total: 2 inputs, 3 links."]);
   });
 });

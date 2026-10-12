@@ -4,8 +4,8 @@ import {
   type Area, type Camera, type Direction, type Insets, type MinimapTransform,
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
-import { drawLinks, edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { accessTipLines, filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
+import { drawLinks, edgeDrawn, LAYER, moduleGraph, modulesGraph, sectionsGraph, sourcesGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { accessTipLines, filterTipLines, inspect, sourcesSection, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, bestGroupingReason, groupingsOf, howGroupingWorks, type Grouping } from "./map-groups.js";
 import {
@@ -17,7 +17,8 @@ import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
 import { createSearch, matchNodes, searchText, type SearchHit } from "./map-search.js";
 import { formatCount, plural } from "./map-text.js";
 import { inTrace, traceNode, type Trace } from "./map-trace.js";
-import { keptSelection, selectionKey } from "./map-selection.js";
+import { keptSelection, keptSources, selectionKey, sourcesKey } from "./map-selection.js";
+import { importedBy, traceable, traceSources, type SourceTrace, type ImportedBy } from "./map-sources.js";
 
 /** What the map asks of the browser around it. The page gives it none of this: `mountModelMap` takes it from the browser,
  * and a test hands in its own. */
@@ -136,6 +137,23 @@ const NO_COLOUR = "#010203";
 
 let mounted = 0;
 
+/** A view of the map as it was when a line item's source inputs were shown from it: what going back puts again in place. */
+interface Origin {
+  graph: ViewGraph;
+  camera: Camera;
+  /** The canvas's size it was seen at. */
+  width: number;
+  height: number;
+  wantsWhole: boolean;
+  moved: boolean;
+  order: number[] | undefined;
+  /** The box selected, by its name in the graph. */
+  selected: string | undefined;
+  onlyTrace: boolean;
+  hidden: string[];
+  typed: string;
+}
+
 /** A failure's own words: as the map says them in its own place, and as the page's log takes them, with the kind of
  * error before them. A value that cannot be made a text, or an error whose words cannot be read, has none. */
 function reasonOf(error: unknown): { said: string; logged: string } {
@@ -175,6 +193,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const moduleName = part(".map-module-name");
   const groupButton = part<HTMLButtonElement>('[data-map-act="groups"]');
   const moduleButton = part<HTMLButtonElement>('[data-map-act="modules"]');
+  const sourcesSep = part(".map-sources-sep");
+  const sourcesStep = part(".map-sources-step");
+  const sourcesBack = part<HTMLButtonElement>('[data-map-act="sources-back"]');
+  const sourcesName = part(".map-sources-name");
   const groupPicker = part(".map-group-picker");
   const groupPop = part(".map-group-pop");
   const groupList = part(".map-group-list");
@@ -297,6 +319,17 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let pickerActive = -1;
   /** Whether the map fills the browser's window because the browser would not give it the screen. */
   let fullWindow = false;
+  /** While the map shows a line item's source inputs (map-sources.ts): the line item, by its node, and what its trace
+   * found. The view, group and module above stay those of the view they were gone to from. */
+  let sourcesOf: number | undefined;
+  let sourceTrace: SourceTrace | undefined;
+  /** That view as it was left, to go back to with nothing moved: its boxes in their places, the camera, the box selected,
+   * the layers hidden and the search's text. None after a refresh, which builds the view anew, with the box selected
+   * there by its key (`originKey`). */
+  let origin: Origin | undefined;
+  let originKey: string | undefined;
+  /** The imports that load each line item, worked out once from what the page gives (`ModelMapOptions.imports`). */
+  let imported: Map<number, ImportedBy> | undefined;
 
   let width = 0;
   let height = 0;
@@ -733,10 +766,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // Of links it says only the kinds drawn, and nothing of formulas': a link that is neither a filter's nor formulas'
     // alone has an access driver. What a dotted box means is said while the picture has one, whichever of its layers
     // are hidden.
-    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
-      onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
+    // Among a line item's source inputs, which draw no page filter and no mark, it says what a tinted box is while one is
+    // on the map.
+    const kind = onScreen.kind === "sources" ? undefined : onScreen.kind;
+    legend.innerHTML = legendHtml(onScreen.kind === "drill" || onScreen.kind === "sources" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
+      kind && onScreen.edges.some(edge => edge.filter) ? kind : undefined, kind && onScreen.nodes.some(node => node.filterMark) ? kind : undefined,
       { access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
-      onScreen.nodes.some(node => node.accessMark) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.raw?.modulesOnly === true));
+      kind && onScreen.nodes.some(node => node.accessMark) ? kind : undefined, onScreen.nodes.some(node => node.raw?.modulesOnly === true),
+      onScreen.kind === "sources" && onScreen.nodes.some(node => node.layer === LAYER.input));
     legendButton.disabled = onScreen.layers.length === 0;
   }
 
@@ -746,23 +783,41 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return model && module ? model.sectionOf(module) : undefined;
   }
 
-  /** The same path at every level. The group is always the displayed module's own group. */
+  /** The same path at every level. The group is always the displayed module's own group. While the map shows a line
+   * item's source inputs, the path is the one of the view they were gone to from, with nothing in it changed, and a last
+   * step after it: Back, and where the map is. */
   function renderPath(): void {
     if (!model || !onScreen) return;
     const drill = view === "drill";
+    const inSources = sourcesOf !== undefined;
     const whole = onScreen.kind === "sections" || (single && onScreen.kind === "modules" && section === undefined);
     pathRoot.innerHTML = pathRootHtml(options.modelName, options.workspaceName, whole);
     groupName.textContent = (drill ? homeOf(moduleId) : section) ?? "Group";
     groupButton.title = groupName.textContent;
     groupButton.setAttribute("aria-label", `Choose a group: ${groupName.textContent}`);
-    const current = drill ? model.node(moduleId) : selected?.raw?.kind === "module" ? selected.raw : undefined;
+    // Among the source inputs, the module of the view they were gone to from is the one that view showed or had selected.
+    const chosen = inSources ? origin?.graph.byId.get(origin.selected ?? "")?.raw : selected?.raw;
+    const current = drill ? model.node(moduleId) : chosen?.kind === "module" ? chosen : undefined;
     moduleName.textContent = current?.name ?? "Module";
     moduleButton.title = moduleName.textContent;
     moduleButton.setAttribute("aria-label", current ? `Choose a module: ${current.name}` : "Choose a module");
     moduleButton.disabled = model.modules.length === 0;
     for (const button of [groupButton, moduleButton]) button.removeAttribute("aria-current");
-    if (drill) moduleButton.setAttribute("aria-current", "location");
+    sourcesSep.hidden = sourcesStep.hidden = !inSources;
+    if (inSources) {
+      sourcesName.textContent = `Source inputs of ${onScreen.name}`;
+      const back = `Back to ${originName()}`;
+      sourcesBack.title = back;
+      sourcesBack.setAttribute("aria-label", back);
+    } else if (drill) moduleButton.setAttribute("aria-current", "location");
     else if (!whole) groupButton.setAttribute("aria-current", "location");
+  }
+
+  /** What the view the source inputs were gone to from is called: its module, its group, all modules, or the model. */
+  function originName(): string {
+    if (view === "drill") return model?.node(moduleId)?.name ?? options.modelName;
+    if (section !== undefined) return section;
+    return !grouped && !single ? "all modules" : options.modelName;
   }
 
   function renderControls(): void {
@@ -779,7 +834,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const bestLabel = automatic?.label ?? "None";
     groupingReason.innerHTML = groupingReasonHtml(how, bestLabel, bestReason);
     infoButton.title = `How it groups\n${how}\n\nBest fit for this model: ${bestLabel}\n${bestReason}`;
-    externalCheck.hidden = view !== "drill";
+    externalCheck.hidden = view !== "drill" || sourcesOf !== undefined;
     externalToggle.checked = expanded;
     formulasToggle.checked = formulas;
     accessToggle.checked = access;
@@ -809,7 +864,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     inspection = inspect(model, onScreen, selected, access);
     traced = traceWords(inspection, trace.up.size, trace.down.size);
     pageOpens = selected.raw ? options.opens?.(selected.raw) ?? [] : [];
-    inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace, selected.raw?.modulesOnly === true);
+    // The line item whose source inputs are shown lists them; any other line item but a heading offers to find its own.
+    const listed = sourceTrace !== undefined && selected.raw?.id === sourcesOf;
+    inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace, selected.raw?.modulesOnly === true, {
+      findSources: !listed && traceable(model, selected.raw), ...(listed ? { sources: sourcesSection(model, sourceTrace!, onScreen.nodes.length) } : {}) });
     inspector.hidden = false;
     part(".map-insp-body").scrollTop = 0;
     placeMinimap();
@@ -860,7 +918,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         ? [node.kind === "section" ? `${plural(node.accessMark, "module")} with access drivers` : `${plural(node.accessMark, "access driver")}`] : [];
       const tip: Tip = {
         layer: node.layer, kind: node.code || (raw ? raw.kind === "lineItem" ? "line item" : raw.kind : node.kind === "section" ? "group" : node.kind), name: node.fullName,
-        lines: [node.meta, module?.name ?? "", ...driven, ...filtered], ...(raw?.formula ? { formula: raw.formula } : {}),
+        // A box that names its module on its small line, as among the source inputs, says it once.
+        lines: [node.meta, module && module.name !== node.meta ? module.name : "", ...driven, ...filtered], ...(raw?.formula ? { formula: raw.formula } : {}),
       };
       tooltip.innerHTML = tooltipHtml(tip);
       tooltip.classList.add("map-show");
@@ -1147,15 +1206,19 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /* ---------- views and selection ---------- */
 
-  /** Build every box once. Link switches reuse those places, including any box the viewer has dragged. */
-  function build(keepPlaces = false, restore?: string): void {
+  /** Build every box once. Link switches reuse those places, including any box the viewer has dragged. `restore` says
+   * which box is selected afterwards: the one of that key (map-selection.ts), the one it picks, or with neither the box
+   * that was selected, where the view still has it. */
+  function build(keepPlaces = false, restore?: string | ((current: ViewGraph) => ViewNode | undefined)): void {
     if (!model || !fonts) return;
-    const graphFor = (access: boolean, filters: boolean): ViewGraph => view === "drill" && moduleId !== undefined ? moduleGraph(model!, moduleId, expanded, access, filters)
+    // A line item's source inputs are a graph of their own, whichever links are drawn.
+    const graphFor = (access: boolean, filters: boolean): ViewGraph => sourceTrace !== undefined ? sourcesGraph(model!, sourceTrace)
+      : view === "drill" && moduleId !== undefined ? moduleGraph(model!, moduleId, expanded, access, filters)
       : grouped && section === undefined ? sectionsGraph(model!, access, filters) : modulesGraph(model!, section, access, filters);
     const places = keepPlaces && onScreen ? onScreen : graphFor(true, true);
     onScreen = drawLinks(places, graphFor(access, filters), formulas);
     if (!keepPlaces) sizeNodes(onScreen, fonts.measure("label"), fonts.measure("item"));
-    selected = restore === undefined ? selected && onScreen.byId.get(selected.id) : keptSelection(model, onScreen, restore);
+    selected = restore === undefined ? selected && onScreen.byId.get(selected.id) : typeof restore === "string" ? keptSelection(model, onScreen, restore) : restore(onScreen);
     trace = selected ? traceNode(onScreen, model, selected.index, access, filters, formulas) : undefined;
     if (!selected) onlyTrace = false;
     refreshShown();
@@ -1181,9 +1244,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Where the map is, as the page keeps it: the view, and in it the group, all modules or the module shown, by name, and
    * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
   function viewNow(): MapView {
+    // While a line item's source inputs are shown: that line item, and the box selected in the view they were gone to from.
+    const shownSources = sourcesOf === undefined || !model ? undefined : sourcesKey(model, sourcesOf);
     const drawn = { ...(formulas ? {} : { noFormulas: true }), ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}),
       ...(minimapOpen ? {} : { minimap: false }), ...(legendWanted === undefined ? {} : { legend: legendWanted }),
-      ...(selected && model ? { selected: selectionKey(model, selected) } : {}) };
+      ...(selected && model ? { selected: selectionKey(model, selected) } : {}),
+      ...(shownSources === undefined ? {} : { sources: shownSources, ...(originKey === undefined ? {} : { originSelected: originKey }) }) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
       if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
@@ -1210,6 +1276,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     formulas = left.noFormulas !== true;
     access = left.access === true && model.accessEdges.length > 0;
     filters = left.filters === true && filtersDrawable();
+    // The source inputs of a line item the model still has, shown over the view they were gone to from, which follows.
+    const kept = keptSources(model, typeof left.sources === "string" ? left.sources : undefined);
+    if (kept !== undefined) {
+      imported ??= importedBy(model, options.imports);
+      sourcesOf = kept;
+      sourceTrace = traceSources(model, kept, imported);
+      originKey = typeof left.originSelected === "string" ? left.originSelected : undefined;
+    }
     if (left.view === "drill" && typeof left.module === "string") {
       const module = model.modules.find(each => each.name === left.module);
       if (module) {
@@ -1229,13 +1303,15 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
   }
 
-  /** Goes to a view: the selection, the hidden layers and the search start afresh there. */
+  /** Goes to a view: the selection, the hidden layers and the search start afresh there. A line item's source inputs
+   * that were shown are left, and the view they were gone to from with them. */
   function setView(next: "modules" | "drill", module?: number): void {
     if (!model) return;
     closePicker();
     closeGroups();
     closeGroupings();
     closeGroupingInfo();
+    dropSources();
     view = next;
     if (next === "drill") {
       moduleId = module !== undefined && model.node(module)?.kind === "module" ? module : moduleId ?? model.modules[0]?.id;
@@ -1331,6 +1407,15 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * linked with where it is not on screen already, anything else where it is on screen. */
   function navigate(raw: GraphNode): void {
     if (!model) return;
+    // Among a line item's source inputs, a box they have is selected there; anything else is gone to from the view they
+    // were gone to from, which is put back first.
+    if (sourcesOf !== undefined) {
+      if (onScreen?.byId.has(String(raw.id))) {
+        pick(String(raw.id));
+        return;
+      }
+      leaveSources();
+    }
     if (raw.kind === "module") {
       section = single ? undefined : model.sectionOf(raw);
       grouped = false;
@@ -1370,8 +1455,100 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     invalidate();
   }
 
-  /** Escape follows the path, independent of earlier views and the current selection. */
+  /** Shows the source inputs of a line item, by its node (map-sources.ts), as a graph of their own with the line item
+   * selected and its details listing them. The view shown is kept as it is, to go back to; from the source inputs of
+   * another line item, the view those were gone to from stays the one to go back to. False for a node whose source inputs
+   * cannot be found: no line item of a module, or a heading. */
+  function showSources(id: number): boolean {
+    if (!model || !onScreen) return false;
+    const raw = model.node(id);
+    if (!traceable(model, raw)) return false;
+    closePicker();
+    closeGroups();
+    closeGroupings();
+    closeGroupingInfo();
+    if (sourcesOf === undefined) {
+      origin = { graph: onScreen, camera: heading ?? camera, width, height, wantsWhole, moved, order, selected: selected?.id, onlyTrace, hidden: [...hiddenLayers], typed: searchInput.value };
+      originKey = selected ? selectionKey(model, selected) : undefined;
+    }
+    imported ??= importedBy(model, options.imports);
+    sourcesOf = raw.id;
+    sourceTrace = traceSources(model, raw.id, imported);
+    selected = undefined;
+    trace = undefined;
+    onlyTrace = false;
+    heading = undefined;
+    hiddenLayers.clear();
+    typed = "";
+    hits = [];
+    searchInput.value = "";
+    searchCount.textContent = "";
+    closeResults();
+    hideTip();
+    build(false, current => current.byId.get(String(raw.id)));
+    if (onScreen) announce(viewSentence(onScreen, options.modelName, linksDrawn()));
+    return true;
+  }
+
+  /** Lets go of the source inputs shown, and of the view they were gone to from. */
+  function dropSources(): void {
+    sourcesOf = undefined;
+    sourceTrace = undefined;
+    origin = undefined;
+    originKey = undefined;
+  }
+
+  /** Goes back from a line item's source inputs to the view they were gone to from, as it was left: its boxes where they
+   * were, the camera where it was while the canvas has the size it had, the box selected, the layers hidden and the
+   * search's text. After a refresh, which keeps no such view, it is built anew, with the box that was selected there. */
+  function leaveSources(): void {
+    if (!model || sourcesOf === undefined) return;
+    const left = origin;
+    const key = originKey;
+    dropSources();
+    hideTip();
+    closeResults();
+    hits = [];
+    searchCount.textContent = "";
+    hiddenLayers.clear();
+    if (!left) {
+      selected = undefined;
+      trace = undefined;
+      onlyTrace = false;
+      typed = searchInput.value = "";
+      build(false, key);
+    } else {
+      onScreen = left.graph;
+      for (const layer of left.hidden) hiddenLayers.add(layer);
+      onlyTrace = left.onlyTrace;
+      typed = searchInput.value = left.typed;
+      build(true, current => (left.selected === undefined ? undefined : current.byId.get(left.selected)));
+      order = left.order;
+      moved = left.moved;
+      wantsWhole = left.wantsWhole;
+      settleLegend(onScreen);
+      heading = undefined;
+      // The camera is put back where it was for the size it was seen at; for another size, as that size would have moved it.
+      if (left.width === width && left.height === height) camera = left.camera;
+      else if (left.width <= 0 || left.height <= 0 || (left.wantsWhole && !left.moved)) arrange();
+      else {
+        camera = { ox: left.camera.ox + (width - left.width) / 2, oy: left.camera.oy + (height - left.height) / 2, k: left.camera.k };
+        if (left.wantsWhole) reframe(false);
+      }
+      laidOut = { width, height };
+      renderStatus();
+      invalidate();
+    }
+    if (onScreen) announce(viewSentence(onScreen, options.modelName, linksDrawn()));
+  }
+
+  /** Escape follows the path, independent of earlier views and the current selection. From a line item's source inputs, it
+   * goes back to the view they were gone to from. */
   function back(): boolean {
+    if (sourcesOf !== undefined) {
+      leaveSources();
+      return true;
+    }
     if (view === "drill") {
       const home = homeOf(moduleId);
       if (home !== undefined) openSection(model!.sectionIndex(home)); else showSections();
@@ -1530,6 +1707,20 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         const before = holder.querySelectorAll(".map-link").length;
         holder.innerHTML = listHtml(list, true);
         focusOn(holder.querySelectorAll<HTMLElement>(".map-link")[before]);
+        break;
+      }
+      case "sources": if (selected?.raw) showSources(selected.raw.id); break;
+      case "sources-back": leaveSources(); focusOn(canvas); break;
+      case "sources-more": {
+        // The rest of a long list of source inputs, shown in place under its first, and hidden again.
+        const holder = target.closest<HTMLElement>(".map-sources");
+        const rest = holder?.querySelector<HTMLElement>(".map-sources-rest");
+        if (!holder || !rest) break;
+        const show = rest.hidden;
+        rest.hidden = !show;
+        target.setAttribute("aria-expanded", String(show));
+        target.textContent = show ? "Show fewer" : `Show all ${formatCount(Number(data.mapAll))}`;
+        if (show) focusOn(holder.querySelector<HTMLElement>(".map-sources-rest .map-link"));
         break;
       }
       case "result": choose(hits[Number(data.mapHit)]); break;
@@ -2011,6 +2202,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       navigate(raw);
       focusDetails();
       return selected?.raw?.id === raw.id;
+    },
+    sources(node) {
+      if (destroyed || broken || !shown || !model) return false;
+      const raw = graph.nodes[node];
+      if (!raw || !showSources(raw.id)) return false;
+      focusDetails();
+      return true;
     },
   };
 }

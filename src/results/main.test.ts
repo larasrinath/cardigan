@@ -220,7 +220,7 @@ let mapBuilds: { tables: unknown; graph: object }[];
  * stopped by itself, and why, as its contract has it (graph-types.ts `onFailure`). */
 let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unknown[]; button: FakeElement; stops(reason: string): void }[];
 /** What the stand-in throws when it is asked for one of these, in the place of doing it: nothing unless a test sets it. */
-let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy" | "reveal", unknown>>;
+let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy" | "reveal" | "sources", unknown>>;
 /** The nodes of the graph the stand-in builds: none unless a test gives them. */
 let mapNodes: object[];
 /** What the stand-in's graph says of the Modules file's functional areas: nothing unless a test gives it. */
@@ -288,6 +288,7 @@ beforeEach(() => {
       themeChanged: () => { asked("themeChanged", `themeChanged ${number} ${page.document.documentElement.dataset.theme}`); tells("themeChanged"); },
       destroy: () => { asked("destroy", `destroy ${number}`); root.remove(); tells("destroy"); },
       reveal: (node: number) => { asked("reveal", `reveal ${number} ${node}`); return true; },
+      sources: (node: number) => { asked("sources", `sources ${number} ${node}`); return true; },
     };
   };
   ports = [];
@@ -5801,6 +5802,40 @@ describe("The ways from a count or a row to where it leads", () => {
     expect([drawerOpen(), shows()[0], mapAsked.slice(4)]).toEqual([true, "Model map", ["hide 1", "show 1", "reveal 1 5"]]);
     // The graph is built once, for the button and the map both.
     expect(mapBuilds).toHaveLength(1);
+  });
+
+  it("finds a line item's source inputs on the model map from the button beside Model map, and offers it to no heading and no other table's row", async () => {
+    mapNodes = [...blueprintNodes(), { id: 7, kind: "lineItem", name: "Notes", module: 0, format: "NONE" }];
+    const lineItems = BLUEPRINT.tables[1];
+    const heading = ["Notes", '{"dataType":"NONE"}', "", NO_SUMMARY, "-", "REV01 Revenue", "", ""];
+    await openWith({ ...BLUEPRINT, tables: [BLUEPRINT.tables[0], { ...lineItems, rows: [...lineItems.rows.slice(0, 5), heading, ...lineItems.rows.slice(5)] }, BLUEPRINT.tables[2]] });
+    goTo(1);
+    openRow("Revenue");
+    const buttons = () => page.all("#drawerOpens button").map(button => [button.textContent.trim(), button.title, button.querySelectorAll("svg").length]);
+    expect(buttons().slice(0, 2)).toEqual([["Model map", "Show Revenue on the Model map", 1], ["Find source inputs", "Find the source inputs of Revenue on the Model map", 1]]);
+    page.all("#drawerOpens button").find(button => button.textContent.trim() === "Find source inputs")!.press();
+    // The details stay open, the map is shown, and the line item's source inputs are shown on it.
+    expect([drawerOpen(), shows(), mapAsked]).toEqual([true, ["Model map", "Model map"], ["build", "mount 1", "show 1", "sources 1 3"]]);
+    // A heading holds no value to trace, and a module's row of Modules is no line item.
+    goTo(1);
+    openRow("Notes");
+    expect([page.id("drawerTitle").textContent, buttons().map(([label]) => label)]).toEqual(["Notes", ["Model map"]]);
+    goTo(2);
+    openRow("COST01 Costs");
+    expect(buttons().map(([label]) => label)).toEqual(["Model map"]);
+  });
+
+  it("tells the map what each import loads into a module, for its source inputs to say which imports load an input", async () => {
+    mapNodes = blueprintNodes();
+    const imports: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: ["", "Source Label", "Source Object", "Source Type", "Target Object", "Target Type"],
+      rows: [["Load units", "units.csv", "-", "FILE", "REV01 Revenue", "MODULE"], ["Load costs", "costs.csv", "-", "FILE", "COST01 Costs", ""], ["Load products", "list.csv", "-", "FILE", "Products", "LIST"]] };
+    const importMappings: ImportMapping[] = [{ id: "112000000001", name: "Load units", sourceType: "FILE", importType: "MODULE_DATA", targets: [{ target: "Units", source: "column", column: 2 }] }];
+    await openWith({ ...BLUEPRINT, tables: [...BLUEPRINT.tables, imports], importMappings });
+    page.find('#navList [data-nav="map"]').press();
+    // An import into a list loads no line item; one whose mapping was not read can load any of its module's.
+    expect((mapMounts[0].options as ModelMapOptions).imports).toEqual([
+      { name: "Load units", module: "REV01 Revenue", lineItems: ["Units"], any: false, unread: false },
+      { name: "Load costs", module: "COST01 Costs", lineItems: [], any: true, unread: true }]);
   });
 
   it("opens a module's box from Modules, with no module rows in Line Items", async () => {

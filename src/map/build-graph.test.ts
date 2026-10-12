@@ -4,7 +4,7 @@ import { PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MISSING_LINE_ITEMS_MODULE, missingText } from "../page-files.js";
 import { HEADERS } from "../report.js";
 import type { Cell, ResultTable } from "../result-types.js";
-import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "./build-graph.js";
+import { areaCheckLine, buildModelGraph, pageFilterCheckLine, readAccess } from "./build-graph.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import { sectionsGraph } from "./map-graphs.js";
 import { indexModel, withGrouping } from "./map-model.js";
@@ -890,6 +890,35 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(bare.limitations.filter(line => line.startsWith("Line Items has no"))).toEqual([
       "Line Items has no Format column: line items come without their format, and the list of one formatted as a list is known only where the Format List column names it.",
       "Line Items has no Summary column: modules and line items come without it."]);
+  });
+
+  it("keeps whether a line item is a summary, and the summary its Parent names, as no link and saying nothing of a name that is no line item's", () => {
+    const rows = lineItems(
+      // A module's own row is no summary, whatever its cells say.
+      moduleRow("CST01 Costs", { "Is Summary": "true", Parent: "Total Costs" }),
+      item("CST01 Costs", "Total Costs", { "Is Summary": "true" }),
+      item("CST01 Costs", "Rent", { Parent: "Total Costs", "Is Summary": "false" }),
+      item("CST01 Costs", "Wages", { Parent: "'CST01 Costs'.'Total Costs'", "Is Summary": " TRUE " }),
+      // Its own name, a dash, and a name that is no line item's are no summary of the line item's.
+      item("CST01 Costs", "Fleet", { Parent: "Fleet" }), item("CST01 Costs", "Spare", { Parent: "-" }), item("CST01 Costs", "Lost", { Parent: "Gone total" }),
+      moduleRow("FIN01 Finance"),
+      item("FIN01 Finance", "Grand Total", { "Is Summary": "true" }),
+      item("FIN01 Finance", "Costs Rolled", { Parent: "Total Costs" }),
+      item("FIN01 Finance", "Wages Rolled", { Parent: "'CST01 Costs'.Total Costs" }));
+    const graph = buildModelGraph([rows]);
+    const summary = (name: string) => [node(graph, name).isSummary, names(graph, node(graph, name).summaryParent === undefined ? undefined : [node(graph, name).summaryParent!])];
+    expect(["Total Costs", "Rent", "Wages", "Fleet", "Spare", "Lost", "Grand Total", "Costs Rolled", "Wages Rolled"].map(summary)).toEqual([
+      [true, undefined], [undefined, ["CST01 Costs.Total Costs"]], [true, ["CST01 Costs.Total Costs"]], [undefined, undefined], [undefined, undefined], [undefined, undefined],
+      // A bare name is a line item of the row's own module: Finance has no Total Costs. Behind its module's name, it is found.
+      [true, undefined], [undefined, undefined], [undefined, ["CST01 Costs.Total Costs"]]]);
+    expect([node(graph, "CST01 Costs").isSummary, node(graph, "CST01 Costs").summaryParent]).toEqual([undefined, undefined]);
+    // No link stands for a summary, and a Parent that names nothing is no unresolved name.
+    expect([graph.edges, graph.unresolved]).toEqual([[], []]);
+    // A file without the two columns says nothing of them.
+    expect(buildModelGraph([without(rows, "Parent", "Is Summary")]).limitations).toEqual(graph.limitations);
+    // Only the map's graph reads them: the model's reader, which builds the graph for the Dynamic Cell Access table alone,
+    // has no use for them, and its code stays as it was.
+    expect(readAccess([rows]).graph.nodes.filter(each => each.isSummary || each.summaryParent !== undefined)).toEqual([]);
   });
 
   it("gives a line item with a dash under Applies To its module's dimensions, and says that they are the module's", () => {

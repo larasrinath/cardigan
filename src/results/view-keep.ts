@@ -279,6 +279,8 @@ function readMap(value: unknown): MapView | undefined {
     ...(typeof value.minimap === "boolean" ? { minimap: value.minimap } : {}),
     ...(typeof value.legend === "boolean" ? { legend: value.legend } : {}),
     ...(typeof value.selected === "string" ? { selected: value.selected } : {}),
+    ...(typeof value.sources === "string" ? { sources: value.sources } : {}),
+    ...(typeof value.originSelected === "string" ? { originSelected: value.originSelected } : {}),
   };
 }
 
@@ -331,9 +333,10 @@ export const objectKey = (object: { type: string; name: string; module: string; 
   [object.type, object.name, object.module, object.model].join("\u0001");
 
 /** Whether the map is where it opens by itself: the Modules view, the groups as a whole, formulas' links only, the
- * minimap open and no legend choice. An explicit legend choice is kept even when it matches today's size default. */
+ * minimap open, no legend choice and no line item's source inputs shown. An explicit legend choice is kept even when it
+ * matches today's size default. */
 export const isMapAtStart = (map: MapView): boolean => map.view === "modules" && map.group === undefined && map.all !== true && map.noFormulas !== true
-  && map.access !== true && map.filters !== true && map.minimap !== false && map.legend === undefined && map.selected === undefined;
+  && map.access !== true && map.filters !== true && map.minimap !== false && map.legend === undefined && map.selected === undefined && map.sources === undefined;
 
 /** The settings as written: at most `MAX_VIEW_CHARS` characters. Where they are more, the filters with the longest lists
  * of values are let go, one by one, until they fit; where the rest is still more, nothing is written. */

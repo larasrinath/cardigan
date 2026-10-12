@@ -387,6 +387,30 @@ describe("A model's result on the results page, with the map's real graph and th
     }
   });
 
+  it("finds a line item's source inputs from its row of Line Items, on the map, with their list open in its details, and goes back with Escape", async () => {
+    await openWith(MODEL);
+    choose("Line Items");
+    page.all("#tableWrap tbody tr").find(row => row.children[0].textContent.trim() === "Margin %")!.querySelector('[data-act="row"]')!.press();
+    const buttons = () => page.all("#drawerOpens button");
+    expect(buttons().map(button => button.textContent.trim()).slice(0, 2)).toEqual(["Model map", "Find source inputs"]);
+    buttons().find(button => button.textContent.trim() === "Find source inputs")!.press();
+    around.shows();
+    expect([host().hidden, page.id("drawer").classList.contains("show"), text(".map-sources-name"), text(".map-insp-name"), text(".map-sources summary"), part(".map-sources").hasAttribute("open")])
+      .toEqual([false, true, "Source inputs of CAL01 Revenue · Margin %", "Margin %", "Source inputs (2)", true]);
+    // From the export's own columns: what reads what (Referenced By), a Ratio's two line items, and a list's property in a
+    // formula; and the import that loads into Volumes, whose mapping this result does not hold, may load any of its line items.
+    expect(parts(".map-sources .map-source").map(row => [row.querySelector(".map-link-text")!.childNodes[0].textContent, ...row.querySelectorAll("small").map(small => small.textContent)]))
+      .toEqual([["Units", VOLUMES, "May be imported by Load volumes · 2 steps · Feeds Revenue"], ["Price", PRICES, "Entered · 2 steps · Feeds Revenue"]]);
+    expect(parts(".map-sources .map-insp-note").map(note => note.textContent))
+      .toEqual(["It also reads 1 list property: Products.Standard Cost."]);
+    // The map shows them, the calculations between and the line item: Revenue, Cost and Margin. Unit Cost reads the list's
+    // property alone: no input feeds it, so it is on no way from one.
+    expect(status()).toBe("6 boxes · 7 links");
+    part(".map-canvas").focus();
+    part(".map-canvas").dispatch("keydown", { key: "Escape" });
+    expect([part(".map-sources-step").hidden, where()]).toEqual([true, ["Model one"]]);
+  });
+
   it("draws the made-up model as its sections and its modules, by name, under a line that counts them and their links", async () => {
     await openWith(MODEL);
     // The overview's tile counts the rows of the page's own Line Items table: every row of the file, the modules' own too.
