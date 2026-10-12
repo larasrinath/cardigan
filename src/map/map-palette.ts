@@ -86,9 +86,14 @@ export interface MapPalette {
   property: string;
   sans: string;
   mono: string;
+  /** How strongly a faint line is drawn beside a link between the same two boxes (map-bridges.ts): a third in the light
+   * theme. The dark theme's token (`FAINT_TOKEN`) makes it stronger, as a third of a link is hardly seen on its canvas. */
+  faint: number;
 }
 
-type Colour = Exclude<keyof MapPalette, "sections" | "sans" | "mono">;
+type Colour = Exclude<keyof MapPalette, "sections" | "sans" | "mono" | "faint">;
+/** The token a faint line's strength is read from: a number above 0 and no more than 1. */
+export const FAINT_TOKEN = "--map-faint";
 
 /** The token each colour is read from. Those without "map" in their name are the results page's own. */
 export const COLOUR_TOKENS: Record<Colour, string> = {
@@ -114,7 +119,7 @@ export const FALLBACK: MapPalette = {
   input: "#2b5bd7", inputFill: "#e9eefb", inputText: "#1f46b4",
   sections: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
   lineItem: "#4a3aa7", heading: "#b3b0a5", external: "#898781", list: "#1baf7a", property: "#eb6834",
-  sans: "sans-serif", mono: "monospace",
+  sans: "sans-serif", mono: "monospace", faint: 1 / 3,
 };
 
 /** The palette of the styles in force. `read` gives a token's value, "" for none; `colour` gives a value back as a
@@ -125,11 +130,13 @@ export function readPalette(read: (token: string) => string, colour: (value: str
     return (value !== "" && colour(value)) || fallback;
   };
   const colours = Object.fromEntries((Object.keys(COLOUR_TOKENS) as Colour[]).map(name => [name, pick(COLOUR_TOKENS[name], FALLBACK[name])])) as Record<Colour, string>;
+  const faint = Number.parseFloat(read(FAINT_TOKEN));
   return {
     ...colours,
     sections: FALLBACK.sections.map((fallback, place) => pick(sectionToken(place), fallback)),
     sans: read("--sans").trim() || FALLBACK.sans,
     mono: read("--mono").trim() || FALLBACK.mono,
+    faint: faint > 0 && faint <= 1 ? faint : FALLBACK.faint,
   };
 }
 
