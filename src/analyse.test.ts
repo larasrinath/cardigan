@@ -634,6 +634,68 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  describe("the items the imports map manually", () => {
+    const [A, B, C, D, E] = ["201000000011", "201000000012", "201000000013", "201000000014", "202000000021"];
+    /** The names read for these inputs, once the export has given them, with what the step logged and showed. */
+    const named = (inputs: Partial<CatalogInputs>, signal?: AbortSignal) => {
+      const [log, statuses] = [[] as string[], [] as string[]];
+      return { log, statuses, result: loadCatalogWhen(scope, Promise.resolve({ pages: [], pageNames: new Map(), ...inputs }),
+        { status: line => { statuses.push(line); }, log: line => { log.push(line); } }, signal) };
+    };
+    const itemReads = () => sent("SEND").filter(frame => frame.headers.destination.includes("/dimensions/")).map(frame => [frame.headers.destination, JSON.parse(frame.body)]);
+
+    it("asks each module and list once for the items still unnamed, as Page Builder asks for items' labels, and logs how many each read named", async () => {
+      serveModel({
+        [at(`/modules/${MODULE}/dimensions/${LIST}`)]: labels({ [A]: "North", [B]: "South" }),
+        [at(`/modules/${MODULE}/dimensions/${LIST_2}`)]: id => rejected(id, "ITEMS_UNAVAILABLE"),
+      });
+      // Two imports map the list's items, A in both; another maps the second list's; one names a module that is no ID.
+      const { log, statuses, result } = named({ mapped: [{ moduleId: MODULE, dimensionId: LIST, itemIds: [A, B, C] }, { moduleId: MODULE, dimensionId: LIST, itemIds: [A, D] },
+        { moduleId: MODULE, dimensionId: LIST_2, itemIds: [E] }, { moduleId: "Prices", dimensionId: LIST, itemIds: [A] }] });
+      const { catalog, notes } = await result;
+      expect(itemReads()).toEqual([[at(`/modules/${MODULE}/dimensions/${LIST}`), { itemIds: [A, B, C, D], filter: "" }],
+        [at(`/modules/${MODULE}/dimensions/${LIST_2}`), { itemIds: [E], filter: "" }]]);
+      expect(sent("SUBSCRIBE").filter(frame => frame.headers.destination.includes("/dimensions/")).map(frame => frame.headers.accept)).toEqual(["widget/selection", "widget/selection"]);
+      // In IDs and counts only: a read that names some leaves the others their IDs, and one that is refused leaves them all.
+      expect(log.filter(line => line.startsWith("import items"))).toEqual([`import items of dimension ${LIST} in module ${MODULE}: 2 of 4 named; 2 keep their IDs`,
+        `import items of dimension ${LIST_2} in module ${MODULE}: ITEMS_UNAVAILABLE; 1 keeps its ID`]);
+      expect([notes, catalog.listItems, statuses.at(-1)]).toEqual([[], new Map([[A, "North"], [B, "South"]]), "Reading import item names in Synthetic model…"]);
+      expect(log.find(line => line.startsWith("Time: "))).toMatch(/, item names \d+\.\d\d s, import item names \d+\.\d\d s, saved views /);
+    });
+
+    it("asks nothing of a list whose items a read of the pages named already, and has no step where no import maps items manually", async () => {
+      serveModel({ [at(`/modules/${MODULE}/dimensions/${LIST}`)]: labels({ [NORTH]: "North", [SOUTH]: "South" }) });
+      // The grid's hidden items are named with the pages' items; an import maps North manually.
+      const already = named({ pages: withGrid(), mapped: [{ moduleId: MODULE, dimensionId: LIST, itemIds: [NORTH] }] });
+      expect((await already.result).catalog.listItems.get(NORTH)).toBe("North");
+      expect([destinations().filter(destination => destination === at(`/modules/${MODULE}/dimensions/${LIST}`)).length, already.log.filter(line => line.startsWith("import items"))])
+        .toEqual([1, []]);
+      ScriptedSocket.sockets = [];
+      const none = named({ mapped: [] });
+      await none.result;
+      expect([itemReads(), none.statuses.some(line => line.includes("import item")), none.log.find(line => line.startsWith("Time: "))?.includes("import item")]).toEqual([[], false, false]);
+    });
+
+    it("ends the socket work when the connection fails while it reads them, as every step does", async () => {
+      serveModel({ [at(`/modules/${MODULE}/dimensions/${LIST_2}`)]: () => SERVICE_DOWN });
+      const { log, result } = named({ mapped: [{ moduleId: MODULE, dimensionId: LIST_2, itemIds: [A, B] }] });
+      expect((await result).notes).toEqual([UNAVAILABLE]);
+      expect([destinations().at(-1), log.filter(line => line.startsWith("import items"))]).toEqual([at(`/modules/${MODULE}/dimensions/${LIST_2}`),
+        [`import items of dimension ${LIST_2} in module ${MODULE}: SERVICE_DOWN; 2 keep their IDs`]]);
+    });
+
+    it("reads four lists at a time at most, and starts no further read once the run is stopped", async () => {
+      const stopped = new Error("Stopped: the results page was closed.");
+      const stopping = new AbortController();
+      const lists = Array.from({ length: 6 }, (_, index) => String(101000000950 + index));
+      // No read is answered; the run is stopped once the first has been asked.
+      serveModel(Object.fromEntries(lists.map((list, index) => [at(`/modules/${MODULE}/dimensions/${list}`), () => { if (index === 0) stopping.abort(stopped); return ""; }])));
+      const { result } = named({ mapped: lists.map(list => ({ moduleId: MODULE, dimensionId: list, itemIds: [A] })) }, stopping.signal);
+      await expect(result).rejects.toBe(stopped);
+      expect(itemReads().map(([destination]) => destination)).toEqual(lists.slice(0, 4).map(list => at(`/modules/${MODULE}/dimensions/${list}`)));
+    });
+  });
+
   it("starts the socket on the host of the frame the model is read in, the model's own, and on the page's where that host cannot be reached", async () => {
     // The page's host would send the model on to its own, as it did live on every first run (10 Oct 2026).
     const frame = { host: MODEL_HOST, unreachable: false, redirects: true };

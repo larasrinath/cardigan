@@ -641,7 +641,7 @@ describe("What the results page's markup shows", () => {
     expect(drawer.querySelectorAll("dd").map(value => [value.children.map(child => child.classList.contains("cell-t") || child.classList.contains("tag")), value.querySelector(".cell-t")?.textContent]))
       .toEqual([[[true], "Margin %"], [[true], "Number, 2 decimal places, %"], [[true], "Margin / Revenue"], [[true], "Ratio = Margin / Revenue"], [[true], format], [[true], summary]]);
     expect([drawer.querySelector("details")?.hasAttribute("open"), drawer.querySelector("summary")?.textContent]).toEqual([false, "As read"]);
-    expect([drawer.querySelectorAll("b").length, drawer.querySelectorAll("h3").map(text)]).toEqual([0, ["All columns"]]);
+    expect([drawer.querySelectorAll("b").length, drawer.querySelectorAll("h3").map(text)]).toEqual([0, ["All details"]]);
     // A row none of whose cells is said in words, and a table that has no such cells, show the columns alone.
     for (const none of [rowDrawerHtml(columns, row, NO_LINKS, new Map()), rowDrawerHtml(columns, row, NO_LINKS)]) {
       expect(parseMarkup(none).querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Formula", "Summary"]);
@@ -1099,11 +1099,11 @@ describe("What a source model gives, as its row's details write it", () => {
     expect(view.querySelectorAll('#drawerSourceImports [data-act="item"]')).toEqual([]);
   });
 
-  it("writes no section of nothing, and stands before All columns in a row's details", () => {
+  it("writes no section of nothing, and stands before All details in a row's details", () => {
     expect(sourceModelHtml({ sources: [], imports: [{ name: "IMP01", from: [] }], sourceLines: [], importLines: [] }, [], [undefined])).not.toContain("drawerSources");
     const [column] = columnsOf({ file: "Source Models.csv", label: "Source Models", headers: [""], rows: [["Hub"]], guard: false });
     const drawer = parseMarkup(rowDrawerHtml([column], ["Hub"], {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
       { view: { sources: [{ name: "SYS02", kind: "Module", row: 0 }], imports: [], sourceLines: [], importLines: [] }, sources: [undefined], imports: [] }));
-    expect(drawer.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (1)", "All columns"]);
+    expect(drawer.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (1)", "All details"]);
   });
 });

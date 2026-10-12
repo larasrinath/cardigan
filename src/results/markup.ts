@@ -5,7 +5,7 @@ import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, textWidth, WIDEST } from "./column-widths.js";
 import { APP_FILES, countText, rowColumns, type Column } from "./columns.js";
 import { REFRESH_AND_RUN, type RunState } from "./connection.js";
-import type { MappingView } from "./import-mapping-view.js";
+import type { MappingView, PairsView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
 import type { SourceModelView } from "./source-model-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -1008,13 +1008,30 @@ function asReadHtml(columns: readonly Column[], exported?: ReadonlyMap<number, u
 /** A line under a drawer's table, in the small, quiet type of the card drawer's own line for a part it has none of. */
 const drawerLine = (text: string): string => `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">${esc(text)}</p>`;
 
+/** A list whose items an import maps manually (import-mapping-view.ts `PairsView`), under its name and how many source
+ * items it has: a table of each source item and the item it is mapped to, as the list's tab of Anaplan's dialog shows
+ * them. A long one folds as a long list of the details does (`itemsHtml`): it shows its first rows, and the rest stand in
+ * a second table right under the first, of the same columns, hidden until the control under them shows them, where the
+ * browser's find in page still reaches them (`until-found`, which a table's own rows cannot take). The two tables and
+ * the control stand together, so that the control finds the rest beside it (main.ts `showRest`). */
+function pairsHtml({ list, rows }: PairsView): string {
+  const body = (each: readonly (readonly [string, string])[]): string =>
+    `<tbody>${each.map(([source, mappedTo]) => `<tr><td>${esc(source)}</td><td>${esc(mappedTo)}</td></tr>`).join("")}</tbody>`;
+  const table = (each: readonly (readonly [string, string])[], head: boolean): string =>
+    `<table class="mini m-fit m-pairs">${head ? "<thead><tr><th>Source item</th><th>Mapped to</th></tr></thead>" : ""}${body(each)}</table>`;
+  const heading = `<h4 class="m-sub">${esc(list)} (${rows.length})</h4>`;
+  if (rows.length <= LIST_WHOLE) return heading + table(rows, true);
+  return `${heading}<div class="m-pairs-all">${table(rows.slice(0, LIST_SHOWN), true)}<div class="cell-rest" hidden="until-found">${table(rows.slice(LIST_SHOWN), false)}</div>`
+    + `<button type="button" class="link cell-more" data-act="more" data-all="${rows.length}" aria-expanded="false">Show all ${rows.length}</button></div>`;
+}
+
 /** The mapping of an import (import-mapping-view.ts). Under its heading, beside it, what an import into a module does to
  * the module before it loads, and under that, how the import's source is read: the File Options of uploaded data, or the
  * model's object it reads, each after its label. For an import into a list, how it tells the list's items apart, and a
- * row of Source and Target for each source and a target it feeds. For an import into a module, a table of its dimensions
- * and one of its line items, each as wide as the details and no wider: a long name wraps in its cell, at any width the
- * details have. Then the lines under them, about the targets nothing feeds and the columns it does not use, or about why
- * there is no row to show. */
+ * row of Source and Target for each source and a target it feeds. For an import into a module, a table of its dimensions,
+ * one of its line items, and one of the items of each list it maps manually (`pairsHtml`), each as wide as the details
+ * and no wider: a long name wraps in its cell, at any width the details have. Then the lines under them, about the
+ * targets nothing feeds and the columns it does not use, or about why there is no row to show. */
 export function importMappingHtml(mapping: MappingView): string {
   const heading = mapping.clear === undefined ? "<h3>Mapping</h3>" : `<div class="m-head"><h3>Mapping</h3><span class="m-clear">${esc(mapping.clear)}</span></div>`;
   // A space between the label and the line keeps them apart as text, as a screen reader or a copy takes them: the layout
@@ -1035,8 +1052,9 @@ export function importMappingHtml(mapping: MappingView): string {
     + (items.rows.length ? `<table class="mini m-fit m-items"><thead><tr><th>${esc(items.heading ?? "Source")}</th><th>Line item</th></tr></thead>
       <tbody>${items.rows.map(([source, lineItem, more]) => `<tr><td>${esc(source)}${more === undefined ? "" : note(more, undefined)}</td><td>${esc(lineItem)}</td></tr>`).join("")}</tbody></table>` : "")
     + (items.notes.length ? `<div class="m-notes">${items.notes.map(({ text, all }) => note(text, all)).join("")}</div>` : "");
+  const pairs = (mapping.pairs ?? []).map(pairsHtml).join("");
   return `<div class="d-sec" id="drawerMapping">${heading}
-      ${from}${match}${dimensions}${lineItems}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
+      ${from}${match}${dimensions}${lineItems}${pairs}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
 }
 
 /** The actions of a process (process-actions-view.ts), with their number in the order the process runs them where that is
@@ -1051,7 +1069,7 @@ export function processActionsHtml(process: ProcessView, opens: readonly boolean
       ${table}${process.lines.map(drawerLine).join("")}</div>`;
 }
 
-/** What a source model gives the model (source-model-view.ts), above a row's All columns: its objects that the imports
+/** What a source model gives the model (source-model-view.ts), above a row's All details: its objects that the imports
  * read, each with its kind, then the imports that read them, each with the objects it reads, each list under how many it
  * holds and above its lines. A name whose row the page can open is a link to that row's details: `sources` and `imports`
  * have, by the name's place, the number the page knows that row by, as a list's items do (`itemsHtml`). */
@@ -1084,7 +1102,7 @@ export function subsetMembershipHtml(view: SubsetView, modules: readonly (number
  * (`items`); an item that names a row the page can open is a link to that row's details (`itemOpens`, by the column's
  * place and the item's, item-links.ts). A cell of a column of times says its time
  * in both zones, the one the page shows first (`times`). Mapping, Actions, or Sources and Imports come first,
- * followed by All columns without those repeated, then the folded raw values. */
+ * followed by All details without those repeated, then the folded raw values. */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
   readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes,
   itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>,
@@ -1095,7 +1113,7 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
   if (source?.view.sources.length) omitted.add("Sources");
   if (source?.view.imports.length) omitted.add("Imports");
   if (subset) ["Line Items", LINE_ITEM_NAMES, "Membership read"].forEach(label => omitted.add(label));
-  return `${subset ? subsetMembershipHtml(subset.view, subset.modules, subset.members) : ""}${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All columns</h3>
+  return `${subset ? subsetMembershipHtml(subset.view, subset.modules, subset.members) : ""}${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All details</h3>
     ${allColumns(columns, row, links, exported, items, times, itemOpens, omitted)}</div>${asReadHtml(columns, exported, readUnder, times)}`;
 }
 

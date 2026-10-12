@@ -5,7 +5,7 @@ import { cellLists } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
 import { cellText, type Row } from "./table-engine.js";
 
-/** The actions a process runs, as the details of its row of a model's Processes show them, under All columns: each action
+/** The actions a process runs, as the details of its row of a model's Processes show them, under All details: each action
  * with its kind, in the order the process runs them, as the process's own definition holds them (model/process-actions.ts).
  * Where the result does not have them, because the definitions could not be read or an earlier version kept the result,
  * the details list instead the actions whose Used in Processes names the process, as the Actions list says it, and say

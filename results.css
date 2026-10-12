@@ -640,6 +640,15 @@ body:has(#mapHost:not([hidden])) .drawer{display:none}
 .m-dims th:nth-child(3){width:25%}
 .m-dims th:nth-child(4){width:23%}
 .m-items th{width:50%}
+/* A list's items mapped manually: two columns of a half each, in the table of its first rows and in the table of the rest,
+   which has no headers of its own. Once shown, the rest stands right under the first rows as the same table's
+   continuation: no gap between them, no rounded corner where they meet, and between their rows the one line any two rows
+   have, the first rows' last line, with no edge of either table beside it. */
+.m-pairs :is(th,td){width:50%}
+.m-pairs-all > .cell-rest:not([hidden]){margin-top:0}
+.m-pairs-all > .cell-rest .mini{border-top:0;border-top-left-radius:0;border-top-right-radius:0}
+.m-pairs-all:has(> .cell-rest:not([hidden])) > .mini{border-bottom:0;border-bottom-left-radius:0;border-bottom-right-radius:0}
+.m-pairs-all:has(> .cell-rest:not([hidden])) > .mini tr:last-child td{border-bottom:1px solid var(--border)}
 
 /* ---------- popover ---------- */
 .popover{

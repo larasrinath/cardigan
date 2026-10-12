@@ -1646,7 +1646,7 @@ describe("The results page's script, on the page", () => {
     // The row's button opens the row, not the card and not the page's cards.
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")])
-      .toEqual(["=Margin", "Cards", ["All columns"], ["Overview", "=Margin", "KPI", "2", "card-b"]]);
+      .toEqual(["=Margin", "Cards", ["All details"], ["Overview", "=Margin", "KPI", "2", "card-b"]]);
     page.key("Escape");
     // And the page's name still shows that page's cards.
     page.find('#tableWrap tbody [data-act="page"]').press();
@@ -3445,7 +3445,7 @@ describe("An app's Where Used table, by object and by use", () => {
     // In the other way a row is a use, and opens as any row does.
     way("use").press();
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3")]).toEqual(["Time", "Where Used", ["All columns"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3")]).toEqual(["Time", "Where Used", ["All details"]]);
   });
 
   it("says of an object used on a page name that two pages share that its counts are at least that many, why, and which of its uses those are", async () => {
@@ -3574,7 +3574,7 @@ describe("An app's Where Used table, by object and by use", () => {
     expect([page.has("#tableWays"), page.find(".toolbar").children.map(child => child.id), page.all("#view .view-note").length, page.id("rowCount").textContent,
       page.all('#tableWrap tbody [data-act="page"]').length]).toEqual([false, ["searchWrap", "resetBtn", "rowsNav"], 0, "1–2 of 2 rows", 2]);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect(page.texts("#drawerBody h3")).toEqual(["All columns"]);
+    expect(page.texts("#drawerBody h3")).toEqual(["All details"]);
     page.key("Escape");
     // A model's file of that name is a model's file.
     page.id("runAgain").press();
@@ -5677,7 +5677,7 @@ describe("Navigation closes the details panel", () => {
 
 describe("Row links and Back in the details panel", () => {
   const table = (label: string, headers: string[], rows: Cell[][]): ResultTable => ({ file: `${label}.csv`, label, headers, rows, guard: false });
-  it("opens subset members and returns with Back, with a Model button before All columns and no links in table cells", async () => {
+  it("opens subset members and returns with Back, with a Model button before All details and no links in table cells", async () => {
     const subsets = table("Line Item Subsets", ["", "Notes", "Modules", "Line Items"], [["Planning measures", "For planning", "Inventory", "'Inventory'.'Input'"]]);
     const model = { ...MODEL, site: { origin: "https://us1a.app.anaplan.com", customer: "a".repeat(32) },
       tables: [{ ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Model", "Workspace ID", "b".repeat(32)], ["Model", "Model ID", MODEL.id]] }, subsets,
@@ -6803,11 +6803,11 @@ describe("The mapping of an import from a file, in its row's details", () => {
     theirs = /\bFILE\b|HQ Network\.csv|prices\.csv|The uploaded file is no longer available; please upload the file again/g;
   });
 
-  it("starts the details of an import from a file with its mapping, before All columns: each source with the target it feeds, then the targets nothing feeds and the columns it does not use", async () => {
+  it("starts the details of an import from a file with its mapping, before All details: each source with the target it feeds, then the targets nothing feeds and the columns it does not use", async () => {
     await openWith(WITH_MAPPINGS);
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["Mapping", "All columns"]]);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["Mapping", "All details"]]);
     // The import's file is no longer available, and its mapping is shown all the same: the mapping is the import's own.
     // Each source first, with the target it feeds; the target nothing feeds is no row, but a name in the line under them.
     expect(mapping()).toEqual([[["Division Name", "Division"], ["Region", "Parent"], ["Column 4", "Code"], ["Manager", "Manager"]],
@@ -6823,12 +6823,12 @@ describe("The mapping of an import from a file, in its row's details", () => {
     // An import from another model has no mapping in a result whose mappings are of imports from a file alone, as an
     // earlier version kept them: its details say to run again, which reads it.
     openImport("Regions from the hub");
-    expect([sections(), mapping()]).toEqual([["Mapping", "All columns"], [[], ["Cardigan has no mapping for this import: choose Run again to read it."]]]);
+    expect([sections(), mapping()]).toEqual([["Mapping", "All details"], [[], ["Cardigan has no mapping for this import: choose Run again to read it."]]]);
     page.key("Escape");
     // Nor has a row of another table, though it names an import from a file.
     goTo(4);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect(sections()).toEqual(["All columns"]);
+    expect(sections()).toEqual(["All details"]);
   });
 
   it("says above the mapping of an import into a list how it tells the list's items apart, in the dialog's words", async () => {
@@ -6877,7 +6877,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await openWith(earlier);
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect(sections()).toEqual(["All columns"]);
+    expect(sections()).toEqual(["All details"]);
   });
 
   it("keeps the mappings with a result kept for a refresh, which brings them back with it", async () => {
@@ -6887,7 +6887,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await eventually(() => page.document.title === `Cardigan - ${WITH_MAPPINGS.name}`, "the result to come back");
     goTo(3);
     openImport("Prices from prices.csv");
-    expect([sections(), mapping()[0][0]]).toEqual([["Mapping", "All columns"], ["Product", "Products"]]);
+    expect([sections(), mapping()[0][0]]).toEqual([["Mapping", "All details"], ["Product", "Products"]]);
   });
 
   it("says why there is no mapping to show: one that could not be read, or an import of another kind", async () => {
@@ -6895,7 +6895,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], importType: "", targets: [], note: NOT_READ }, { ...MAPPINGS[1], importType: "USERS", targets: [] }] });
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect([sections(), mapping()]).toEqual([["Mapping", "All columns"], [[], [NOT_READ]]]);
+    expect([sections(), mapping()]).toEqual([["Mapping", "All details"], [[], [NOT_READ]]]);
     expect(page.has("#drawerMapping table")).toBe(false);
     page.key("Escape");
     openImport("Prices from prices.csv");
@@ -6921,7 +6921,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     goTo(3);
     openImport("Prices from prices.csv");
     // The line under a source stands in its cell; the header row's names the first five line items, and opens to all.
-    expect(page.texts("#drawerMapping span.m-note")).toEqual(["2 items mapped by hand, 1 ignored", "Period format: MMM YY"]);
+    expect(page.texts("#drawerMapping span.m-note")).toEqual(["2 items mapped manually, 1 ignored", "Period format: MMM YY"]);
     expect(page.texts("#drawerMapping details summary")).toEqual(["Line items a header can match: Cost, Hours, Rate, Start, End and 2 more Show all"]);
     const all = page.find("#drawerMapping details.m-note");
     expect([all?.localName, all?.children.map(child => child.localName), all?.children[1]?.textContent]).toEqual(["details", ["summary", "span"], "Cost, Hours, Rate, Start, End, Notes, Active"]);
@@ -6973,10 +6973,10 @@ describe("The mapping of an import from a file, in its row's details", () => {
     goTo(3);
     openImport("Prices from prices.csv");
     const table = (kind: string) => [page.texts(`#drawerMapping table.${kind} th`), page.all(`#drawerMapping table.${kind} tbody tr`).map(row => row.children.map(cell => cell.textContent))];
-    expect([sections(), page.texts("#drawerMapping .m-clear"), page.texts("#drawerMapping p")]).toEqual([["Mapping", "All columns"], ["Clear target prior to import"],
+    expect([sections(), page.texts("#drawerMapping .m-clear"), page.texts("#drawerMapping p")]).toEqual([["Mapping", "All details"], ["Clear target prior to import"],
       ['File Header row 1 · data from row 2 · Comma · " · Dot · ISO-8859-1', "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."]]);
     expect(table("m-dims")).toEqual([["Dimension", "Source", "Items", "Clear"], [["Time", "Column: Time", "Periods, M-Y", "Matched items only"],
-      ["Join Band", "Prompt each run", "", ""], ["Line Items", "Header row", "Mapped by hand", "Mapped items in source"]]]);
+      ["Join Band", "Prompt each run", "", ""], ["Line Items", "Header row", "Mapped manually", "Mapped items in source"]]]);
     expect([page.texts("#drawerMapping h4"), table("m-items")]).toEqual([["Line items (3)"],
       [["Header", "Line item"], [["Bonus Rate", "Bonus Rate"], ["Band start", "Band start"], [`Band end ${TAG}`, "Band end"]]]]);
     // In the dialog's order: what it clears and how its file is read, then the dimensions, the line items and the lines.
@@ -6988,6 +6988,71 @@ describe("The mapping of an import from a file, in its row's details", () => {
     openImport("Regions from the hub");
     expect(mapping()).toEqual([[["Region", "+ Regions"]], ["Source Model: Hub · Module: LIST - Regions · Saved view: Export"]]);
     expect(page.has("#drawerMapping .m-clear")).toBe(false);
+  });
+
+  /** An import into a module whose Division items are mapped manually, as the export keeps them, four source values, one
+   * ignored, and the names the run read of the items: all but East's. Every name and ID is made up. */
+  const DIVISION_COSTS = (pairs: ImportMapping["targets"][number]["pairs"] = [{ source: `North ${TAG}`, item: "201000000011" }, { source: "South", item: "201000000012" },
+    { source: "Old office" }, { source: "East", item: "201000000013" }]): ImportMapping => ({ id: "112000000003", name: "Prices from prices.csv", sourceType: "FILE",
+    importType: "MODULE_DATA", clear: "clear", moduleId: "102000000041", headers: [{ header: "Cost", lineItem: "Cost" }], targets: [
+      { target: "Line Items", source: "headerRow", kind: "lineItems", area: "MAPPED_ITEMS_IN_SOURCE", items: { byHand: 1, ignored: 0 } },
+      { target: "Division", source: "column", column: 1, text: "Division", kind: "list", area: "ALL_ITEMS",
+        items: { byHand: pairs!.filter(pair => pair.item !== undefined).length, ignored: pairs!.filter(pair => pair.item === undefined).length }, dimensionId: "101000000041", pairs },
+      { target: "Time", source: "column", column: 2, text: "Month", kind: "time", area: "MATCHED_ITEMS", periodFormat: "MMM YY" }] });
+  const ITEM_NAMES: [string, string][] = [["201000000011", `North Division ${TAG}`], ["201000000012", "South Division"]];
+  /** A table of the Mapping by its class: its headings, and its rows' cells. */
+  const mappingTable = (kind: string) => [page.texts(`#drawerMapping table.${kind} th`), page.all(`#drawerMapping table.${kind} tbody tr`).map(row => row.children.map(cell => cell.textContent))];
+
+  it("lists a list's items mapped manually after the line items, as the list's tab does: each source item with its item's name, its ID, or Ignored, through a refresh too", async () => {
+    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], DIVISION_COSTS()], importItemNames: ITEM_NAMES });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    const shown = () => {
+      // The dimensions in the dialog's order, the line items, then the list under its name and how many source items it has.
+      expect([mappingTable("m-dims")[1].map(row => row[0]), page.texts("#drawerMapping h4")]).toEqual([["Time", "Division", "Line Items"], ["Line items (1)", "Division (4)"]]);
+      expect(mappingTable("m-pairs")).toEqual([["Source item", "Mapped to"],
+        [[`North ${TAG}`, `North Division ${TAG}`], ["South", "South Division"], ["Old office", "Ignored"], ["East", "ID 201000000013"]]]);
+      // The dimensions table keeps its count words; nothing is a link, and nothing is folded.
+      expect([mappingTable("m-dims")[1][1][2], page.all("#drawerMapping table.m-pairs a, #drawerMapping table.m-pairs button").length, page.has("#drawerMapping .cell-more"),
+        page.texts("#drawerMapping p"), strayImg()]).toEqual(["Mapped manually: 3 items, 1 ignored", 0, false, ["Columns 1 and 2 are both used."], false]);
+      const html = page.id("drawerMapping").innerHTML;
+      const order = ["m-dims", "Line items (1)", "Division (4)", "Columns 1 and 2 are both used."].map(words => html.indexOf(words));
+      expect([order.every(at => at >= 0), order.every((at, index) => index === 0 || at > order[index - 1])]).toEqual([true, true]);
+    };
+    shown();
+    // Kept and refreshed, the result still names the items: the page reads them back with the rest of the result.
+    await letKeep();
+    await open("?tab=42");
+    await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
+    goTo(3);
+    openImport("Prices from prices.csv");
+    shown();
+  });
+
+  it.each([15, 16])("folds a list of %i items mapped manually as other long details lists fold", async count => {
+    const pairs = Array.from({ length: count }, (_, index) => ({ source: `Office ${index + 1}`, item: String(201000000100 + index) }));
+    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], DIVISION_COSTS(pairs)], importItemNames: [["201000000100", "First office"]] });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    expect(page.texts("#drawerMapping h4")).toEqual(["Line items (1)", `Division (${count})`]);
+    const tables = page.all("#drawerMapping table.m-pairs");
+    if (count === 15) {
+      expect([tables.length, tables[0].querySelectorAll("tbody tr").length, page.has("#drawerMapping .cell-more")]).toEqual([1, 15, false]);
+      return;
+    }
+    // The first twelve in the table; the other four in a table of the same columns right under it, hidden where the
+    // browser's find in page still reaches them; then the control, in one place with both.
+    const rest = page.find("#drawerMapping .m-pairs-all .cell-rest")!;
+    const more = page.find("#drawerMapping .m-pairs-all .cell-more")!;
+    expect([tables.map(table => table.querySelectorAll("tbody tr").length), tables[0].querySelectorAll("th").length, tables[1].querySelectorAll("th").length,
+      rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded"), rest.parentElement === more.parentElement, tables[1].parentElement === rest])
+      .toEqual([[12, 4], 2, 0, "until-found", "Show all 16", "false", true, true]);
+    expect(tables[0].querySelector("td")?.textContent).toBe("Office 1");
+    expect(mappingTable("m-pairs")[1].slice(0, 1)).toEqual([["Office 1", "First office"]]);
+    more.press();
+    expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual([null, "Show fewer", "true"]);
+    more.press();
+    expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual(["until-found", "Show all 16", "false"]);
   });
 
   it("writes every name, heading and value of a mapping as text", async () => {
@@ -7027,16 +7092,16 @@ describe("The actions of a process, in its row's details", () => {
     page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
   };
 
-  it("lists the actions a process runs before All columns, numbered in the order it runs them, each with its kind, and each opens its own row's details", async () => {
+  it("lists the actions a process runs before All details, numbered in the order it runs them, each with its kind, and each opens its own row's details", async () => {
     await openWith(WITH_PROCESSES);
     goTo(3);
     openProcess("Nightly load");
-    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["Actions (3)", "All columns"]]);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["Actions (3)", "All details"]]);
     expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Prices from the hub", "Import"], ["2", "1.1 Load regions", "Import"], ["3", "Delete old items", "Other action"]], []]);
     expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
     // An action's name opens its row of its own table, as a click on that row does.
     page.all('#drawerSteps [data-act="step"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Imports", ["All columns"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Imports", ["All details"]]);
     page.key("Escape");
     openProcess("Nightly load");
     page.all('#drawerSteps [data-act="step"]')[2].press();
@@ -7052,12 +7117,12 @@ describe("The actions of a process, in its row's details", () => {
     expect(links()).toEqual(["Send plan", "1.1 Load regions"]);
     page.key("Escape");
     openProcess("Empty");
-    expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["Actions (0)", "All columns"], [[], [], ["This process runs no action."]], false]);
+    expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["Actions (0)", "All details"], [[], [], ["This process runs no action."]], false]);
     page.key("Escape");
     // A row of another table has no actions to list, though it names a process.
     goTo(4);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect(sections()).toEqual(["All columns"]);
+    expect(sections()).toEqual(["All details"]);
   });
 
   it("lists, where the result has no process's own actions, those whose Used in Processes names it, by kind, and says that the order is not known", async () => {
@@ -7153,11 +7218,11 @@ describe("What a source model gives, in its row's details", () => {
     page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
   };
 
-  it("lists above All columns the objects a source model gives, each with its kind, and the imports that read them, each opening its own row", async () => {
+  it("lists above All details the objects a source model gives, each with its kind, and the imports that read them, each opening its own row", async () => {
     await openWith(WITH_SOURCES);
     goTo(3);
     openSource(DEMAND);
-    expect([page.id("drawerTitle").textContent, sections()]).toEqual([DEMAND, ["Sources (2)", "Imports (2)", "All columns"]]);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual([DEMAND, ["Sources (2)", "Imports (2)", "All details"]]);
     expect(page.texts("#drawerBody dt")).not.toContain("Sources");
     expect(page.texts("#drawerBody dt")).not.toContain("Imports");
     expect([page.texts("#drawerSources th"), rows("drawerSources"), page.texts("#drawerSources p")])
@@ -7186,7 +7251,7 @@ describe("What a source model gives, in its row's details", () => {
     };
     goTo(3);
     openSource(LOST);
-    expect(sections()).toEqual(["All columns"]);
+    expect(sections()).toEqual(["All details"]);
     page.key("Escape");
     openSource(LOST);
     page.key("Escape");

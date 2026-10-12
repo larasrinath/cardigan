@@ -53,6 +53,11 @@ export interface AnalysisResult {
    * tab could not be read, nor in one that an earlier version kept. An earlier version kept those of the imports from a
    * file alone (Source Type FILE), each without its `sourceType`. */
   importMappings?: ImportMapping[];
+  /** The names of the items that the imports into modules map manually (`MappedTarget.pairs`), each by its ID in the model,
+   * in digits, as the model data service named them while the run read the model's names (model-pages.ts): only of the IDs
+   * the mappings use, and only those it named. The results page says an item it did not name by its ID. None where it named
+   * none, in an app's result, and in one that an earlier version kept. */
+  importItemNames?: [id: string, name: string][];
   /** The actions each of a model's processes runs, in the order it runs them, as the process's own definition holds them:
    * one entry for each process of the Actions list, in that list's order. The results page lists them in the details of the
    * process's row of Processes. Empty for a model without a process; none in an app's result, in a model's whose Actions
@@ -108,8 +113,8 @@ export interface ImportMapping {
    * for an import into a module, and none where the definition says it in no way the dialog knows. */
   matchedBy?: ItemMatch;
   /** For an import into a module whose line items come from the header row: each header the modeller mapped to a line
-   * item by hand, with its line item, or ignored, in the order the definition writes them. None where no header is mapped
-   * by hand: the headers are then matched on names or codes when the import runs, and the definition stores none. */
+   * item manually, with its line item, or ignored, in the order the definition writes them. None where no header is mapped
+   * manually: the headers are then matched on names or codes when the import runs, and the definition stores none. */
   headers?: ImportHeader[];
   /** For an import into a module, what its dialog's Mapping tab says it does to the module before it loads: "clear" for
    * Clear target prior to import, where the definition has no `globalTargetAreaSpecification`, and "update" for Only
@@ -120,8 +125,20 @@ export interface ImportMapping {
    * File Options. None where the source's definition was not read or holds none of them, and none in a result an earlier
    * version kept. Nothing else of a source is kept: never the model, the workspace or the object a model's import reads. */
   fileOptions?: FileOptions;
+  /** For an import into a module that maps a list's items manually (`MappedTarget.pairs`): the module's ID in the model, in
+   * digits, as its definition names it. The run asks the module for the names of those items (model-pages.ts). None for any
+   * other import, and none in a result an earlier version kept. */
+  moduleId?: string;
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
+}
+
+/** A source value of a list's items that an import into a module maps manually (the dialog's Map items manually), as the
+ * import's definition keeps it in `valueMaps`: the value, as the column or the header row writes it, and the item it is
+ * mapped to, by the item's ID in the model, in digits; none where the modeller ignored the value. */
+export interface ItemPair {
+  source: string;
+  item?: string;
 }
 
 /** How a data source of uploaded data reads it (anaplan/view/ManageImportSources/_EditUploadedText.js), each as the source's
@@ -150,7 +167,7 @@ export interface ItemMatch {
   numbered?: boolean;
 }
 
-/** A header of the header row that the modeller mapped to a line item by hand, as the import's definition keeps it. */
+/** A header of the header row that the modeller mapped to a line item manually, as the import's definition keeps it. */
 export interface ImportHeader {
   /** The header, as the definition writes it. */
   header: string;
@@ -209,7 +226,7 @@ export interface MappedTarget {
   /** A column's identifier as the definition writes it, where it gives neither the column's place nor its heading. */
   id?: string;
   /** For a dimension of an import into a module, fed by a column or the header row, where the definition says how its items
-   * are matched: how many source values are mapped to items by hand, and how many are ignored. Both none is the dialog's
+   * are matched: how many source values are mapped to items manually, and how many are ignored. Both none is the dialog's
    * "Match on names or codes". None where the definition does not say. */
   items?: { byHand: number; ignored: number };
   /** For Time, fed by a column or the header row: the format its periods are read by, or null where they are matched by
@@ -224,4 +241,11 @@ export interface MappedTarget {
    * first, by Anaplan's word in the definition's `targetAreaSpecifications` (MATCHED_ITEMS, MAPPED_ITEMS_IN_SOURCE,
    * ALL_MAPPED_ITEMS or ALL_ITEMS). None where the definition says none. */
   area?: string;
+  /** For a dimension of an import into a module that is a list or a list subset, fed by a column or the header row, whose
+   * items are mapped manually: each source value with the item it is mapped to, or ignored, in the order the definition
+   * writes them (`ItemPair`), and the list's ID in the model, in digits, by which the run asks the module for the items'
+   * names. None where its items are matched on names or codes, which stores no pair, and none in a result an earlier
+   * version kept. */
+  pairs?: ItemPair[];
+  dimensionId?: string;
 }

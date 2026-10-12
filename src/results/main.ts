@@ -1235,7 +1235,7 @@ function closeDrawer(returnFocus = true): void {
  * such column or the cell says nothing, the first cell that does. A cell says nothing when the view shows it blank;
  * a dash that means inheritance remains text. The line under the heading names the
  * table it belongs to. An import's Mapping, a process's Actions, or a source model's Sources and Imports stand before
- * All columns, with raw values folded afterwards. */
+ * All details, with raw values folded afterwards. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = true): void {
   const object = entry.objects && objectOf(entry.objects, row);
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener, trackHistory);
