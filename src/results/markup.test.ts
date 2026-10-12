@@ -946,7 +946,7 @@ describe("A result whose every text is hostile, through every view of the page",
     expect(headings(tableHtml(viewOf(table, LINKS)))).toEqual(["1 Cards"]);
     expect(headings(runHtml())).toEqual(["1 "]);
     // The drawer's heading is the page shell's h2 (results.html), so its sections are one level under that.
-    expect(headings(rowDrawerHtml(columnsOf(table), table.rows[0], LINKS))).toEqual(["3 All columns"]);
+    expect(headings(rowDrawerHtml(columnsOf(table), table.rows[0], LINKS))).toEqual(["3 All details"]);
     expect(headings(cardDrawerHtml(columnsOf(table), table.rows[0], LINKS, [{ title: "Filters", none: "filters", headings: ["Sec"], rows: [] }]))).toEqual(["3 Card details", "3 Filters (0)"]);
     // Whatever the result, no view goes from one level to one two below it.
     for (const html of everyView()) {

@@ -386,6 +386,43 @@ async function readItemNames(reads: SocketReads, items: readonly { moduleId: str
   }
 }
 
+/** The names of the items of the lists that the imports into modules map manually (`MappedItems`), as `readItemNames` reads
+ * the names of shown and hidden items, with the same read and the same limits: of each module and list once, the items
+ * that no read of the run has named yet, by their IDs, a few lists at a time (`AT_A_TIME`), each read waiting as long as
+ * one of `readItemNames` may, and none started once the run is stopped. A list whose items are all named already is not
+ * asked. A read that is refused, or not answered in its time, is logged, and its items keep their IDs; the next is made. A
+ * connection that fails, a model that closes and a run that is stopped end the step, as they end every step. The log says
+ * what was asked of which module and list and how much of it was named, in IDs and counts only: never an import's source
+ * value, nor a name. */
+async function readImportItemNames(reads: SocketReads, mapped: readonly MappedItems[]): Promise<void> {
+  const { scope, subscribe, settle, catalog, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  // Each module and list once, with every item of it that is still unnamed; one whose IDs are no IDs is not asked.
+  const lists = new Map<string, { moduleId: string; dimensionId: string; itemIds: Set<string> }>();
+  for (const { moduleId, dimensionId, itemIds } of mapped) {
+    if (!ENTITY_ID.test(moduleId) || !ENTITY_ID.test(dimensionId)) continue;
+    const key = `${moduleId}|${dimensionId}`;
+    const list = lists.get(key) ?? { moduleId, dimensionId, itemIds: new Set<string>() };
+    for (const id of itemIds) if (ENTITY_ID.test(id) && !catalog.listItems.has(id)) list.itemIds.add(id);
+    lists.set(key, list);
+  }
+  const asks = [...lists.values()].filter(list => list.itemIds.size).map(list => ({ ...list, itemIds: [...list.itemIds] }));
+  if (!asks.length) return;
+  progress.status(`Reading import item names in ${scope.modelName}…`);
+  const keep = (count: number): string => `${count} ${count === 1 ? "keeps its ID" : "keep their IDs"}`;
+  await settle(eachAtMost(asks, AT_A_TIME, reads.signal, async ({ moduleId, dimensionId, itemIds }) => {
+    const what = `import items of dimension ${dimensionId} in module ${moduleId}`;
+    try {
+      addSelections(catalog, await subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
+        { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }), { moduleId, dimensionId });
+      const named = itemIds.filter(id => catalog.listItems.has(id)).length;
+      progress.log(`${what}: ${named} of ${itemIds.length} named${named < itemIds.length ? `; ${keep(itemIds.length - named)}` : ""}`);
+    } catch (error) {
+      progress.log(`${what}: ${message(error)}; ${keep(itemIds.length)}`);
+    }
+  }));
+}
+
 /** How many of the saved views the cards use are read before the others: where the service refuses every one of them and
  * answers none, the others are not asked. A model's 233 saved views were refused one and all, live, in 5.3 s (10 Oct
  * 2026). A view that answers shows that the others may, and they are read. */
@@ -896,9 +933,13 @@ async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCard
   if (left.length > MAX_LOGGED) progress.log(`dimensions with no name: ${left.length - MAX_LOGGED} more are not listed`);
 }
 
-/** What the names of a model are read for: the pages' described cards, the pages' names by their IDs, and the model's
- * line items as its export read them, where the run has them (model-pages.ts). */
-export interface CatalogInputs { pages: readonly UxPageCardDetails[]; pageNames: ReadonlyMap<string, string>; exported?: ExportedLineItems }
+/** The items of a list that the imports into a module map manually, to be named (model-pages.ts `mappedItems`): the
+ * module they load into and the list, each by its ID, with the items they map, each by its ID, once each. */
+export interface MappedItems { moduleId: string; dimensionId: string; itemIds: string[] }
+
+/** What the names of a model are read for: the pages' described cards, the pages' names by their IDs, the model's line
+ * items as its export read them, and the items its imports map manually, where the run has them (model-pages.ts). */
+export interface CatalogInputs { pages: readonly UxPageCardDetails[]; pageNames: ReadonlyMap<string, string>; exported?: ExportedLineItems; mapped?: readonly MappedItems[] }
 
 /** How the names of a model are read. `frameHost` is the host of the frame the model is read in: the socket starts there
  * (withSocket). `viewLayouts: false` reads no saved view's rows, columns and context selectors: they are for an app's
@@ -907,10 +948,11 @@ export interface CatalogInputs { pages: readonly UxPageCardDetails[]; pageNames:
 export interface LoadOptions { frameHost?: () => string | undefined; viewLayouts?: boolean; polaris?: PolarisReader }
 
 /** Names for one model, for pages that were read already: an app's (`analyseApp`), or the pages built on a model, read
- * after its export (model-pages.ts `addModelPages`). */
+ * after its export (model-pages.ts `addModelPages`), with the items its imports map manually (`mapped`). */
 export function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
-  progress: Progress, signal?: AbortSignal, exported?: ExportedLineItems, options: LoadOptions = {}): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
-  return loadCatalogWhen(scope, Promise.resolve({ pages, pageNames, ...(exported ? { exported } : {}) }), progress, signal, options);
+  progress: Progress, signal?: AbortSignal, exported?: ExportedLineItems, options: LoadOptions = {}, mapped?: readonly MappedItems[]):
+  Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
+  return loadCatalogWhen(scope, Promise.resolve({ pages, pageNames, ...(exported ? { exported } : {}), ...(mapped?.length ? { mapped } : {}) }), progress, signal, options);
 }
 
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
@@ -1032,7 +1074,7 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
           answers.subsets = { data: options.polaris.subsets };
         }
         // What the other steps read for: the pages and the export, which a model's run may still be reading.
-        const { pages, exported } = given ?? await time.step("waiting for the pages and the export", () => settle(arrived));
+        const { pages, exported, mapped } = given ?? await time.step("waiting for the pages and the export", () => settle(arrived));
         progress.status(`Reading line items in ${scope.modelName}…`);
         await time.step("line items", async () => {
           if (exported && compared === undefined) compared = await compareExported(reads, moduleIds, exported);
@@ -1049,6 +1091,8 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
         const needs = gridNeeds(pages);
         await time.step("module dimensions", () => readModuleDimensions(reads, needs.modules));
         await time.step("item names", () => readItemNames(reads, needs.items));
+        // The items the imports map manually, which the export said: a step only for a model whose imports have any.
+        if (mapped?.length) await time.step("import item names", () => readImportItemNames(reads, mapped));
         if (options.viewLayouts !== false) await time.step("saved views", () => readViewLayouts(reads, refs));
         else if (refs.some(ref => ref.kind === "view")) progress.log("saved views: their rows, columns and context selectors are not read, as no table of a model's run shows them");
         await time.step("filter line items", () => findFilterLineItems(reads, pages, compared?.kept ? exported : undefined));

@@ -1,4 +1,4 @@
-import { declaredType, loadCatalog, loadCatalogWhen, readPublished, type CatalogInputs, type ModelScope } from "./analyse.js";
+import { declaredType, loadCatalog, loadCatalogWhen, readPublished, type CatalogInputs, type MappedItems, type ModelScope } from "./analyse.js";
 import { describePageCards } from "./card-reader/card-details.js";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
@@ -260,6 +260,52 @@ export function exportedLineItems(result: AnalysisResult, ids: readonly (readonl
   return { lineItems, modules: [...modules] };
 }
 
+/** The items of the lists that the imports into modules map manually, to be named with the model's names (analyse.ts
+ * `readImportItemNames`): each module and list once, whichever imports map it, with every item they map, once, in the
+ * order the mappings give them. A source value that is ignored maps no item. None where no import maps a list's items
+ * manually, nor for an import whose mapping does not say its module. */
+export function mappedItems(result: AnalysisResult): MappedItems[] {
+  const lists = new Map<string, { moduleId: string; dimensionId: string; itemIds: Set<string> }>();
+  for (const mapping of result.importMappings ?? []) {
+    if (mapping.importType !== "MODULE_DATA" || mapping.moduleId === undefined) continue;
+    for (const target of mapping.targets) {
+      if (!target.pairs || target.dimensionId === undefined) continue;
+      const key = `${mapping.moduleId}|${target.dimensionId}`;
+      const list = lists.get(key) ?? { moduleId: mapping.moduleId, dimensionId: target.dimensionId, itemIds: new Set<string>() };
+      for (const { item } of target.pairs) if (item !== undefined) list.itemIds.add(item);
+      if (list.itemIds.size) lists.set(key, list);
+    }
+  }
+  return [...lists.values()].map(list => ({ ...list, itemIds: [...list.itemIds] }));
+}
+
+/** Puts on the result the names the run read of the items that its imports map manually (`mappedItems`), those of the IDs
+ * the mappings use alone (result-types.ts `importItemNames`): out of `named`, the names the run read, where it read them,
+ * else the reason it did not. The log says how many were named, or that none could be and why, in counts only: never a
+ * name. Nothing where no import maps a list's items manually. */
+function nameMappedItems(result: AnalysisResult, named: ModelCatalog | string, log: (line: string) => void): void {
+  const lists = mappedItems(result);
+  const ids = [...new Set(lists.flatMap(list => list.itemIds))];
+  if (!ids.length) return;
+  const of = `${ids.length} ${ids.length === 1 ? "item" : "items"} of ${lists.length} ${lists.length === 1 ? "list" : "lists"}`;
+  const keep = (count: number): string => (count === 1 ? "keeps its ID" : "keep their IDs");
+  if (typeof named === "string") {
+    log(`import items mapped manually: ${of} ${keep(ids.length)}, as the model's names were not read: ${named}`);
+    return;
+  }
+  const names = ids.flatMap((id): [string, string][] => {
+    const name = named.listItems.get(id);
+    return name === undefined ? [] : [[id, name]];
+  });
+  if (names.length) result.importItemNames = names;
+  const left = ids.length - names.length;
+  log(`import items mapped manually: ${names.length} of ${of} named${left ? `; ${left} ${keep(left)}` : ""}`);
+}
+
+/** Why the model's names were not read where no page is built on it: they are read for the pages, with the items its
+ * imports map manually. */
+const NO_PAGE = "no page is built on this model";
+
 /** The step's own lines after the export's in the result's diagnostic log: the export wrote that log in the model's page
  * before this step began, and it is what the Overview copies, a refresh too. */
 function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResult {
@@ -291,12 +337,18 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
     step.log(`pages built on the model: ${message(error)}`);
     // From the export as it was handed over: the failed work may have added to its copy already.
     try {
-      return addLog(leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`), logged);
+      const result = leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`);
+      nameMappedItems(result, failedWhy(error), step.log);
+      return addLog(result, logged);
     } catch {
       return given;
     }
   }
 }
+
+/** Why the model's names were not read where the work on the pages built on it failed: Anaplan's answer, as the tables
+ * left out say it, or what failed. */
+const failedWhy = (error: unknown): string => (error instanceof RestError ? unreadWhy(error) : `the work on the pages built on the model failed (${message(error)})`);
 
 /** What a model's run started of the pages built on the model, before its export came (`startModelPages`). */
 export interface ModelPagesStart {
@@ -404,12 +456,15 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
   })();
   pagesWork.catch(() => undefined);
   const loadWhen: typeof loadCatalogWhen = reads.loadCatalogWhen
-    ?? ((on, inputs, progressOf, signalOf, options) => inputs.then(({ pages, pageNames, exported }) => reads.loadCatalog(on, pages, pageNames, progressOf, signalOf, exported, options)));
+    ?? ((on, inputs, progressOf, signalOf, options) => inputs.then(({ pages, pageNames, exported, mapped }) =>
+      reads.loadCatalog(on, pages, pageNames, progressOf, signalOf, exported, options, mapped)));
   const namesWork = pagesWork.then(async (read): Promise<Named> => {
     if ("left" in read || !read.pages.length) return NO_NAMES();
+    // The export gives the line items it read, and the items its imports map manually, which are named with the rest.
     const inputs = exportCame.then(({ given, lineItemIds }): CatalogInputs => {
       const exported = lineItemIds ? exportedLineItems(given, lineItemIds, step.log) : undefined;
-      return { pages: read.pages.map(page => page.details), pageNames: pageNamesOf(read), ...(exported ? { exported } : {}) };
+      const mapped = mappedItems(given);
+      return { pages: read.pages.map(page => page.details), pageNames: pageNamesOf(read), ...(exported ? { exported } : {}), ...(mapped.length ? { mapped } : {}) };
     });
     const from = Date.now();
     try {
@@ -442,7 +497,10 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
       try {
         const result = copied(given);
         const read = await pagesWork;
-        if ("left" in read) return addLog(leftOut(result, read.left), logged);
+        if ("left" in read) {
+          nameMappedItems(result, read.left, step.log);
+          return addLog(leftOut(result, read.left), logged);
+        }
         const named = await namesWork;
         signal?.throwIfAborted();
         const built = tablesOf(result, read, named, step, time, [given.name, UNTIL_NAMED]);
@@ -454,7 +512,9 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
         step.log(`pages built on the model: ${message(error)}`);
         // From the export as it was handed over: the failed work may have added to its copy already.
         try {
-          return addLog(leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`), logged);
+          const result = leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`);
+          nameMappedItems(result, failedWhy(error), step.log);
+          return addLog(result, logged);
         } catch {
           return given;
         }
@@ -468,20 +528,27 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
 async function withModelPages(result: AnalysisResult, customerId: string | undefined, progress: Progress, signal: AbortSignal | undefined,
   reads: PageReads, lineItemIds: readonly (readonly [string, string])[] | undefined): Promise<AnalysisResult> {
   const workspaceId = modelDetail(result, "Workspace ID");
-  if (!customerId || !SCOPE_ID.test(customerId)) return leftOut(result, NO_CUSTOMER);
-  if (!workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(result.id)) return leftOut(result, "the model's workspace or model ID could not be read");
+  /** The three tables left out for `why`, and so the model's names unread: the items its imports map manually keep their IDs. */
+  const without = (why: string): AnalysisResult => {
+    nameMappedItems(result, why, progress.log);
+    return leftOut(result, why);
+  };
+  if (!customerId || !SCOPE_ID.test(customerId)) return without(NO_CUSTOMER);
+  if (!workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(result.id)) return without("the model's workspace or model ID could not be read");
 
   /** How long each step took: the log's one line on it comes once the tables are made. */
   const time = stepTimes();
   const read = await readPagesOf(customerId, result.id, progress, signal, reads, time);
-  if ("left" in read) return leftOut(result, read.left);
+  if ("left" in read) return without(read.left);
 
   // The names the cards use, from this model, as an app's pages are named. The line items the export read stand for the
-  // listing's, so that the modules the cards use are not read again.
+  // listing's, so that the modules the cards use are not read again. The items the imports map manually are named with them.
   const scope: ModelScope = { customerId, workspaceId, modelId: result.id, modelName: result.name };
   const exported = read.pages.length && lineItemIds ? exportedLineItems(result, lineItemIds, progress.log) : undefined;
+  const mapped = mappedItems(result);
   const named = read.pages.length
-    ? await time.step("names", () => reads.loadCatalog(scope, read.pages.map(page => page.details), pageNamesOf(read), progress, signal, exported, MODEL_NAMES))
+    ? await time.step("names", () => reads.loadCatalog(scope, read.pages.map(page => page.details), pageNamesOf(read), progress, signal, exported, MODEL_NAMES,
+      mapped.length ? mapped : undefined))
     : NO_NAMES();
   signal?.throwIfAborted();
   return tablesOf(result, read, named, progress, time, [result.name]);
@@ -644,6 +711,8 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
       result.engine === "polaris" && !result.tables.some(table => table.file === "Line Items.csv") && detail === "Page Filters" ? value.split(`The ${FILTER_USES} column of Line Items`)[0].trimEnd() : value]),
     ...(entries.length === 0 ? { apps: NO_APPS } : apps.length ? { apps: apps.join("\n") } : {}),
   });
+  // The names of the items the imports map manually, which are read with the pages' names: not without a page.
+  nameMappedItems(result, pages.length ? named.catalog : NO_PAGE, progress.log);
   progress.log(`pages built on the model: ${pages.length} read, ${unpublished} unpublished, ${unread.length} not read; ${apps.length} apps; `
     + `${usage.length} module usage rows, ${filters.length} page filters, ${actions.length} page actions`);
   progress.log(time.line());

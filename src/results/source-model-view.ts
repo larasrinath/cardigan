@@ -6,7 +6,7 @@ import { IMPORTS_FILE, SOURCE_MODELS_FILE, tableLabel } from "./result-view.js";
 import { sourceObjectOf } from "./source-object.js";
 import { cellText, type Row } from "./table-engine.js";
 
-/** What a model's source model gives it, as the details of its row of Source Models show them, above All columns: the
+/** What a model's source model gives it, as the details of its row of Source Models show them, above All details: the
  * objects of that model the imports read, each with its kind, from the rows of Import Data Sources whose Source Model is
  * this one; then the imports that read them, each with the objects it reads. The Source Models grid itself only counts
  * them (Sources, Imports): the names are in the other two tables.

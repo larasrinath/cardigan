@@ -353,7 +353,7 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
   if (counts.ids && !idsFit) notes.push("The line items that actions name by ID could not be matched, so some line items may be used by actions after all.");
 
   // Imports into line items, each import of the Imports table into a module by its Target Object. An import loads what its
-  // mapping says, whatever its source: its targets, and its headers mapped by hand; where its line items come from a column
+  // mapping says, whatever its source: its targets, and its headers mapped manually; where its line items come from a column
   // or from the header row matched by name when it runs, any of them. Where the mapping is not known (it could not be read,
   // or a result an earlier version kept has none for an import from a model), any of them too. Any line item is every
   // line item of the module that holds data and has no formula, which an import can load. An import's mapping is found as

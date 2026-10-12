@@ -180,7 +180,7 @@ describe("An import's mapping, read out of its definition", () => {
     expect([readDefinition("", NAMES).details, readDefinition("{", NAMES).details, readDefinition("[]", NAMES).details]).toEqual([[], [], []]);
   });
 
-  it("reads what an import into a module holds of its sources: headers and items mapped by hand or ignored, Time's period format and a date's format", () => {
+  it("reads what an import into a module holds of its sources: headers and items mapped manually or ignored, Time's period format and a date's format", () => {
     // As Anaplan's import dialog writes them (view/ImportDefinition.js `_getDimensionsInfo`, view/MappedDimensionImportOptions.js,
     // view/TimeDimensionImportOptions.js) and anaplan-sam reads them (definition-core.ts): a value map for each dimension
     // shown, the line items' with a blank target; -1 for a source value ignored; Time's period format; a date line item's
@@ -204,16 +204,19 @@ describe("An import's mapping, read out of its definition", () => {
       dataFormatDefinitions: { fmt: { type: "date", format: "DD/MM/YYYY", active: true }, num: { type: "number", format: "0.00" } },
       dataFormatsByTarget: { [id(PRICE)]: "fmt", [id(UNITS)]: "num" } });
     const { mapping, details } = readDefinition(text, NAMES);
-    expect(mapping).toEqual({ importType: "MODULE_DATA", clear: "clear", targets: [
-      // Each dimension fed by a column says how many of its items are mapped by hand and ignored: none of either is the
-      // dialog's Match on names or codes. A dimension that targetAreaSpecifications names says which items it clears.
-      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 }, kind: "list", area: "ALL_ITEMS" },
+    // The module's ID, by which the run asks for the names of the list's items mapped manually.
+    expect(mapping).toEqual({ importType: "MODULE_DATA", clear: "clear", moduleId: String(PRICES), targets: [
+      // Each dimension fed by a column says how many of its items are mapped manually and ignored: none of either is the
+      // dialog's Match on names or codes. A dimension that targetAreaSpecifications names says which items it clears. A
+      // list keeps each pair, its item by its ID, and its own ID.
+      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 }, kind: "list", area: "ALL_ITEMS",
+        pairs: [{ source: "Prod A", item: String(SOLD) }, { source: "Old prod" }], dimensionId: String(PRODUCTS) },
       { target: "Time", source: "column", column: 2, text: "Month", periodFormat: "MMM YY", kind: "time" },
       { target: "+ Regions", source: "column", column: 3, items: { byHand: 0, ignored: 0 }, kind: "list" },
       { target: "Line Items", source: "headerRow", items: { byHand: 2, ignored: 1 }, kind: "lineItems", area: "MATCHED_ITEMS" },
       { target: "Units", source: "column", text: "Units", kind: "lineItem" },
       { target: "Price", source: "column", text: "Price", dateFormat: "DD/MM/YYYY", kind: "lineItem" }],
-    // The headers mapped by hand, each with its line item, and the one ignored; a value that is no item's ID is no mapping.
+    // The headers mapped manually, each with its line item, and the one ignored; a value that is no item's ID is no mapping.
     headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Price (EUR)", lineItem: "Price" }, { header: "Notes" },
       { header: "Units", lineItem: "Units" }, { header: "Price", lineItem: "Price" }] });
     // The log says how each part is made, and no value of the import's source.
@@ -221,6 +224,48 @@ describe("An import's mapping, read out of its definition", () => {
       + "(text of 6 characters to an ID; text of 8 characters ignored); aliasMaps list of 1: line items: 0; "
       + "targetAreaSpecifications list of 2: 101000000001: ALL_ITEMS | line items: MATCHED_ITEMS; periodFormats list of 1: 9000000001: a format of 6 characters");
     expect(details[2]).not.toMatch(/Prod|Unit count|Notes|MMM|DD\/MM/);
+  });
+
+  it("keeps each list's items mapped manually, each with its item's ID or ignored, with the list's ID and the module's, and no pair of a list matched on names or codes", () => {
+    // As the dialog's tab of a list writes them with Map items manually (view/MappedDimensionImportOptions.js): a source
+    // value to an item's ID, or to -1 where it is ignored. Division from a column, four values, one ignored; Regions from the
+    // header row; Products matched on names or codes; Versions and the line items mapped manually too.
+    const [NORTH, SOUTH, EAST, REGION_A, PLAN] = [201000000011, 201000000012, 201000000013, 202000000001, 107000000001];
+    const text = definition("MODULE_DATA", PRICES, [
+      { targetType: "moduleDimension", target: id(DIVISION), sourceType: "column", sourceColumnId: "#1", sourceColumnName: "Division" },
+      { targetType: "moduleDimension", target: id(REGIONS), sourceType: "headerRow" },
+      { targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnId: "#2" },
+      { targetType: "moduleDimension", target: "_9000000002_", sourceType: "column", sourceColumnId: "#3" },
+      { targetType: "moduleDimension", target: "", sourceType: "column", sourceColumnId: "#4" },
+      // A list fed by no column or header row keeps nothing of a value map: the dialog shows it no such choice.
+      { targetType: "moduleDimension", target: "_101000000098_", sourceType: "prompt" }], {
+      valueMaps: [{ targetType: "moduleDimension", target: id(DIVISION), values: { North: NORTH, "South ": SOUTH, Unknown: -1, East: EAST } },
+        { targetType: "moduleDimension", target: id(REGIONS), values: { "Region A": REGION_A } },
+        { targetType: "moduleDimension", target: id(PRODUCTS), values: {} },
+        { targetType: "moduleDimension", target: "_9000000002_", values: { Plan: PLAN } },
+        { targetType: "moduleDimension", target: "", values: { "Units sold": UNITS } },
+        { targetType: "moduleDimension", target: "_101000000098_", values: { Odd: NORTH } }] });
+    const { mapping } = readDefinition(text, NAMES);
+    expect(mapping.moduleId).toBe(String(PRICES));
+    expect(mapping.targets.map(({ target, pairs, dimensionId, items }) => ({ target, pairs, dimensionId, items }))).toEqual([
+      // Each pair as the definition writes it, its source value as it is, in the order the definition gives them.
+      { target: "Division", items: { byHand: 3, ignored: 1 }, dimensionId: String(DIVISION),
+        pairs: [{ source: "North", item: String(NORTH) }, { source: "South ", item: String(SOUTH) }, { source: "Unknown" }, { source: "East", item: String(EAST) }] },
+      { target: "+ Regions", items: { byHand: 1, ignored: 0 }, dimensionId: String(REGIONS), pairs: [{ source: "Region A", item: String(REGION_A) }] },
+      // Matched on names or codes: nothing is stored, and no pair is kept.
+      { target: "Products", items: { byHand: 0, ignored: 0 }, pairs: undefined, dimensionId: undefined },
+      // Versions and the line items keep their counts alone.
+      { target: "Versions", items: { byHand: 1, ignored: 0 }, pairs: undefined, dimensionId: undefined },
+      { target: "Line Items", items: { byHand: 1, ignored: 0 }, pairs: undefined, dimensionId: undefined },
+      { target: "ID 101000000098", items: undefined, pairs: undefined, dimensionId: undefined }]);
+    // An import whose lists are all matched on names or codes says no module: nothing is to be named.
+    const matched = readDefinition(definition("MODULE_DATA", PRICES, [{ targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnId: "#2" }],
+      { valueMaps: [{ targetType: "moduleDimension", target: id(PRODUCTS), values: {} }] }), NAMES).mapping;
+    expect([matched.moduleId, matched.targets[0].pairs]).toEqual([undefined, undefined]);
+    // A module the definition names by no ID keeps the pairs, with nothing to ask the names of them by.
+    const nowhere = readDefinition(JSON.stringify({ importType: "MODULE_DATA", target: "Prices", mappings: [{ targetType: "moduleDimension", target: id(DIVISION),
+      sourceType: "column", sourceColumnId: "#1" }], valueMaps: [{ targetType: "moduleDimension", target: id(DIVISION), values: { North: NORTH } }] }), NAMES).mapping;
+    expect([nowhere.moduleId, nowhere.targets[0].pairs]).toEqual([undefined, [{ source: "North", item: String(NORTH) }]]);
   });
 
   it("says that Time's periods are matched by their names, takes the parts of no other make, and reads none of them for an import into a list", () => {
@@ -353,7 +398,7 @@ describe("The mappings of a model's imports", () => {
 
 // The sources of imports, and an import shaped as a live one the owner compared with Anaplan's dialog: Time from a column
 // kept by its heading with a period format, a list prompted each run, the line items from the header row with three
-// headers mapped by hand, and the import clearing its target first. Every name and ID is made up.
+// headers mapped manually, and the import clearing its target first. Every name and ID is made up.
 const [BANDS, JOIN_BAND, STAFF_COSTS] = [102000000005, 101000000005, 102000000008];
 const [BONUS, BAND_START, BAND_END] = [1901000000051, 1901000000052, 1901000000053];
 const [STAFF_BONUS, START_MONTH, GONE_COLUMN] = [1901000000081, 1901000000082, 1901000000099];
@@ -422,7 +467,7 @@ describe("The sources of a model's imports", () => {
   const read = (log: string[] = []) => importMappings(IMPORTS, DEFINED, BAND_NAMES, line => log.push(line), IMPORT_DEFINITION,
     { grid: SOURCES, column: SOURCE_DEFINITION, model: THIS_MODEL });
 
-  it("reads the live import's shape as its dialog keeps it: what it clears, each dimension's clear choice, Time's period format and the headers mapped by hand", () => {
+  it("reads the live import's shape as its dialog keeps it: what it clears, each dimension's clear choice, Time's period format and the headers mapped manually", () => {
     const [joiners] = read();
     expect(joiners).toEqual({ id: "112000000051", name: "Load joiners", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
       { target: "Time", source: "column", text: "Time", kind: "time", area: "MATCHED_ITEMS", periodFormat: "M-Y" },
@@ -508,7 +553,7 @@ describe("The sources of a model's imports", () => {
     expect(mappingView(read()[0])).toEqual({ clear: "Clear target prior to import", rows: [],
       from: { label: "File", text: 'Header row 1 · data from row 2 · Comma · " · Dot · ISO-8859-1' },
       dimensions: [["Time", "Column: Time", "Periods, M-Y", "Matched items only"], ["Join Band", "Prompt each run", "", ""],
-        ["Line Items", "Header row", "Mapped by hand", "Mapped items in source"]],
+        ["Line Items", "Header row", "Mapped manually", "Mapped items in source"]],
       lineItems: { count: 3, heading: "Header", rows: [["Bonus Rate", "Bonus Rate"], ["Band start", "Band start"], ["Band end", "Band end"]], notes: [] },
       lines: ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
   });
@@ -1216,10 +1261,10 @@ describe("Periods named by the client's own labels, and line items the model doe
     expect(log.filter(line => line.startsWith("Import mappings: Load plan:"))).toEqual([
       "Import mappings: Load plan: ID 3130054 is entity type 817 (class LINE_ITEM) with no name in the client; ID 5550061 is entity type 455 (class SYSTEM) with no name in the client; "
         + "ID 6180093 is entity type 817 (class LINE_ITEM) with no name in the client"]);
-    // The Mapping shows both, among the line items: each line item's own column, then each header mapped by hand. Its last
-    // line says what a missing line item is.
+    // The Mapping shows both, among the line items: each line item's own column, then each header mapped manually. Its last
+    // line says what a missing line item is. Time comes first, as the dialog lists it.
     expect(mappingView(mapping)).toEqual({ clear: "Clear target prior to import", rows: [],
-      dimensions: [["Products", "Column 1: Product", "Matched on names or codes", ""], ["Time", "Fixed: Mar 26", "", ""], ["Line Items", "Header row", "Mapped by hand", ""]],
+      dimensions: [["Time", "Fixed: Mar 26", "", ""], ["Products", "Column 1: Product", "Matched on names or codes", ""], ["Line Items", "Header row", "Mapped manually", ""]],
       lineItems: { count: 7, heading: "Source", notes: [], rows: [["Column 2", "Units"], ["Column 3", "Missing line item (ID 3130054)"], ["Column 4", "ID 5550061"],
         ["Unit count", "Units"], ["Shelf", "Shelf units"], ["Display share", "Missing line item (ID 6180093)"], ["Comment", "Ignored"]] },
       lines: ["Items set to match on names or codes are paired when the import runs, so Anaplan saves no pairs for them.", "Columns 1 to 4 are all used.", MISSING_LINE_ITEM_NOTE] });
