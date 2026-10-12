@@ -21,9 +21,12 @@ export function subsetModules(value: string, modules: readonly (readonly [name: 
  * LINE_ITEM_SUBSET_PROPERTY. Read every returned property with its own heading. Its membership view
  * (Settings._getViewDefinition for entity type 114) uses MODULE_WITH_LINE_ITEM against LINE_ITEM_SUBSET,
  * with one subset as static context. The context-free matrix does not give membership. No editor,
- * cache update or system action is involved. */
-export async function readLineItemSubsets(native: Native, log: Log, stop?: Stop, modules: readonly (readonly [string, string])[] = []): Promise<{ table: Table; note?: string }> {
+ * cache update or system action is involved. Where the model refused rows of the subsets' own grid, which is read
+ * without them (native.ts `readGrid`), that grid comes back as `refused`, for the export's note on it; a membership grid
+ * read without some rows gives its subset the members it holds, and the log names the rows. */
+export async function readLineItemSubsets(native: Native, log: Log, stop?: Stop, modules: readonly (readonly [string, string])[] = []): Promise<{ table: Table; note?: string; refused?: Grid }> {
   const definitions = await readGrid(native, axis(native, "LINE_ITEM_SUBSET"), axis(native, "LINE_ITEM_SUBSET_PROPERTY"), LINE_ITEM_SUBSETS, log, undefined, false, stop);
+  const refused = definitions.refused ? { refused: definitions } : {};
   const table = gridTable(definitions);
   const moduleColumn = table.headers.indexOf("Modules");
   const moduleCells = table.rows.map(row => row[moduleColumn] ?? "");
@@ -38,7 +41,7 @@ export async function readLineItemSubsets(native: Native, log: Log, stop?: Stop,
       for (const id of new Set(resolved.flatMap(value => value?.unknown ?? []))) log(`${LINE_ITEM_SUBSETS}: module ID ${id} has no name; kept as ID`);
     }
   }
-  if (!definitions.rows.length) return { table };
+  if (!definitions.rows.length) return { table, ...refused };
   const started = Date.now();
   const items: (string | undefined)[] = [];
   let empty = 0;
@@ -91,7 +94,7 @@ export async function readLineItemSubsets(native: Native, log: Log, stop?: Stop,
   const read = items.length - missing - empty;
   const subsets = (count: number): string => `${count} ${count === 1 ? "subset" : "subsets"}`;
   log(`${LINE_ITEM_SUBSETS} membership: ${subsets(read)} read${empty ? `; ${subsets(empty)} without Modules (no read)` : ""}${missing ? `; ${subsets(missing)} not read` : ""} in ${seconds(Date.now() - started)}`);
-  return { table, ...(missing === items.length ? { note: MEMBERSHIP_NOT_READ } : {}) };
+  return { table, ...(missing === items.length ? { note: MEMBERSHIP_NOT_READ } : {}), ...refused };
 }
 
 /** Match by subset ID, never by a possibly repeated label. A module's own row is a heading, not a

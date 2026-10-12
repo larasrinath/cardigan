@@ -50,6 +50,14 @@ function readLineItemIds(value: unknown): [string, string][] | undefined {
   return pairs;
 }
 
+/** A model's Line Items columns (result-types.ts `lineItemColumns`): a list of texts, or nothing when anything else is
+ * there. A result is not refused for them: the engine is then told by the Line Items table alone. */
+function readTexts(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const texts = Array.from(value as unknown[]);
+  return texts.every((text): text is string => typeof text === "string") ? texts : undefined;
+}
+
 /** Where a model was read: an Anaplan site's origin, as the content scripts run on, and a customer's ID, or nothing when
  * anything else is there. As for the modules' IDs, a result is not refused for it: the page only cannot open the model's
  * modules, apps and pages by it. */
@@ -223,10 +231,13 @@ function readResult(value: unknown): AnalysisResult | undefined {
   const site = data.kind === "model" ? readSite(data.site) : undefined;
   const lineItemIds = data.kind === "model" ? readLineItemIds(data.lineItemIds) : undefined;
   const pageUses = data.kind === "model" ? readPageUses(data.pageUses) : undefined;
+  const lineItemColumns = data.kind === "model" ? readTexts(data.lineItemColumns) : undefined;
+  // A count of rows the model refused: a whole number above nought, as the export gives one only where it refused some.
+  const lineItemsRefused = data.kind === "model" && isCount(data.lineItemsRefused) && data.lineItemsRefused > 0 ? data.lineItemsRefused : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}), ...(listIds ? { listIds } : {}),
     ...(data.kind === "model" && data.engine === "polaris" ? { engine: "polaris" } : {}),
     ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}),
-    ...(pageUses ? { pageUses } : {}) };
+    ...(pageUses ? { pageUses } : {}), ...(lineItemColumns ? { lineItemColumns } : {}), ...(lineItemsRefused ? { lineItemsRefused } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is

@@ -11,7 +11,43 @@ export interface CellSource {
 }
 export interface LabelEntry { ids: number[]; labels: string[] }
 export interface GridRow { ids: number[]; labels: string[]; cells: string[] }
-export interface Grid { columns: LabelEntry[]; rows: GridRow[] }
+export interface Grid {
+  columns: LabelEntry[];
+  rows: GridRow[];
+  /** Where the model refused rows of the grid, which was read without them (native.ts `readGrid`): how many rows the grid
+   * has, as its first page said, and the place of each row left out, counted from 0 in the grid's order, as the log counts
+   * a grid's rows. None where no row was left out. */
+  refused?: { rowCount: number; places: number[] };
+}
+
+/** A count with its thousands apart, as a note and the log's line on a grid read in part say one: 7,100. */
+export const thousands = (count: number): string => count.toLocaleString("en-US");
+
+/** The places of rows, in words: "2,345", "2,345 and 5,012", "12, 40 and 41"; of more than ten, the first ten and how many
+ * more. */
+export function placesSaid(places: readonly number[]): string {
+  const said = places.slice(0, 10).map(thousands);
+  const more = places.length - said.length;
+  if (more > 0) return `${said.join(", ")} and ${thousands(more)} more`;
+  return said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said.at(-1)}` : said.join("");
+}
+
+/** What the note on a grid the model refused rows of says after the grid's name: how many of its rows were read, of how
+ * many, and which it refused, by their places as the log says them. "7,098 of 7,100 rows: the model refused 2 (rows 2,345
+ * and 5,012)." Nothing for a grid read whole. */
+export function refusedNote(grid: Grid): string | undefined {
+  const refused = grid.refused;
+  if (!refused?.places.length) return undefined;
+  const count = refused.places.length;
+  return `${thousands(grid.rows.length)} of ${thousands(refused.rowCount)} rows: the model refused ${thousands(count)} (${count === 1 ? "row" : "rows"} ${placesSaid(refused.places)}).`;
+}
+
+/** What the Files row of a file made from such a grid alone says after its number of rows, its numbers written as that one
+ * is: "7098 rows (the model refused 2 of 7100)". */
+export function refusedRemark(grid: Grid): string | undefined {
+  const refused = grid.refused;
+  return refused?.places.length ? `the model refused ${refused.places.length} of ${refused.rowCount}` : undefined;
+}
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " " };
 

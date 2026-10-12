@@ -215,6 +215,47 @@ describe("The content scripts on an Anaplan page", () => {
     expect(WebSocket).not.toHaveBeenCalled();
   });
 
+  /** A model's run whose export the frame hands over as `sent`: the result the results page is given. */
+  const runWith = async (sent: AnalysisResult): Promise<AnalysisResult> => {
+    at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: sent }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    return assemble(port.received)!;
+  };
+  const engineSaid = (result: AnalysisResult) => result.tables[0].rows.filter(row => row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:")).map(row => row[2]);
+  const POLARIS_NOTE = "Polaris model, read in full through Model Building.";
+
+  it.each([
+    { columns: ["Formula", "Populated Cell Count"], engine: "Polaris" },
+    { columns: ["Formula", "Calculation Complexity", "Module Name"], engine: "Polaris" },
+    { columns: ["Formula", "Cell Count", "Module Name"], engine: "Classic" },
+  ])("tells the engine from the Line Items grid's columns $columns where the export has no Line Items table", async ({ columns, engine }) => {
+    // The export of a model that refused every page of Line Items after the first: no table, but the columns that page gave.
+    const result = await runWith({ ...exportedModel(), lineItemColumns: columns });
+    expect(engineSaid(result)).toEqual([`Engine: ${engine} (from the Line Items columns)`]);
+    expect(overviewOf(result).notes.includes(POLARIS_NOTE)).toBe(engine === "Polaris");
+    // The columns go no further: the results page holds none.
+    expect(Object.hasOwn(result, "lineItemColumns")).toBe(false);
+  });
+
+  it("tells Polaris from a Line Items table read in part, and says under Unused Line Items that what the refused rows use may be listed", async () => {
+    const sent = { ...exportedModel(), lineItemColumns: ["Formula", "Calculation Complexity", "Referenced By", "Module Name"], lineItemsRefused: 2 };
+    sent.tables.push({ file: "Line Items.csv", label: "Line Items", headers: ["", "Formula", "Calculation Complexity", "Referenced By", "Module Name"],
+      rows: [["Demand", "", "", "", ""], ["Units", "", "1", "Price", "Demand"], ["Price", "Units * 2", "1", "", "Demand"]], guard: false });
+    const result = await runWith(sent);
+    expect([engineSaid(result), overviewOf(result).notes.includes(POLARIS_NOTE)]).toEqual([["Engine: Polaris (from the Line Items columns)"], true]);
+    expect(result.tables[0].rows.filter(row => row[0] === "Notes" && row[1] === "Unused Line Items").map(row => row[2]))
+      .toContain("2 rows of Line Items could not be read, so line items used only by them may be listed, and so may their modules.");
+    // The count, like the columns, goes no further.
+    expect([Object.hasOwn(result, "lineItemColumns"), Object.hasOwn(result, "lineItemsRefused")]).toEqual([false, false]);
+  });
+
   it.each(["HYPERBLOCK", "CALCULATION_ENGINE"])("does not try the partial reader after an answering client fails: %s", async dataEngineType => {
     at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
     await import("./content.js");
