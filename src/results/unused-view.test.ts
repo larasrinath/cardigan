@@ -34,8 +34,7 @@ describe("The tables of what nothing in a model uses, on the results page", () =
       const view = fileView(result, shown);
       expect([view.table.rows, view.note]).toEqual([shown.rows, `${UNUSED_CAVEAT} ${NOTE}`]);
     }
-    expect(UNUSED_CAVEAT).toBe("Unused means no use Cardigan can see. Other models importing from this one, API or integration reads outside this model's exports, "
-      + "line items hidden in saved views and Workflow aren't visible.");
+    expect(UNUSED_CAVEAT).toBe("Unused means no use Cardigan can see: other models' imports, API reads, line items hidden in saved views and Workflow aren't visible.");
     // Without such a note, the line says what unused means alone; a table without rows says what that means.
     const quiet = model([MODULES, LINE_ITEMS, { ...UNUSED_LINE_ITEMS, rows: [] }, { ...UNUSED_MODULES, rows: [] }], []);
     expect(unusedNotes(quiet)).toEqual([]);
