@@ -6,7 +6,12 @@ import { FILE_ICONS, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, type
 const DIMENSIONS = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Line Item Subsets"];
 const USAGE = ["Module Usage", "Page Filters", "Page Actions"];
 const MODULES = ["Modules", "Line Items", "Dynamic Cell Access"];
+/** Actions as Polaris shows it, its Imports file unsplit. */
 const ACTIONS = ["Processes", "Imports", "Import Data Sources", "Exports", "Other Actions"];
+/** The three tables the page shows a split Imports file as, in its order. */
+const IMPORT_TABLES_SHOWN = ["File Imports", "Model-to-Model Imports", "In-Model Imports"];
+/** Actions with its Imports file split: every table it shows then, in its order. */
+const SPLIT_ACTIONS = ["Processes", ...IMPORT_TABLES_SHOWN, "Import Data Sources", "Exports", "Other Actions"];
 const entries = (names: readonly string[]): NavEntry[] => names.map(label => ({ id: label, label, file: `${label}.csv` }));
 const full = [{ id: "overview", label: "Overview" }, ...entries([...DIMENSIONS, ...MODULES, ...ACTIONS, "Source Models", ...USAGE]), { id: "map", label: "Model map" }];
 const words = (node: FakeElement) => node.querySelector("span")?.textContent;
@@ -14,7 +19,7 @@ const tree = (node: FakeElement): unknown[] => node.children.filter(child => !ch
   child.classList.contains("nav-section") ? [child.getAttribute("aria-label"), tree(child)] : words(child));
 
 describe("The model's shorter menu bar", () => {
-  it("keeps the approved order, each table once, with Versions in Dimensions and Page Actions in App Usage", () => {
+  it("keeps the approved order, each table once, with Versions in Dimensions, Page Actions in App Usage, and each group's sub-groups in its own order", () => {
     const items = navItems(full, true);
     expect(items.map(item => "entries" in item ? [item.group.label, item.entries.map(entry => entry.label)] : item.label)).toEqual([
       "Overview", ["Dimensions", DIMENSIONS], ["Modules", MODULES], ["Actions", ACTIONS], "Source Models", ["App Usage", USAGE], "Model map",
@@ -24,6 +29,16 @@ describe("The model's shorter menu bar", () => {
       { label: "Time", files: ["Model Calendar.csv", "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
       { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] },
     ]);
+    // Imports holds the Imports file itself, which Polaris shows unsplit, the three tables it is split into, and Data Sources.
+    expect(NAV_GROUPS.find(group => group.label === "Actions")?.subgroups).toEqual([
+      { label: "Processes", files: ["Processes.csv"] },
+      { label: "Imports", files: ["Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv", "Import Data Sources.csv"] },
+      { label: "Exports", files: ["Exports.csv"] }, { label: "Other Actions", files: ["Other Actions.csv"] },
+    ]);
+    // A group's sub-groups hold its files in the group's own order, each once: a heading moves no table.
+    const headed = NAV_GROUPS.filter(group => group.subgroups);
+    expect(headed.map(group => group.label)).toEqual(["Dimensions", "Actions"]);
+    for (const group of headed) expect(group.subgroups?.flatMap(subgroup => subgroup.files)).toEqual(group.files);
   });
 
   it("uses the same nested tree in the wide and compact menus, with named groups and headings that cannot take focus", () => {
@@ -31,13 +46,18 @@ describe("The model's shorter menu bar", () => {
     const wide = parseMarkup(navHtml(items, "overview"));
     const compact = parseMarkup(navMenuHtml(items, "overview", "Overview"));
     const dimensions = [["Time", DIMENSIONS.slice(0, 2)], ["Versions", ["Versions"]], ["Lists", DIMENSIONS.slice(3)]];
+    // The Imports file that Polaris shows unsplit stands under Imports, with Data Sources.
+    const actions = [["Processes", ["Processes"]], ["Imports", ["Imports", "Import Data Sources"]], ["Exports", ["Exports"]], ["Other Actions", ["Other Actions"]]];
     expect(tree(wide.querySelector("#navGroupDimensions")!)).toEqual(dimensions);
+    expect(tree(wide.querySelector("#navGroupActions")!)).toEqual(actions);
     expect(tree(compact.querySelector("#navMenu")!)).toEqual([
-      "Overview", ["Dimensions", dimensions], ["Modules", MODULES], ["Actions", ACTIONS], "Source Models", ["App Usage", USAGE], "Model map",
+      "Overview", ["Dimensions", dimensions], ["Modules", MODULES], ["Actions", actions], "Source Models", ["App Usage", USAGE], "Model map",
     ]);
-    // Every Dimensions table sits at the same section depth, which sets its indent in results.css.
-    for (const menu of [wide.querySelector("#navGroupDimensions")!, compact.querySelector('[aria-label="Dimensions"]')!]) {
-      expect(menu.querySelectorAll(".nav-item").map(entry => entry.parentElement?.parentElement === menu)).toEqual(DIMENSIONS.map(() => true));
+    // Every Dimensions table, and every Actions table, sits at the same section depth, which sets its indent in results.css.
+    for (const [id, label, names] of [["navGroupDimensions", "Dimensions", DIMENSIONS], ["navGroupActions", "Actions", ACTIONS]] as const) {
+      for (const menu of [wide.querySelector(`#${id}`)!, compact.querySelector(`[aria-label="${label}"]`)!]) {
+        expect(menu.querySelectorAll(".nav-item").map(entry => entry.parentElement?.parentElement === menu)).toEqual(names.map(() => true));
+      }
     }
     for (const root of [wide, compact]) {
       for (const section of root.querySelectorAll(".nav-section")) {
@@ -69,31 +89,44 @@ describe("The model's shorter menu bar", () => {
   });
 
   it.each([
-    [["File Imports"]],
-    [["Model-to-Model Imports"]],
-    [["File Imports", "In-Model Imports"]],
-    [["Model-to-Model Imports", "In-Model Imports"]],
-    [["File Imports", "Model-to-Model Imports", "In-Model Imports"]],
-  ])("lists the tables of imports in Actions in the Imports file's place, with no heading, at the indent of its other tables: %j", present => {
-    const names = ["Processes", ...present, "Import Data Sources", "Exports", "Other Actions"];
+    // The full menu: four headings, in Actions' order, the three tables of imports in the Imports file's place.
+    [SPLIT_ACTIONS, [["Processes", ["Processes"]], ["Imports", [...IMPORT_TABLES_SHOWN, "Import Data Sources"]], ["Exports", ["Exports"]], ["Other Actions", ["Other Actions"]]]],
+    [["Processes", "File Imports", "In-Model Imports", "Import Data Sources", "Exports", "Other Actions"],
+      [["Processes", ["Processes"]], ["Imports", ["File Imports", "In-Model Imports", "Import Data Sources"]], ["Exports", ["Exports"]], ["Other Actions", ["Other Actions"]]]],
+    [["Processes", "File Imports"], [["Processes", ["Processes"]], ["Imports", ["File Imports"]]]],
+    [["Model-to-Model Imports", "Other Actions"], [["Imports", ["Model-to-Model Imports"]], ["Other Actions", ["Other Actions"]]]],
+    [["Processes", "Exports"], [["Processes", ["Processes"]], ["Exports", ["Exports"]]]],
+    // Polaris, or an Imports file with no Source Type column or no rows: the file itself, unsplit, under Imports.
+    [["Processes", "Imports", "Import Data Sources", "Exports"], [["Processes", ["Processes"]], ["Imports", ["Imports", "Import Data Sources"]], ["Exports", ["Exports"]]]],
+    [["Imports", "Other Actions"], [["Imports", ["Imports"]], ["Other Actions", ["Other Actions"]]]],
+  ])("heads every sub-group of Actions when tables of two or more are present, every table at one indent, in both layouts: %j", (names, sections) => {
     const items = navItems(entries(names), true);
     const wide = parseMarkup(navHtml(items, ""));
     const compact = parseMarkup(navMenuHtml(items, "", "Overview"));
     for (const actions of [wide.querySelector("#navGroupActions")!, compact.querySelector('[aria-label="Actions"]')!]) {
-      // No heading but the narrow window's one menu's for the group itself, and every table one step under the menu.
+      // The narrow window's one menu heads the group itself as well, before its sub-groups' headings.
+      expect(actions.querySelectorAll(".nav-heading").map(heading => heading.textContent).filter(label => label !== "Actions")).toEqual(sections.map(([label]) => label));
+      expect(tree(actions)).toEqual(sections);
+      // Every table stands two steps under the menu, in its sub-group's section, which sets its indent in results.css.
+      expect(actions.querySelectorAll(".nav-item").map(entry => [words(entry), entry.parentElement?.parentElement === actions])).toEqual(names.map(name => [name, true]));
+    }
+  });
+
+  it.each([
+    [[...IMPORT_TABLES_SHOWN, "Import Data Sources"]],
+    [["File Imports", "Model-to-Model Imports"]],
+    [["Model-to-Model Imports", "In-Model Imports", "Import Data Sources"]],
+    [["Imports", "Import Data Sources"]],
+  ])("gives Actions no heading where all its tables are of Imports, each one step under the menu: %j", names => {
+    const items = navItems(entries(names), true);
+    const wide = parseMarkup(navHtml(items, ""));
+    const compact = parseMarkup(navMenuHtml(items, "", "Overview"));
+    for (const actions of [wide.querySelector("#navGroupActions")!, compact.querySelector('[aria-label="Actions"]')!]) {
+      // No heading but the narrow window's one menu's for the group itself.
       expect(actions.querySelectorAll(".nav-heading").map(heading => heading.textContent).filter(label => label !== "Actions")).toEqual([]);
       expect(tree(actions)).toEqual(names);
       expect(actions.querySelectorAll(".nav-item").map(entry => [words(entry), entry.parentElement === actions])).toEqual(names.map(name => [name, true]));
     }
-  });
-
-  it("gives the tables of imports no heading where they are Actions' only tables, and makes one of them alone the bar's own entry", () => {
-    const items = navItems(entries(["File Imports", "Model-to-Model Imports"]), true);
-    for (const html of [navHtml(items, ""), navMenuHtml(items, "", "Overview")]) {
-      expect(parseMarkup(html).querySelectorAll(".nav-heading").map(heading => heading.textContent).filter(label => label !== "Actions")).toEqual([]);
-    }
-    const one = entries(["In-Model Imports"]);
-    expect(navItems(one, true)).toEqual(one);
   });
 
   it("draws each table of imports with an icon of its own, in the menu bar's style, and the Actions button names the one shown", () => {
@@ -111,7 +144,7 @@ describe("The model's shorter menu bar", () => {
       .toEqual(["Model-to-Model Imports", ["Actions", ...tables.map(table => table.label)], parseMarkup(icons[1]!).innerHTML]);
   });
 
-  it.each([...DIMENSIONS, ...USAGE])("makes %s a standalone entry when it is the group's only table", label => {
+  it.each([...DIMENSIONS, ...SPLIT_ACTIONS, "Imports", ...USAGE])("makes %s a standalone entry when it is the group's only table", label => {
     const tables = entries([label]);
     const items = navItems(tables, true);
     expect(items).toEqual(tables);
@@ -129,13 +162,14 @@ describe("The model's shorter menu bar", () => {
     }
   });
 
-  it.each(["Dimensions", "App Usage"])("keeps all labels for %s's width, with its own icon until a table is shown", label => {
+  it.each(["Dimensions", "Actions", "App Usage"])("keeps all labels for %s's width, with its own icon until a table is shown", label => {
     const group = NAV_GROUPS.find(group => group.label === label)!;
-    const tables = entries(label === "Dimensions" ? DIMENSIONS : USAGE);
+    const tables = entries(label === "Dimensions" ? DIMENSIONS : label === "Actions" ? SPLIT_ACTIONS : USAGE);
     const items = navItems(tables, true);
     for (const shown of [undefined, ...tables]) {
       const button = parseMarkup(navHtml(items, shown?.id ?? "overview")).querySelector(".nav-group-btn")!;
       expect(words(button)).toBe(shown?.label ?? label);
+      // The group's name and its tables' labels, and no heading: the menu's headings leave the button's slot as it was.
       expect(button.dataset.labels?.split("\n")).toEqual([label, ...tables.map(table => table.label)]);
       expect(button.querySelector("svg")?.outerHTML).toBe(parseMarkup(shown ? FILE_ICONS.get(shown.file!)! : group.icon).innerHTML);
       expect(button.querySelectorAll(".nav-chevron")).toHaveLength(1);

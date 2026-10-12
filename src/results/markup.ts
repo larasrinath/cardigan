@@ -276,8 +276,10 @@ const entryIcon = (entry: NavEntry): string =>
  * order of Anaplan's Model settings (result-view.ts `MODEL_FILE_ORDER`), each group by the names the analysis writes its
  * files under, never by a table's words. Source Models stands in the bar on its own,
  * as does a file that no group names: none is left out. Each group's ID is the ID of its menu. The page's own words and
- * drawings only: nothing of a result. Actions holds the three tables the page shows the Imports file as (import-files.ts)
- * in the file's place, among its other tables: the file itself stands there where the page shows it as it stands. */
+ * drawings only: nothing of a result. Dimensions and Actions each head their tables by sub-group (`navGroupHtml`), in
+ * the group's file order. Actions holds the three tables the page shows the Imports file as (import-files.ts) in the
+ * file's place, under Imports with Import Data Sources: the file itself stands there where the page shows it as it
+ * stands, unsplit. */
 export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[];
   subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
   { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
@@ -286,7 +288,10 @@ export const NAV_GROUPS: readonly { id: string; label: string; icon: string; fil
       { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
   { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE] },
   { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions,
-    files: ["Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
+    files: ["Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"],
+    subgroups: [{ label: "Processes", files: ["Processes.csv"] },
+      { label: "Imports", files: [IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv"] },
+      { label: "Exports", files: ["Exports.csv"] }, { label: "Other Actions", files: ["Other Actions.csv"] }] },
   { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
 ];
 
