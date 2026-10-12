@@ -204,13 +204,10 @@ describe("An import's mapping, read out of its definition", () => {
       dataFormatDefinitions: { fmt: { type: "date", format: "DD/MM/YYYY", active: true }, num: { type: "number", format: "0.00" } },
       dataFormatsByTarget: { [id(PRICE)]: "fmt", [id(UNITS)]: "num" } });
     const { mapping, details } = readDefinition(text, NAMES);
-    // The module's ID, by which the run asks for the names of the list's items mapped manually.
-    expect(mapping).toEqual({ importType: "MODULE_DATA", clear: "clear", moduleId: String(PRICES), targets: [
+    expect(mapping).toEqual({ importType: "MODULE_DATA", clear: "clear", targets: [
       // Each dimension fed by a column says how many of its items are mapped manually and ignored: none of either is the
-      // dialog's Match on names or codes. A dimension that targetAreaSpecifications names says which items it clears. A
-      // list keeps each pair, its item by its ID, and its own ID.
-      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 }, kind: "list", area: "ALL_ITEMS",
-        pairs: [{ source: "Prod A", item: String(SOLD) }, { source: "Old prod" }], dimensionId: String(PRODUCTS) },
+      // dialog's Match on names or codes. A dimension that targetAreaSpecifications names says which items it clears.
+      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 }, kind: "list", area: "ALL_ITEMS" },
       { target: "Time", source: "column", column: 2, text: "Month", periodFormat: "MMM YY", kind: "time" },
       { target: "+ Regions", source: "column", column: 3, items: { byHand: 0, ignored: 0 }, kind: "list" },
       { target: "Line Items", source: "headerRow", items: { byHand: 2, ignored: 1 }, kind: "lineItems", area: "MATCHED_ITEMS" },
@@ -226,10 +223,10 @@ describe("An import's mapping, read out of its definition", () => {
     expect(details[2]).not.toMatch(/Prod|Unit count|Notes|MMM|DD\/MM/);
   });
 
-  it("keeps each list's items mapped manually, each with its item's ID or ignored, with the list's ID and the module's, and no pair of a list matched on names or codes", () => {
+  it("keeps of a list's items mapped manually how many there are and how many are ignored, and nothing of the pairs: no value, no item, no list's or module's ID", () => {
     // As the dialog's tab of a list writes them with Map items manually (view/MappedDimensionImportOptions.js): a source
     // value to an item's ID, or to -1 where it is ignored. Division from a column, four values, one ignored; Regions from the
-    // header row; Products matched on names or codes; Versions and the line items mapped manually too.
+    // header row; Products matched on names or codes; Versions and the line items, from a column, mapped manually too.
     const [NORTH, SOUTH, EAST, REGION_A, PLAN] = [201000000011, 201000000012, 201000000013, 202000000001, 107000000001];
     const text = definition("MODULE_DATA", PRICES, [
       { targetType: "moduleDimension", target: id(DIVISION), sourceType: "column", sourceColumnId: "#1", sourceColumnName: "Division" },
@@ -246,26 +243,22 @@ describe("An import's mapping, read out of its definition", () => {
         { targetType: "moduleDimension", target: "", values: { "Units sold": UNITS } },
         { targetType: "moduleDimension", target: "_101000000098_", values: { Odd: NORTH } }] });
     const { mapping } = readDefinition(text, NAMES);
-    expect(mapping.moduleId).toBe(String(PRICES));
-    expect(mapping.targets.map(({ target, pairs, dimensionId, items }) => ({ target, pairs, dimensionId, items }))).toEqual([
-      // Each pair as the definition writes it, its source value as it is, in the order the definition gives them.
-      { target: "Division", items: { byHand: 3, ignored: 1 }, dimensionId: String(DIVISION),
-        pairs: [{ source: "North", item: String(NORTH) }, { source: "South ", item: String(SOUTH) }, { source: "Unknown" }, { source: "East", item: String(EAST) }] },
-      { target: "+ Regions", items: { byHand: 1, ignored: 0 }, dimensionId: String(REGIONS), pairs: [{ source: "Region A", item: String(REGION_A) }] },
-      // Matched on names or codes: nothing is stored, and no pair is kept.
-      { target: "Products", items: { byHand: 0, ignored: 0 }, pairs: undefined, dimensionId: undefined },
-      // Versions and the line items keep their counts alone.
-      { target: "Versions", items: { byHand: 1, ignored: 0 }, pairs: undefined, dimensionId: undefined },
-      { target: "Line Items", items: { byHand: 1, ignored: 0 }, pairs: undefined, dimensionId: undefined },
-      { target: "ID 101000000098", items: undefined, pairs: undefined, dimensionId: undefined }]);
-    // An import whose lists are all matched on names or codes says no module: nothing is to be named.
-    const matched = readDefinition(definition("MODULE_DATA", PRICES, [{ targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnId: "#2" }],
-      { valueMaps: [{ targetType: "moduleDimension", target: id(PRODUCTS), values: {} }] }), NAMES).mapping;
-    expect([matched.moduleId, matched.targets[0].pairs]).toEqual([undefined, undefined]);
-    // A module the definition names by no ID keeps the pairs, with nothing to ask the names of them by.
-    const nowhere = readDefinition(JSON.stringify({ importType: "MODULE_DATA", target: "Prices", mappings: [{ targetType: "moduleDimension", target: id(DIVISION),
-      sourceType: "column", sourceColumnId: "#1" }], valueMaps: [{ targetType: "moduleDimension", target: id(DIVISION), values: { North: NORTH } }] }), NAMES).mapping;
-    expect([nowhere.moduleId, nowhere.targets[0].pairs]).toEqual([undefined, [{ source: "North", item: String(NORTH) }]]);
+    // Every list, as Versions and the line items, says how many of its values are mapped manually, and how many ignored.
+    expect(mapping.targets.map(({ target, items }) => ({ target, items }))).toEqual([
+      { target: "Division", items: { byHand: 3, ignored: 1 } },
+      { target: "+ Regions", items: { byHand: 1, ignored: 0 } },
+      // Matched on names or codes: nothing is stored.
+      { target: "Products", items: { byHand: 0, ignored: 0 } },
+      { target: "Versions", items: { byHand: 1, ignored: 0 } },
+      { target: "Line Items", items: { byHand: 1, ignored: 0 } },
+      { target: "ID 101000000098", items: undefined }]);
+    // And no more: the mapping holds none of the source values, none of the items they are mapped to, and neither the
+    // lists' IDs nor the module's, which would name them. Only headers mapped to line items are kept pair by pair.
+    const kept = JSON.stringify(mapping);
+    expect([...["North", "South", "Unknown", "East", "Region A", "Plan", "Units sold", "Odd"], ...[NORTH, SOUTH, EAST, REGION_A, PLAN, DIVISION, REGIONS, PRICES].map(String)]
+      .filter(words => kept.includes(words))).toEqual([]);
+    expect([Object.keys(mapping).sort(), [...new Set(mapping.targets.flatMap(target => Object.keys(target)))].sort()])
+      .toEqual([["clear", "importType", "targets"], ["column", "items", "kind", "source", "target", "text"]]);
   });
 
   it("says that Time's periods are matched by their names, takes the parts of no other make, and reads none of them for an import into a list", () => {
