@@ -1591,7 +1591,8 @@ describe("The map's views", () => {
     expect([part(".map-formulas").checked, linksDrawn().length, status(), act("links").classList.contains("map-on")])
       .toEqual([true, 7, "3 line items · 5 outside the module · 7 links", false]);
     expect(text(`#${part(".map-formulas").getAttribute("aria-describedby")}`)).toBe(FORMULAS_SAY);
-    expect(parts(".map-legend-note").map(note => note.textContent)).toEqual([LINK_SAYS]);
+    // Formulas' arrows have no line in the legend: the notes about the map say what an arrow means.
+    expect([parts(".map-legend-note").map(note => note.textContent), text(".map-legend").includes(LINK_SAYS)]).toEqual([[], false]);
     // Unticked, with no other kind ticked: no link is drawn, and the map says so plainly, at the foot and in the legend.
     tickFormulas();
     expect([part(".map-formulas").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([false, true, { view: "drill", module: "CAL01 - Revenue", noFormulas: true }]);
@@ -1618,7 +1619,8 @@ describe("The map's views", () => {
     tickFormulas();
     expect(text(".map-live")).toBe("Formula links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
     expect([parts(".map-legend-note").map(note => note.textContent), heard.at(-1), act("links").classList.contains("map-on")])
-      .toEqual([[LINK_SAYS, ACCESS_LINK_SAYS, ACCESS_MARK_SAYS.drill], { view: "drill", module: "CAL01 - Revenue", access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }, true]);
+      .toEqual([[ACCESS_LINK_SAYS, ACCESS_MARK_SAYS.drill], { view: "drill", module: "CAL01 - Revenue", access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }, true]);
+    expect(text(".map-legend")).not.toContain(LINK_SAYS);
     expect(locate()).toEqual(kept);
     expect(linksDrawn()).toHaveLength(8);
   });
@@ -4153,6 +4155,8 @@ describe("The links of the pages' filters on the map", () => {
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([true, true, { view: "modules", filters: true }]);
     expect(text(".map-live")).toMatch(/^Page filters are drawn\. /);
     expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("3 links"), 1]);
+    // Formulas' links are drawn too, and have no line in the legend: the dashed line's is its only one.
+    expect([parts(".map-legend-note").map(line => line.getAttribute("class")), text(".map-legend").includes(LINK_SAYS)]).toEqual([["map-legend-note map-legend-filter"], false]);
     env.settle();
     expect(linksDrawn().filter(call => call.dash.join(",") === "5,3.5").length).toBe(2);
     tickFilters();
