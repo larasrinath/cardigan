@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { COLOUR_TOKENS, contrast, FALLBACK, layerClass, layerColour, layerStriped, over, parseColor, readPalette, SECTION_COLOURS, SECTION_MARKS, sectionToken, type MapPalette, type Rgb } from "./map-palette.js";
+import { COLOUR_TOKENS, contrast, FAINT_TOKEN, FALLBACK, layerClass, layerColour, layerStriped, over, parseColor, readPalette, SECTION_COLOURS, SECTION_MARKS, sectionToken, type MapPalette, type Rgb } from "./map-palette.js";
 
 const read = (name: string): string => readFileSync(new URL(`../../${name}`, import.meta.url), "utf8");
 const MAP_CSS = read("map.css");
@@ -218,6 +218,32 @@ describe("The map's colours in the stylesheet", () => {
       expect(parseColor(palette.edge)?.a, theme).toBe(1);
     }
     expect(on(FALLBACK.edge, FALLBACK.canvas)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("draws a faint line a third as strong as a link in the light theme, and stronger in the dark, where a third is hardly seen, still well under a link", () => {
+    /** The links' colour at a strength, laid over the canvas: a faint line as the canvas draws it, off a trace. */
+    const faintOn = (palette: MapPalette, strength = palette.faint): number => {
+      const { r, g, b } = rgb(palette.edge);
+      return on(`rgba(${r}, ${g}, ${b}, ${strength})`, palette.canvas);
+    };
+    const [light, dark] = [paletteOf("light"), paletteOf("dark")];
+    expect([light.faint, dark.faint > light.faint, dark.faint < 1]).toEqual([1 / 3, true, true]);
+    // In the dark theme it stands out more than a third would there, and at least as much as the light theme's on its own.
+    expect(faintOn(dark)).toBeGreaterThan(faintOn(dark, 1 / 3));
+    expect(faintOn(dark)).toBeGreaterThanOrEqual(faintOn(light));
+    // In both, a link stands out from the canvas by more, and by a clear step.
+    for (const palette of [light, dark]) expect(on(palette.edge, palette.canvas) - faintOn(palette)).toBeGreaterThanOrEqual(1);
+    // The legend's sample is drawn at the same strength: the theme's token, or the light theme's third where there is none.
+    const sample = /\.map-line-faint\{([^}]*)\}/.exec(MAP_CSS.replace(/\/\*[\s\S]*?\*\//g, ""))?.[1] ?? "";
+    expect(sample).toContain("border-top:2px solid var(--map-edge)");
+    const fallback = Number(/opacity:var\(--map-faint,([\d.]+)\)/.exec(sample)?.[1]);
+    expect(Math.abs(fallback - FALLBACK.faint)).toBeLessThan(0.01);
+  });
+
+  it("reads a faint line's strength from its token: a number above 0 and no more than 1, and a third where there is none such", () => {
+    const strength = (value: string): number => readPalette(name => (name === FAINT_TOKEN ? value : ""), solid).faint;
+    expect([strength(" .6 "), strength("1"), strength("0.25")]).toEqual([0.6, 1, 0.25]);
+    for (const none of ["", "0", "-0.5", "1.5", "60%", "strong", "var(--nowhere)"]) expect(strength(none), none).toBe(1 / 3);
   });
 
   it("gives the key and its count contrast in both themes, in a colour distinct from the funnel", () => {

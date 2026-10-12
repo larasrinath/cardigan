@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { bridgesOver } from "./map-bridges.js";
 import { hitNode, type Camera } from "./map-camera.js";
 import { createFonts, DOTTED, drawMinimap, drawScene, legibleFrom, linkStrength, type Pen, type Scene } from "./map-canvas.js";
-import { drawLinks, moduleGraph, modulesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { drawLinks, LAYER, moduleGraph, modulesGraph, sourcesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, ITEM, layoutGraph, sizeNodes, type Room } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
 import { FALLBACK } from "./map-palette.js";
+import { traceSources } from "./map-sources.js";
 import { lineWidth } from "./map-text.js";
 import { traceNode } from "./map-trace.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
@@ -823,5 +825,97 @@ describe("A page filter's link in the map's picture", () => {
     const formulas = pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.edge);
     expect([filters.length, filters.map(call => [call.dash.join(","), call.dashOffset]), formulas.length, formulas.map(call => call.dash.length)])
       .toEqual([2, [["5,3.5", 0], ["5,3.5", 0]], 1, [0]]);
+  });
+});
+
+describe("A faint line in the map's picture", () => {
+  /** Total, in REP01 Board, reads Net and Cost; Net reads Gross and Cost; Gross reads Units and Price. Its source inputs
+   * laid out, with the Calculations hidden: Price and Units each have a faint line to Total, and Cost its link. */
+  function calculationsHidden() {
+    const make = new GraphMaker();
+    const data = make.module("DAT01 Data", "01: Main");
+    const board = make.module("REP01 Board", "01: Main");
+    const units = make.item(data, "Units");
+    const price = make.item(data, "Price");
+    const cost = make.item(data, "Cost");
+    const gross = make.item(board, "Gross", { formula: "'DAT01 Data'.Units * 'DAT01 Data'.Price" });
+    const net = make.item(board, "Net", { formula: "Gross - 'DAT01 Data'.Cost" });
+    const total = make.item(board, "Total", { formula: "Net + 'DAT01 Data'.Cost" });
+    make.link(units, gross).link(price, gross).link(gross, net).link(cost, net).link(net, total).link(cost, total);
+    const model = indexModel(make.graph());
+    const graph = ready(sourcesGraph(model, traceSources(model, total)!));
+    const shown = new Uint8Array(graph.nodes.map(node => (node.layer === LAYER.calculation ? 0 : 1)));
+    return { model, graph, shown, faint: bridgesOver(graph, new Set([LAYER.calculation])) };
+  }
+  const label = (graph: ViewGraph) => ({ s, t }: { s: number; t: number }): string => `${graph.nodes[s].label} > ${graph.nodes[t].label}`;
+  /** A strength to the ninth place, so that a third of 0.12 is 0.04. */
+  const round = (value: number): number => Math.round(value * 1e9) / 1e9;
+  /** Each line drawn, as its colour, strength and dashes. */
+  const looks = (pen: FakePen): unknown[][] => linkStrokes(pen).map(call => [call.strokeStyle, round(call.globalAlpha), call.dash]);
+
+  it("is drawn under the links, the ways a link is: as thin as a link of one, solid, a third as strong, with its arrowhead", () => {
+    const { graph, shown, faint } = calculationsHidden();
+    expect(faint.map(label(graph))).toEqual(["Price > Total", "Units > Total"]);
+    // In the light theme, as the palette has it where no token says otherwise, a faint line is a third of a link.
+    expect(FALLBACK.faint).toBe(1 / 3);
+    const { pen, traced } = draw(sceneOf(graph, { shown, faint }));
+    const strokes = linkStrokes(pen);
+    // The two faint lines first, then the one link, which lies over them.
+    const thinnest = 0.8 + Math.log2(2) * 0.35;
+    expect(strokes.map(call => [call.strokeStyle, call.globalAlpha, call.dash, call.lineWidth])).toEqual([[FALLBACK.edge, FALLBACK.faint, [], thinnest], [FALLBACK.edge, FALLBACK.faint, [], thinnest],
+      [FALLBACK.edge, 1, [], thinnest]]);
+    // From the right of what feeds to the left of what it feeds, ending in an arrowhead as strong as the line.
+    const [price, units, total] = ["Price", "Units", "Total"].map(name => graph.nodes[place(graph, name)]);
+    expect(total.x).toBeGreaterThan(Math.max(price.x + price.w, units.x + units.w));
+    const shape = shapeBefore(pen, strokes[0]);
+    expect([shape[0].args, (shape[1].args as number[]).slice(4)]).toEqual([[price.x + price.w, middle(price)], [total.x - 8, middle(total)]]);
+    expect(triangles(pen, FALLBACK.edge).slice(0, 2)).toEqual([0, 1].map(() => [[total.x, middle(total)], [total.x - 9, middle(total) - 9 * 0.42], [total.x - 9, middle(total) + 9 * 0.42]]));
+    expect(pen.named("fill").filter(call => call.fillStyle === FALLBACK.edge).map(call => call.globalAlpha)).toEqual([FALLBACK.faint, FALLBACK.faint, 1]);
+    // A faint line never keeps the picture moving.
+    expect(traced).toBe(false);
+  });
+
+  it("is no link: the links keep their strength however many faint lines there are, and a faint line is a third of it", () => {
+    const { graph, shown, faint } = calculationsHidden();
+    const many = Array.from({ length: 40 }, () => faint).flat();
+    const strokes = linkStrokes(draw(sceneOf(graph, { shown, faint: many })).pen);
+    expect([strokes.length, strokes.at(-1)!.globalAlpha, new Set(strokes.slice(0, -1).map(call => call.globalAlpha))]).toEqual([81, 1, new Set([FALLBACK.faint])]);
+    // Where the links are many and lighter, a faint line is a third of what they are.
+    const { graph: wide } = linked(15, Array.from({ length: 14 }, (_, at) => [at, 14] as const));
+    const strength = linkStrength(14);
+    const lines = linkStrokes(draw(sceneOf(wide, { faint: [{ s: 0, t: 1 }] })).pen);
+    expect([strength < 1, lines.length, round(lines[0].globalAlpha), round(lines[1].globalAlpha)]).toEqual([true, 15, round(strength * FALLBACK.faint), round(strength)]);
+  });
+
+  it("takes the trace's colour on the trace of a box selected, still solid and a third as strong, and fades off it as a link does", () => {
+    const { model, graph, shown, faint } = calculationsHidden();
+    // Units selected: Price > Total is off its trace, Units > Total leads away from it, and so does the link Cost > Total.
+    const away = draw(sceneOf(graph, { shown, faint, trace: traceNode(graph, model, place(graph, "Units"), false) }));
+    expect(looks(away.pen)).toEqual([[FALLBACK.edge, round(0.12 * FALLBACK.faint), []], [FALLBACK.traceDown, round(FALLBACK.faint), []], [FALLBACK.edge, 0.12, []]]);
+    // Its arrowhead too; the box's sign is drawn in full, as for any box of the trace.
+    expect(away.pen.named("fill").filter(call => call.fillStyle === FALLBACK.traceDown && call.globalAlpha < 1).map(call => round(call.globalAlpha))).toEqual([round(FALLBACK.faint)]);
+    expect(away.traced).toBe(false);
+    // Total selected: both lead to it, as its link does, which alone is dashed and keeps the picture moving.
+    const towards = draw(sceneOf(graph, { shown, faint, trace: traceNode(graph, model, place(graph, "Total"), false) }));
+    expect(looks(towards.pen)).toEqual([[FALLBACK.traceUp, round(FALLBACK.faint), []], [FALLBACK.traceUp, round(FALLBACK.faint), []], [FALLBACK.traceUp, 1, [7, 5]]]);
+    expect(towards.traced).toBe(true);
+  });
+
+  it("is drawn only while both its boxes are shown, and stands back with the links where the search names neither", () => {
+    const { graph, shown, faint } = calculationsHidden();
+    const fewer = Uint8Array.from(shown);
+    fewer[place(graph, "Units")] = 0;
+    expect(linkStrokes(draw(sceneOf(graph, { shown: fewer, faint })).pen).map(call => call.globalAlpha)).toEqual([FALLBACK.faint, 1]);
+    const matches = new Uint8Array(graph.nodes.length);
+    matches[place(graph, "Price")] = 1;
+    expect(looks(draw(sceneOf(graph, { shown, faint, matches })).pen)).toEqual([[FALLBACK.edge, round(FALLBACK.faint), []], [FALLBACK.edge, round(FALLBACK.faint / 4), []], [FALLBACK.edge, 0.25, []]]);
+  });
+
+  it("is drawn at its palette's strength, which a theme can make more, still under a link's, on a trace as off it", () => {
+    const { model, graph, shown, faint } = calculationsHidden();
+    const stronger = { ...FALLBACK, faint: 0.6 };
+    expect(looks(draw(sceneOf(graph, { shown, faint, palette: stronger })).pen)).toEqual([[FALLBACK.edge, 0.6, []], [FALLBACK.edge, 0.6, []], [FALLBACK.edge, 1, []]]);
+    const away = draw(sceneOf(graph, { shown, faint, palette: stronger, trace: traceNode(graph, model, place(graph, "Units"), false) }));
+    expect(looks(away.pen)).toEqual([[FALLBACK.edge, round(0.12 * 0.6), []], [FALLBACK.traceDown, 0.6, []], [FALLBACK.edge, 0.12, []]]);
   });
 });

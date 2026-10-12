@@ -240,6 +240,12 @@
 /* What a page filter's link means, beside a piece of its line: the same colour and dashes the canvas draws it in. */
 .map-legend-filter{display:flex;align-items:center;gap:8px;margin-top:0;border-top:0;padding-top:2px}
 .map-line-filter{flex:none;width:22px;height:0;border-top:2px dashed var(--map-filter)}
+/* What a faint line among a line item's source inputs is (map-bridges.ts), beside a piece of one: the links' colour, solid,
+   at a faint line's strength. That is about a third of a link's in the light theme, which the canvas takes where no token
+   says otherwise (map-palette.ts FALLBACK). The dark theme's is more, as a third of a link is hardly seen on its canvas;
+   it stays well under a link's. */
+.map-line-faint{flex:none;width:22px;height:0;border-top:2px solid var(--map-edge);opacity:var(--map-faint,.34)}
+:root[data-theme="dark"] .map-root{--map-faint:.5}
 /* What a filter mark means, beside one: the pill the canvas draws on a box a module's own line items filter
    (map-canvas.ts drawFilterMark), its funnel in the canvas's colour on the page filters' own. */
 .map-legend-mark{display:flex;align-items:center;gap:8px;margin-top:0;border-top:0;padding-top:2px}

@@ -8,7 +8,7 @@ import {
   ACCESS_LINK_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
   groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, MODULES_ONLY_SAYS, NO_LINKS_SAYS, notesHtml, type LegendLinks,
   pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, SOURCES_SAYS, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
-  FIND_SOURCES, FIND_SOURCES_TITLE, INPUT_MARK_SAYS, SOURCES_ICON, SOURCES_SHOWN, SOURCES_WHOLE, sourcesHtml,
+  FIND_SOURCES, FIND_SOURCES_TITLE, INPUT_MARK_SAYS, SOURCES_ICON, SOURCES_SHOWN, SOURCES_WHOLE, sourcesHtml, FAINT_SAYS,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
 
@@ -894,5 +894,19 @@ describe("The markup of a line item's source inputs", () => {
     expect([line?.getAttribute("class"), line?.textContent, line?.querySelector(".map-mark-input")?.getAttribute("aria-hidden"), INPUT_MARK_SAYS])
       .toEqual(["map-legend-note map-legend-mark map-legend-input", INPUT_MARK_SAYS, "true", "A tinted box is an input: a line item without a formula, entered or imported."]);
     expect(legend(false).querySelector(".map-legend-input")).toBeNull();
+  });
+
+  it("says in the legend what a faint line is beside a piece of one, under the input's line, wherever one can be drawn", () => {
+    const legend = (faint?: boolean) => parseMarkup(`<div>${legendHtml("On this map", [{ key: "input", label: "Inputs", count: 3 }, { key: "calculation", label: "Calculations", count: 2 },
+      { key: "result", label: "Result", count: 1 }], new Set(), undefined, undefined, undefined, undefined, false, true, faint)}</div>`);
+    const lines = (faint?: boolean) => legend(faint).children[0].children.map(child => [child.localName, child.getAttribute("class"), child.textContent]);
+    // The same line whichever layers are hidden: it says what a faint line is, and is seen while none is drawn too.
+    expect(lines(true).slice(4)).toEqual([["p", "map-legend-note map-legend-mark map-legend-input", INPUT_MARK_SAYS],
+      ["p", "map-legend-note map-legend-mark map-legend-faint", FAINT_SAYS]]);
+    expect(legend(true).querySelector(".map-legend-faint .map-line-faint")?.getAttribute("aria-hidden")).toBe("true");
+    // Where no faint line can be drawn, there is no such line.
+    for (const none of [false, undefined]) expect([lines(none).length, legend(none).querySelector(".map-legend-faint")]).toEqual([5, null]);
+    expect(FAINT_SAYS).toBe("Faint: through calculations that are hidden.");
+    expect(FAINT_SAYS).not.toMatch(ARROWS);
   });
 });

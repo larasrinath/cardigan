@@ -314,6 +314,10 @@ export const MODULES_ONLY_SAYS = "Module from Modules only: Line Items has no ro
  * colour and its dots are the stylesheet's (map.css `.map-c-modules-only`), 2 pixels across and spread evenly round
  * this 20 by 12 box with corners of 4. */
 const MODULES_ONLY_MARK = '<svg class="map-c-modules-only" width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" rx="4"/></svg>';
+/** What a faint line is, said in the legend wherever the map shows a line item's source inputs and can draw one
+ * (map-bridges.ts): a line from a box shown, over the boxes of the layers hidden, to a box shown that it feeds through them.
+ * The words define one, so they read right whether or not a layer is hidden. */
+export const FAINT_SAYS = "Faint: through calculations that are hidden.";
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
  * shows it again, and under them what the links and marks that look like no other mean, each only while the picture
@@ -322,13 +326,17 @@ const MODULES_ONLY_MARK = '<svg class="map-c-modules-only" width="22" height="14
  * what the mark means on that kind of picture (`marks`), beside one. What a formula's arrow means is said in the notes
  * about the map, not here. Where no kind of link is ticked, it says so plainly. A hidden layer says so in more than its
  * colour: its name is struck through, and the button is not pressed. While the picture has a box of a module from
- * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark. */
+ * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark.
+ * Among a line item's source inputs, where hiding a layer can draw a faint line (`faint`), a line under the input's says
+ * what one is, beside a piece of it, whether or not one is drawn now: the legend keeps one height as layers are hidden and
+ * shown, and none of its lines moves. Nothing where no faint line can be drawn. */
 export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: MarkedKind, marks?: MarkedKind,
-  links: LegendLinks = NO_LINK_NOTES, accessMarks?: MarkedKind, modulesOnly = false, inputs = false): string {
+  links: LegendLinks = NO_LINK_NOTES, accessMarks?: MarkedKind, modulesOnly = false, inputs = false, faint = false): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
   }).join("")}${inputs ? `<p class="map-legend-note map-legend-mark map-legend-input"><span class="map-mark-input" aria-hidden="true"></span>${esc(INPUT_MARK_SAYS)}</p>` : ""}${
+    faint ? `<p class="map-legend-note map-legend-mark map-legend-faint"><span class="map-line-faint" aria-hidden="true"></span>${esc(FAINT_SAYS)}</p>` : ""}${
     modulesOnly ? `<p class="map-legend-note map-legend-mark">${MODULES_ONLY_MARK}${esc(MODULES_ONLY_SAYS)}</p>` : ""}${
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
     links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${

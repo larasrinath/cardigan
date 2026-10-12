@@ -19,6 +19,7 @@ import { formatCount, plural } from "./map-text.js";
 import { inTrace, traceNode, type Trace } from "./map-trace.js";
 import { keptSelection, keptSources, selectionKey, sourcesKey } from "./map-selection.js";
 import { importedBy, traceable, traceSources, type SourceTrace, type ImportedBy } from "./map-sources.js";
+import { bridgesOver, mayBridge, type Bridge } from "./map-bridges.js";
 
 /** What the map asks of the browser around it. The page gives it none of this: `mountModelMap` takes it from the browser,
  * and a test hands in its own. */
@@ -369,7 +370,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     // A trace's dashes move for as long as the trace is on screen, unless the user asked for less motion: then they stand.
     const moves = motion();
-    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined, formulas };
+    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined, formulas, faint };
     pen.setTransform(ratio, 0, 0, ratio, 0, 0);
     const tracing = drawScene(pen, scene, fonts);
     if (miniPen && !miniWrap.hidden) {
@@ -714,6 +715,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   const announce = (sentence: string): void => { live.textContent = sentence; };
 
+  /** The faint lines the picture draws among a line item's source inputs: those over the boxes of the layers hidden
+   * (map-bridges.ts) whose two boxes are shown. */
+  let faint: readonly Bridge[] = [];
+
   function refreshShown(): void {
     if (!onScreen) return;
     shownNodes = new Uint8Array(onScreen.nodes.length);
@@ -724,6 +729,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         shownCount++;
       }
     }
+    // The faint lines are worked out again only as the layers hidden or the links drawn change.
+    faint = bridgesOver(onScreen, hiddenLayers, formulas).filter(bridge => shownNodes[bridge.s] === 1 && shownNodes[bridge.t] === 1);
   }
 
   /** The line that says what is shown, counted now: what the graph holds, how much of it is drawn, and how much of
@@ -767,13 +774,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // alone has an access driver. What a dotted box means is said while the picture has one, whichever of its layers
     // are hidden.
     // Among a line item's source inputs, which draw no page filter and no mark, it says what a tinted box is while one is
-    // on the map.
+    // on the map, and, where hiding a layer can draw a faint line, what one is, whether or not one is drawn now.
     const kind = onScreen.kind === "sources" ? undefined : onScreen.kind;
     legend.innerHTML = legendHtml(onScreen.kind === "drill" || onScreen.kind === "sources" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
       kind && onScreen.edges.some(edge => edge.filter) ? kind : undefined, kind && onScreen.nodes.some(node => node.filterMark) ? kind : undefined,
       { access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
       kind && onScreen.nodes.some(node => node.accessMark) ? kind : undefined, onScreen.nodes.some(node => node.raw?.modulesOnly === true),
-      onScreen.kind === "sources" && onScreen.nodes.some(node => node.layer === LAYER.input));
+      onScreen.kind === "sources" && onScreen.nodes.some(node => node.layer === LAYER.input), mayBridge(onScreen, formulas));
     legendButton.disabled = onScreen.layers.length === 0;
   }
 

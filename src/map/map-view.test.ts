@@ -11,6 +11,7 @@ import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
 import { browserEnvironment, mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
 import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, MODULES_ONLY_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
+import { FAINT_SAYS } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -4472,5 +4473,96 @@ describe("A line item's source inputs on the map", () => {
     map.sources(total);
     groupChoice("groups");
     expect([here(), part(".map-sources-step").hidden]).toEqual(["Demand Plan", true]);
+  });
+});
+
+describe("Faint lines among a line item's source inputs", () => {
+  /** A strength to the ninth place, so that a third of 0.12 is 0.04. */
+  const round = (value: number): number => Math.round(value * 1e9) / 1e9;
+  /** Each line of the last picture, as its colour, strength and dashes: the faint lines first, then the links. */
+  const looks = (): unknown[][] => linksDrawn().map(call => [call.strokeStyle, round(call.globalAlpha), call.dash]);
+  /** What the legend's line about faint lines says; nothing where it has none. */
+  const note = (): string | undefined => root().querySelector(".map-legend-faint")?.textContent;
+
+  it("draws a faint line from each input to the result while Calculations are hidden, says what one is all along, and moves nothing", () => {
+    const { graph, total } = sample();
+    open(graph);
+    map.sources(total);
+    env.settle();
+    // The result is selected as they open: with nothing selected, no trace colours the lines.
+    act("close").press();
+    env.settle();
+    const lines = part(".map-legend").children;
+    const before = locate();
+    // Nothing hidden: the five links, and the legend already says what a faint line is, under the input's line.
+    expect([looks(), note(), lines.at(-1)?.getAttribute("class"), status()])
+      .toEqual([Array.from({ length: 5 }, () => [FALLBACK.edge, 1, []]), FAINT_SAYS, "map-legend-note map-legend-mark map-legend-faint", "6 boxes · 5 links"]);
+    const calculations = part('[data-map-layer="calculation"]');
+    calculations.press();
+    env.settle();
+    // Every link has a calculation at one end, so none is drawn: one faint line from each input to the result, solid and a
+    // third as strong, in the order of the inputs (Cost, Units, Price).
+    expect(looks()).toEqual(Array.from({ length: 3 }, () => [FALLBACK.edge, round(FALLBACK.faint), []]));
+    // The legend's lines are the same in the same order, the line about faint lines among them; the line at the foot
+    // counts links only.
+    const after = part(".map-legend").children;
+    expect([note(), calculations.getAttribute("aria-pressed"), after.length === lines.length && after.every((line, at) => line === lines[at]), status()])
+      .toEqual([FAINT_SAYS, "false", true, "6 boxes · 5 links. Showing 4 of 6 boxes."]);
+    // No box moved.
+    const shown = locate();
+    expect([...shown.keys()].sort()).toEqual(["Cost", "Price", "Total", "Units"]);
+    for (const [name, point] of shown) expect(point, name).toEqual(before.get(name));
+    // Shown again: the links are back, the faint lines gone, the legend as it was, and nothing moved.
+    calculations.press();
+    env.settle();
+    expect([looks().length, note(), part(".map-legend").children.every((line, at) => line === lines[at]), status(), locate()]).toEqual([5, FAINT_SAYS, true, "6 boxes · 5 links", before]);
+  });
+
+  it("gives an input selected its faint line in the trace's colour, fainter than a link in full, fades the others, and leaves the trace's words as they were", () => {
+    const { graph, total } = sample();
+    open(graph);
+    map.sources(total);
+    env.settle();
+    // Units, from its row of the list.
+    parts(".map-sources .map-source")[1].press();
+    env.settle();
+    const words = text(".map-insp-trace");
+    part('[data-map-layer="calculation"]').press();
+    env.settle();
+    // The trace counts the hidden boxes' links already: its words do not change.
+    expect([text(".map-insp-name"), text(".map-insp-trace")]).toEqual(["Units", words]);
+    // Cost > Total and Price > Total are off its trace, and fade as links do; Units > Total leads away from it.
+    expect(looks()).toEqual([[FALLBACK.edge, round(0.12 * FALLBACK.faint), []], [FALLBACK.traceDown, round(FALLBACK.faint), []], [FALLBACK.edge, round(0.12 * FALLBACK.faint), []]]);
+    // Kept to its trace, the view draws only its own: a faint line is drawn while both its boxes are shown.
+    act("focus").press();
+    env.settle();
+    expect([looks(), note()]).toEqual([[[FALLBACK.traceDown, round(FALLBACK.faint), []]], FAINT_SAYS]);
+  });
+
+  it("draws none with the Inputs or the Result hidden, the legend still saying what one is; and no such line where none can be drawn, or in another view", () => {
+    const spy = vi.spyOn(drawing, "drawScene");
+    const { graph, total } = sample();
+    open(graph);
+    map.sources(total);
+    env.settle();
+    const drawnFaint = (): number => spy.mock.calls.at(-1)![1].faint?.length ?? 0;
+    for (const layer of ["input", "result"]) {
+      const button = part(`[data-map-layer="${layer}"]`);
+      button.press();
+      env.settle();
+      expect([drawnFaint(), note(), looks().every(look => look[1] === 1)], layer).toEqual([0, FAINT_SAYS, true]);
+      button.press();
+      env.settle();
+    }
+    // Gross is fed by its two inputs directly: nothing stands between them, so no faint line can be drawn.
+    clickNode("Gross");
+    act("sources").press();
+    env.settle();
+    expect([text(".map-sources-name"), root().querySelector(".map-legend-faint")]).toEqual(["Source inputs of CAL01 - Revenue · Gross", null]);
+    // Back in the view they were found from: no faint line, and no line about them.
+    act("sources-back").press();
+    env.settle();
+    expect([here(), drawnFaint(), root().querySelector(".map-legend-faint")]).toEqual(["Demand Plan", 0, null]);
+    spy.mockRestore();
   });
 });

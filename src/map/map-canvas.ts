@@ -1,3 +1,4 @@
+import { bridgeWay, type Bridge } from "./map-bridges.js";
 import { minimapTransform, toWorld, type Camera, type MinimapTransform } from "./map-camera.js";
 import { edgeDrawn, LAYER, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, hasSmallLine, ITEM } from "./map-layout.js";
@@ -31,6 +32,9 @@ export interface Scene {
   /** False where formulas' links are left undrawn (map-graphs.ts `edgeDrawn`): the links that count only formulas are
    * not drawn, and the boxes stay where they are. Drawn where nothing is said. */
   formulas?: boolean;
+  /** The faint lines over the boxes of the layers hidden (map-bridges.ts), each drawn while both its boxes are shown.
+   * None where nothing is said. */
+  faint?: readonly Bridge[];
 }
 
 /** The context's methods the map draws with. */
@@ -197,7 +201,8 @@ function drawGrid(pen: Pen, scene: Scene): void {
   pen.setLineDash([]);
 }
 
-/** Draws the links, and says whether one of them is a trace on screen: only then is there anything to keep moving.
+/** Draws the links, and the faint lines under them, and says whether one of the links is a trace on screen: only then is
+ * there anything to keep moving.
  *
  * A link leaves the right of what is read and ends, with an arrowhead, at what reads it: at its left where that stands
  * further right, as most do. Between two boxes of one column it runs round the column's right side, and to a box
@@ -216,9 +221,14 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
   const strong = marked <= TRACE_IN_FULL ? 1 : Math.max(THINNEST, TRACE_IN_FULL / marked);
   const head = Math.max(6.5, Math.min(10, 9 * k));
   let traced = false;
-  for (let index = 0; index < graph.edges.length; index++) {
-    const edge = graph.edges[index];
-    if (!shown[edge.s] || !shown[edge.t] || !edgeDrawn(edge, formulas)) continue;
+  // The faint lines (map-bridges.ts) are drawn first, at the places below 0, so that the links lie over them: each the ways
+  // a link is, as thin as a link of one, solid, and at the palette's share of a link's strength, a third in the light
+  // theme. No strength above counts them.
+  const faint = scene.faint ?? [];
+  for (let index = -faint.length; index < graph.edges.length; index++) {
+    const link = index < 0 ? undefined : graph.edges[index];
+    const edge = link ?? faint[faint.length + index];
+    if (!shown[edge.s] || !shown[edge.t] || (link && !edgeDrawn(link, formulas))) continue;
     const from = graph.nodes[edge.s];
     const to = graph.nodes[edge.t];
     const fromLeft = from.x * k + ox;
@@ -229,16 +239,16 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
     let y2 = (to.y + to.h / 2) * k + oy;
     const reach = 70 * k;
     if ((fromRight < -reach && toRight < -reach) || (fromLeft > width + reach && toLeft > width + reach) || (y1 < -reach && y2 < -reach) || (y1 > height + reach && y2 > height + reach)) continue;
-    const way = trace ? trace.edges[index] : 0;
+    const way = !trace ? 0 : link ? trace.edges[index] : bridgeWay(trace, edge);
     // The links of the box selected are in full strength, however many the trace has.
     const own = trace !== undefined && (edge.s === trace.selected || edge.t === trace.selected);
-    let alpha = trace ? (way ? (own ? 1 : strong) : 0.12) : idle;
+    let alpha = (trace ? (way ? (own ? 1 : strong) : 0.12) : idle) * (link ? 1 : palette.faint);
     if (matches && !matches[edge.s] && !matches[edge.t]) alpha *= 0.25;
-    const colour = way === 1 ? palette.traceUp : way === 2 ? palette.traceDown : edge.filter ? palette.filter : palette.edge;
+    const colour = way === 1 ? palette.traceUp : way === 2 ? palette.traceDown : link?.filter ? palette.filter : palette.edge;
     pen.globalAlpha = alpha;
     pen.strokeStyle = colour;
     pen.fillStyle = colour;
-    pen.lineWidth = Math.max(1, Math.min(3, 0.8 + Math.log2(1 + edge.w) * 0.35) * Math.min(k, 1.2));
+    pen.lineWidth = Math.max(1, Math.min(3, 0.8 + Math.log2(1 + (link?.w ?? 1)) * 0.35) * Math.min(k, 1.2));
     let tip = toLeft;
     let pointsLeft = false;
     pen.beginPath();
@@ -269,18 +279,19 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
       pen.moveTo(fromRight, y1);
       pen.bezierCurveTo(fromRight + bend, y1, toLeft - bend, y2, toLeft - head + 1, y2);
     }
-    if (way) {
+    // A faint line is solid on a trace too: dashes are a page filter's, and moving ones a trace's links'.
+    if (link && way) {
       traced = true;
       const dash = way === 1 ? DASH_UP : DASH_DOWN;
       pen.setLineDash(dash);
       pen.lineWidth *= TRACE_WEIGHT;
       pen.lineDashOffset = scene.time === undefined ? 0 : -((scene.time / 1000 * DASH_SPEED) % (dash[0] + dash[1]));
-    } else if (edge.filter) {
+    } else if (link?.filter) {
       pen.setLineDash(DASH_FILTER);
       pen.lineDashOffset = 0;
     }
     pen.stroke();
-    if (way || edge.filter) pen.setLineDash([]);
+    if (link && (way || link.filter)) pen.setLineDash([]);
     arrowhead(pen, tip, y2, head, pointsLeft);
   }
   pen.globalAlpha = 1;
