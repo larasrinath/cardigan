@@ -1,4 +1,4 @@
-import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, UNUSED_ROWS, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** A made-up model whose line items drive who may read and write one another, and the zip exactly as version 0.8.1
@@ -424,11 +424,12 @@ export const ACCESS_ROWS_FOR_THE_PAGE = [
 export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FOR_THE_PAGE[1], MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, DATA_SOURCES_ROW_REWORDED, ACCESS_ROWS_FOR_THE_PAGE[2]] as const;
 
 /** 0.8.1's text of this model's Model Details.csv as the file is written now: those five rows in their present words,
- * the two rows about the file added, the row on Source Models, and the Diagnostics rows on the modules' IDs
+ * the two rows about the file added, the row on Source Models, the two on the tables of what nothing uses (`UNUSED_ROWS`
+ * in golden-0.6.1.test-support.ts), and the Diagnostics rows on the modules' IDs
  * (`MODULE_IDS_ADDED`) and the lists' (`LIST_IDS_ADDED`), on the imports' definitions (`MAPPINGS_ADDED`) and on the time
  * each grid's page took (`withPageTimeRows`). */
 export const withAccessRows = (csv: string): string =>
-  withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, MODULE_IDS_ADDED.rows,
+  withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS, MODULE_IDS_ADDED.rows,
     LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines

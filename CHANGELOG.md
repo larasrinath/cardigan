@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Unused line items and modules.** Modules gains two tables after DCA: Unused Line Items lists the line items nothing Cardigan can see uses, by formula, ratio, parent, access driver, page, subset, action or a module used whole, each with why (Read by nothing, Only feeds unused line items, or Imported, never read), and Unused Modules lists the modules that are empty or whose line items are all unused; both are made from what the run already reads, the pages included, and say what they could not see. Refresh the Anaplan tab once after updating.
+
 ## 0.35.2 (11 October 2026)
 
 - **No ResizeObserver warning.** Chrome no longer lists "ResizeObserver loop completed with undelivered notifications" under Cardigan's errors: the results page fits the navigation, the details panel and the map to a new size in the next frame, once for several changes, and not at all for a size it already fits. (#138)

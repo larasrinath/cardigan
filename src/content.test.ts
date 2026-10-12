@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NO_CUSTOMER } from "./model-pages.js";
+import { addUnused } from "./model/unused.js";
 import { assemble } from "./pieces.test-support.js";
 import type { AnalysisResult } from "./result-types.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
@@ -22,14 +23,17 @@ const exportedModel = (): AnalysisResult => ({ kind: "model", name: "Model one",
   tables: [{ file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], rows: [["Model", "Model", "Model one"], ["Model", "Workspace ID", WS]],
     guard: true, details: true }, { file: "Versions.csv", label: "Versions", headers: ["", "Is Actual"], rows: [["Actual", "true"]], guard: false }] });
 /** That export as the results page gets it when the pages built on the model are not read, for `why` (model-pages.ts),
- * with what the step logged at the end of its diagnostic log. */
+ * with what the step logged at the end of its diagnostic log, and then the run's two tables of what nothing uses
+ * (model/unused.ts): empty, since this export has no Line Items, with a note that says so and the lines they log. */
 function withoutPages(why: string, logged: string[] = []): AnalysisResult {
   const result = exportedModel();
   const files = ["Module Usage", "Page Filters", "Page Actions"];
   result.summary.push(...files.map(file => `${file}: not exported (${why}).`));
   result.tables[0].rows.push(...files.map(file => ["Files", `${file}.csv`, `Not exported: ${why}`]), ...logged.map(line => ["Diagnostics", "01:59:09", line]));
-  return result;
+  return addUnused(result, undefined);
 }
+/** The lines the run's tables of what nothing uses add to the run's log. */
+const UNUSED_LINES = 3;
 
 type Listener = (event: { data: unknown; origin: string; source: unknown }) => void;
 
@@ -435,8 +439,10 @@ describe("The content scripts on an Anaplan page", () => {
     hear({ ...RUN, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""], ["1901000000001", "102000000001"]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // Then this window reads the pages built on the model, for the customer the address names. Anaplan answers that the
-    // session has ended: the export is handed on all the same, and says why it has no tables of those pages.
-    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
+    // session has ended: the export is handed on all the same, and says why it has no tables of those pages. The tables of
+    // what nothing uses are made all the same, and log their lines.
+    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", ...Array(UNUSED_LINES).fill("log"), "result", "rows", "rows",
+      "done"]);
     expect(classicMessages(port).slice(0, 6)).toEqual([{ type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
       { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" },
       { type: "status", text: "Reading the pages built on this model…" }, { type: "log", text: "01:59:09 Reading the pages built on this model…" },
@@ -476,7 +482,8 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(0);
     // Then what the pages' reading said, as a run that read them after the export says it: Anaplan answered that the
     // session has ended, and the export is handed on all the same.
-    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
+    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", ...Array(UNUSED_LINES).fill("log"), "result", "rows", "rows",
+      "done"]);
     expect(classicResult(port)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
       site: { origin: SHELL, customer: WS } });
     expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(1);
@@ -675,6 +682,10 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(0);
     // The IDs of the export's line items are not handed on, here either.
     expect(classicResult(port)).toEqual(withoutPages(NO_CUSTOMER));
+    // The tables of what nothing uses are there, empty, since nothing could be checked, and a note says why.
+    const read = classicResult(port)!;
+    expect([read.tables.slice(-2).map(table => [table.label, table.rows.length]), read.tables[0].rows.filter(row => row[0] === "Notes"), read.lineItemIds])
+      .toEqual([[["Unused Line Items", 0], ["Unused Modules", 0]], [["Notes", "Unused Line Items", "Line Items was not read, so no line item or module could be checked."]], undefined]);
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });
 

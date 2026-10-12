@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
-import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, UNUSED_ROWS, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED,
   LIST_IDS_ADDED, SUBSETS_READ_ADDED, MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
@@ -777,10 +777,11 @@ describe("Model export: Model settings grids to tables", () => {
     // has none, and the "How to read" row stands after the one on Line Items. The "How to read" row on Source Models is
     // the last of those rows, after the one on the calendar.
     const [details, detailsBefore] = [parseCsv(written.get(MODEL_ROW_REWORDED.file)!), parseCsv(before.get(MODEL_ROW_REWORDED.file)!)];
-    const added = [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS].map(row => ({ after: parseCsv(row.after)[0], row: parseCsv(row.line)[0] }));
+    const added = [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS].map(row => ({ after: parseCsv(row.after)[0], row: parseCsv(row.line)[0] }));
     const places = added.map(({ row }) => details.findIndex(each => each.join("\n") === row.join("\n")));
     expect(places.map(place => details[place - 1])).toEqual(added.map(({ after }) => after));
-    expect(added.map(({ row }) => row.slice(0, 2))).toEqual([["Files", MODEL_FILE_ADDED.file], ["How to read", "Dynamic Cell Access"], ["How to read", "Source Models"], ["Files", "Line Item Subsets.csv"], ["How to read", "Time Ranges and Versions"], ["How to read", "General Lists"], ["How to read", "Line Item Subsets"], ["How to read", "Modules"]]);
+    expect(added.map(({ row }) => row.slice(0, 2))).toEqual([["Files", MODEL_FILE_ADDED.file], ["How to read", "Dynamic Cell Access"], ["How to read", "Source Models"], ["Files", "Line Item Subsets.csv"], ["How to read", "Time Ranges and Versions"], ["How to read", "General Lists"], ["How to read", "Line Item Subsets"], ["How to read", "Modules"],
+      ["How to read", "Unused Line Items"], ["How to read", "Unused Modules"]]);
     expect(added[0].row[2]).toBe("Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns.");
     const kept = details.filter((_, index) => !places.includes(index));
     expect(kept.length).toBe(detailsBefore.length);
@@ -799,7 +800,7 @@ describe("Model export: Model settings grids to tables", () => {
     // No "How to read" row names a file, a CSV or a zip, or says to download or to fill one in: the page's overview lists
     // these rows as they are. (Anaplan's own export of a grid, which the layout is said by, is Anaplan's.)
     const said = details.filter(row => row[0] === "How to read").map(row => row[2]);
-    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text))]).toEqual([12, []]);
+    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text))]).toEqual([14, []]);
     // Then every byte. The zip holds the twelve files it held, and no Dynamic Cell Access.csv; only those three have other
     // bytes than 0.6.1's.
     const [files, golden] = [zipEntries(zip), zipEntries(MODEL_ZIP_0_6_1)];
@@ -821,7 +822,7 @@ describe("Model export: Model settings grids to tables", () => {
       "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
     // Only Model Details.csv guards formula-like cells: a grid is written exactly as Anaplan's own export writes it.
     expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
-      ["Model Details.csv", "Model Details", true, true, 35], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
+      ["Model Details.csv", "Model Details", true, true, 37], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
       ["General Lists.csv", "General Lists", false, undefined, 2], ["Processes.csv", "Processes", false, undefined, 1], ["Imports.csv", "Imports", false, undefined, 3],
       ["Import Data Sources.csv", "Import Data Sources", false, undefined, 1], ["Exports.csv", "Exports", false, undefined, 1],
       ["Other Actions.csv", "Other Actions", false, undefined, 1], ["Time Ranges.csv", "Time Ranges", false, undefined, 1], ["Versions.csv", "Versions", false, undefined, 2],
@@ -983,10 +984,10 @@ describe("Model export: Model settings grids to tables", () => {
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
     const paged = details.filter(row => row.startsWith("Diagnostics\n") && PAGE_TIME.test(row.split("\n")[2] ?? ""));
-    const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, MAPPINGS_ADDED.rows,
+    const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, MAPPINGS_ADDED.rows,
       PROCESSES_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 34, detailsBefore.length, 34, 11]);
+    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 36, detailsBefore.length, 36, 11]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.

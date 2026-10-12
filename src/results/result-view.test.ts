@@ -313,23 +313,24 @@ describe("What the results page reads out of a result", () => {
   });
 
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
-    // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it.
-    // After the settings, the tables of the pages built on the model, which a model's run adds (model-pages.ts): last
-    // before the map.
+    // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it,
+    // followed by the run's two tables of what nothing uses (model/unused.ts). After the settings, the tables of the pages
+    // built on the model, which a model's run adds (model-pages.ts): last before the map.
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
-      "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv",
-      "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]);
-    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 17, ACCESS_FILE]);
+      "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv",
+      "Source Models.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 19, ACCESS_FILE]);
     const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
     /** The files of a result as the page lists them: each one's name and its place in the result. */
     const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);
     // The export's own order (model/export.ts), after the Details file, and then the tables of the pages built on the
     // model: every file moves to its place, and keeps its place in the result as its name.
+    // The run's two tables of what nothing uses come last in the result, and move up beside Dynamic Cell Access.
     const written = ["Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv", "General Lists.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv",
-      "Time Ranges.csv", "Versions.csv", "Source Models.csv", "Model Calendar.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"];
+      "Time Ranges.csv", "Versions.csv", "Source Models.csv", "Model Calendar.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv", "Unused Line Items.csv", "Unused Modules.csv"];
     expect(listed("model", ...written)).toEqual(["13 Model Calendar.csv", "10 Time Ranges.csv", "11 Versions.csv", "4 General Lists.csv", "3 Modules.csv", "1 Line Items.csv",
-      "2 Dynamic Cell Access.csv", "5 Processes.csv", "6 Imports.csv", "7 Import Data Sources.csv", "8 Exports.csv", "9 Other Actions.csv", "12 Source Models.csv",
-      "14 Module Usage.csv", "15 Page Filters.csv", "16 Page Actions.csv"]);
+      "2 Dynamic Cell Access.csv", "17 Unused Line Items.csv", "18 Unused Modules.csv", "5 Processes.csv", "6 Imports.csv", "7 Import Data Sources.csv", "8 Exports.csv",
+      "9 Other Actions.csv", "12 Source Models.csv", "14 Module Usage.csv", "15 Page Filters.csv", "16 Page Actions.csv"]);
     // Only the files the result has, in that order.
     expect(listed("model", "Imports.csv", "Line Items.csv", "Versions.csv")).toEqual(["3 Versions.csv", "2 Line Items.csv", "1 Imports.csv"]);
     // A file that is not in the order comes after those that are, in the result's order, and none is dropped: a renamed
@@ -349,7 +350,8 @@ describe("What the results page reads out of a result", () => {
     // Data Sources for Import Data Sources, and DCA for Dynamic Cell Access, which says what it stands for in full.
     const tiles = overviewOf(result("model", [modelDetails, ...written.map(name => ({ ...file(name), rows: [["A row", "A value"]] }))])).tiles;
     expect(tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
-      "Line Items", "DCA", "Processes", "Imports", "Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage", "Page Filters", "Page Actions"]);
+      "Line Items", "DCA", "Unused Line Items", "Unused Modules", "Processes", "Imports", "Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage",
+      "Page Filters", "Page Actions"]);
     expect(tiles.filter(tile => tile.full !== undefined)).toEqual([expect.objectContaining({ label: "DCA", count: 1, full: "Dynamic Cell Access (DCA)" })]);
   });
 
@@ -385,7 +387,7 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(model, lineItems).table).toBe(lineItems);
     // The rules are few and each is one file's own, by the kind of result and the file's name.
     expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Source Models.csv",
-      "Line Item Subsets.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"], []]);
+      "Line Item Subsets.csv", "Unused Line Items.csv", "Unused Modules.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
