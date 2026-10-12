@@ -483,13 +483,14 @@ describe("A model's result on the results page, with the map's real graph and th
 
     parts(".map-result")[1].press();
     around.shows();
-    // The map goes to the line item's module and selects it there: the module's four line items, with the three
-    // modules they read and feed beside them.
+    // The map goes to the line item's module and selects it there: the module's four line items, with the five line items
+    // of other modules they read and feed beside them, one by one, each under its module's code.
     expect([where(), text(".map-kind"), text(".map-insp-name"), part(".map-inspector").hidden]).toEqual([["Model one", "02 Calculations", REVENUE], "Line item", "Margin %", false]);
-    expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %", "Volumes", "Prices", "Summary"]));
+    expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %", "Units", "Price", "Unit Cost", "Total Revenue", "Total Margin",
+      "INP01 · Line item", "INP02 · Line item", "REP01 · Line item"]));
     // Beside a selection the line of what is shown stays where it stands, and the bar of what is traced has its own place. Margin and Revenue feed
-    // it, Cost feeds Margin, and the two input modules feed those: five boxes. Nothing reads it.
-    expect([shownStatus(), traced()]).toEqual(["4 line items · 3 outside the module · 10 links", ["Fed by 5 boxes", "Margin %", "Feeds nothing"]]);
+    // it, Cost feeds Margin, and the three input line items feed those: six boxes. Nothing reads it.
+    expect([shownStatus(), traced()]).toEqual(["4 line items · 5 outside the module · 10 links", ["Fed by 6 boxes", "Margin %", "Feeds nothing"]]);
     // Its formula as the file has it, and its settings under the names of the table's columns: the module it is in, and
     // its Format and Summary in the very words the page's table has for them.
     const said = settings();
@@ -502,10 +503,10 @@ describe("A model's result on the results page, with the map's real graph and th
     // The details name no file, and no row of one: there is no file for the user to open. The line item is in the page's
     // Line Items table, under its name.
     expect(part(".map-inspector").textContent).not.toMatch(/\.csv|\brow \d/);
-    // With the selection cleared, the line counts what this view holds: the module's four line items, the three modules
+    // With the selection cleared, the line counts what this view holds: the module's four line items, the five line items
     // beside them, and the ten links among them.
     part('.map-inspector [data-map-act="close"]').press();
-    expect([part(".map-inspector").hidden, shownStatus()]).toEqual([true, "4 line items · 3 outside the module · 10 links"]);
+    expect([part(".map-inspector").hidden, shownStatus()]).toEqual([true, "4 line items · 5 outside the module · 10 links"]);
 
     // A line item formatted as a list says the list, which the export names beside the format's ID: in the page's words too.
     part(".map-search").type("top product");
@@ -540,7 +541,7 @@ describe("A model's result on the results page, with the map's real graph and th
     /** What the user has made of the map: where it is, the box selected and its trace, and the text in its search. */
     const left = () => [where(), text(".map-insp-name"), traced(), part(".map-search").value];
     const was = left();
-    expect(was).toEqual([["Model one", "02 Calculations", REVENUE], "Margin %", ["Fed by 5 boxes", "Margin %", "Feeds nothing"], "cost"]);
+    expect(was).toEqual([["Model one", "02 Calculations", REVENUE], "Margin %", ["Fed by 6 boxes", "Margin %", "Feeds nothing"], "cost"]);
 
     // Another view: the map gives its place up, and what it made stays there, out of sight.
     choose("Line Items");

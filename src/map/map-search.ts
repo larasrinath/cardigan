@@ -79,8 +79,9 @@ function namesOf(model: MapModel): Map<number, string> {
 
 /** Which boxes of the graph on screen the text leads to, by their place: a box the text names, and a box that holds
  * something the text names (a section its modules and their line items, a module its line items). So a search for a
- * line item marks its module and its section where those are what is on screen. Nothing when no text is typed, and
- * nothing when no box on screen is meant: the picture is then left as it is, not faded as a whole. */
+ * line item marks its module and its section where those are what is on screen. Beside a module's line items, a line item
+ * of another module is marked by its module's name too, as that module's box is where they stand grouped. Nothing when no
+ * text is typed, and nothing when no box on screen is meant: the picture is then left as it is, not faded as a whole. */
 export function matchNodes(graph: ViewGraph, model: MapModel, typed: string): Uint8Array | undefined {
   const query = searchText(typed);
   if (query === "") return undefined;
@@ -97,6 +98,7 @@ export function matchNodes(graph: ViewGraph, model: MapModel, typed: string): Ui
     if (!hit && node.kind === "section") hit = (node.members ?? []).some(module => modules.has(module));
     else if (!hit && node.kind === "module" && node.raw) hit = modules.has(node.raw.id);
     else if (!hit && node.kind === "externalModule") hit = (node.members ?? []).some(named);
+    else if (!hit && node.kind === "externalItem" && node.raw?.module !== undefined) hit = named(node.raw.module);
     if (hit) {
       matches[node.index] = 1;
       any = true;

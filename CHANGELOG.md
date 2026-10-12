@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.39.1 (12 October 2026)
+
+- **Other modules' line items one by one.** Inside a module, the Model map shows other modules' line items one by one, each with its module's code or name above it; a module keeps a box of its own only where a link is to the whole module. Untick **Other modules' line items** under **Links** to group them by module. (#6)
+
 ## 0.39.0 (12 October 2026)
 
 - **Find source inputs.** From a line item's details on the Model map or in Line Items, Find source inputs lists every line item without a formula that feeds it, however many calculations away, labelled Entered, Imported by or May be imported by its import, with its steps away and the line item it feeds. The map then shows just those inputs, the calculations between and the result; Back and Esc return to where you were. (#5)
