@@ -272,7 +272,7 @@ function readMap(value: unknown): MapView | undefined {
     ...(typeof value.group === "string" ? { group: value.group } : {}),
     ...(value.all === true ? { all: true } : {}),
     ...(typeof value.module === "string" ? { module: value.module } : {}),
-    ...(value.others === true ? { others: true } : {}),
+    ...(typeof value.others === "boolean" ? { others: value.others } : {}),
     ...(value.noFormulas === true ? { noFormulas: true } : {}),
     ...(value.access === true ? { access: true } : {}),
     ...(value.filters === true ? { filters: true } : {}),

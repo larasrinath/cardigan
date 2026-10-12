@@ -258,7 +258,9 @@ export interface MapView {
    * groups as a whole, which is where the map opens by itself. */
   group?: string;
   all?: boolean;
-  /** In the Line items view: the module shown, by its name, and whether other modules' line items stand one by one. */
+  /** In the Line items view: the module shown, by its name, and `others: false` where other modules' line items are
+   * grouped into one box for each module. They stand one by one unless this says so: a view kept with `others: true`,
+   * as the map told it while they were grouped by default, opens them one by one too. */
   module?: string;
   others?: boolean;
   /** Whether formulas' links are left undrawn: they are drawn unless this says so. */

@@ -5049,7 +5049,7 @@ describe("A model's map on the results page", () => {
   it.each([
     { view: "modules" as const, group: "Sales", access: true },
     { view: "modules" as const, all: true, noFormulas: true },
-    { view: "drill" as const, module: "Revenue", others: true, filters: true },
+    { view: "drill" as const, module: "Revenue", others: false, filters: true },
   ])("keeps the map during a run and rebuilds it at the same level and place: %j", async view => {
     await openWith(MODEL);
     toMap();

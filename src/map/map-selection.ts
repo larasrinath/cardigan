@@ -8,7 +8,8 @@ export function selectionKey(model: MapModel, node: ViewNode): string {
     model.node(raw?.module)?.name ?? "", model.node(raw?.parent)?.name ?? ""]);
 }
 
-/** A missing or ambiguous name selects nothing. */
+/** A missing or ambiguous name selects nothing, and so does a box the view does not have: another module's box, kept
+ * while other modules' line items stood grouped, where they now stand one by one. */
 export function keptSelection(model: MapModel, graph: ViewGraph, key: string | undefined): ViewNode | undefined {
   if (key === undefined) return undefined;
   // Before outside module boxes were combined, a whole-module link could select a separate module box.

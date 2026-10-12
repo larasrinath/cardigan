@@ -5,7 +5,7 @@ import type { PageFilterCheck } from "./graph-types.js";
 import type { InspectLink, Inspection, SourceRow, SourcesSection, TraceWords } from "./map-inspect.js";
 import { LIST_SHOWN, LIST_WHOLE } from "../results/markup.js";
 import {
-  ACCESS_LINK_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
+  ACCESS_LINK_SAYS, ACCESS_MARK_MODULE_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
   groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, MODULES_ONLY_SAYS, NO_LINKS_SAYS, notesHtml, type LegendLinks,
   pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, SOURCES_SAYS, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
   FIND_SOURCES, FIND_SOURCES_TITLE, INPUT_MARK_SAYS, SOURCES_ICON, SOURCES_SHOWN, SOURCES_WHOLE, sourcesHtml,
@@ -277,6 +277,11 @@ describe("The map's own markup", () => {
     expect(FILTERS_SAY).toBe("Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, "
       + "and between their modules.");
     expect(Object.keys(FILTERS_NONE)).toEqual(["table", "links", "empty", "unfound", "nowhere"]);
+    // Other modules' line items come last, ticked as the map opens: inside a module they stand one by one unless unticked.
+    // The view shows the box only there.
+    const others = panel.querySelector(".map-external")!;
+    expect([others.getAttribute("type"), others.getAttribute("checked"), others.closest("label")?.textContent, others.closest("label")?.hidden])
+      .toEqual(["checkbox", "", "Other modules' line items", true]);
   });
 
   it("says under the switch of the pages' filters what ticking it shows, by what the model has, or why it has nothing", () => {
@@ -468,6 +473,9 @@ describe("The map's own markup", () => {
     ]);
     expect(SOURCES_SAYS).toBe("Find source inputs, in a line item's details, lists the line items without a formula that feed it, entered or imported, and maps them with the calculations in between.");
     expect(LINK_SAYS).toBe("An arrow from A to B: B reads A.");
+    // Any box beside a module's line items, another module's line item as well as a module, can carry a sign that no
+    // coloured link explains (map-trace.test.ts shows one).
+    expect(BESIDE_SAYS).toBe("Among a module's line items, any box beside them can carry a sign without a coloured link: it feeds the box selected, or is fed by it, by way of links this map does not draw.");
   });
 
   it("starts with the panels of a selection hidden, and the first view's controls shown", () => {
@@ -629,15 +637,17 @@ describe("The map's panels", () => {
 
   it("has no line for formulas' arrows whatever the picture draws, and each other line of the legend only while its link or mark is drawn", () => {
     const kinds = [undefined, "sections", "modules", "drill"] as const;
-    for (const access of [false, true]) for (const none of [false, true]) for (const modulesOnly of [false, true]) {
+    for (const access of [false, true]) for (const none of [false, true]) for (const modulesOnly of [false, true]) for (const moduleKeys of [false, true]) {
       for (const filters of kinds) for (const marks of kinds) for (const accessMarks of kinds) {
-        const drawn = JSON.stringify({ access, none, modulesOnly, filters, marks, accessMarks });
-        const legend = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), filters, marks, { access, none }, accessMarks, modulesOnly)}</div>`);
+        const drawn = JSON.stringify({ access, none, modulesOnly, moduleKeys, filters, marks, accessMarks });
+        const legend = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), filters, marks, { access, none }, accessMarks, modulesOnly, false, moduleKeys)}</div>`);
         expect(legend.textContent, drawn).not.toContain(LINK_SAYS);
         // Every line under the layers is one of these, in this order, and none stands empty: nothing else follows the layers.
+        // Among a module's line items, a key mark on another module's box adds what it counts to the key's line.
+        const keySays = accessMarks === "drill" && moduleKeys ? `${ACCESS_MARK_SAYS.drill} ${ACCESS_MARK_MODULE_SAYS}` : accessMarks ? ACCESS_MARK_SAYS[accessMarks] : undefined;
         const lines = [
           ...(modulesOnly ? [MODULES_ONLY_SAYS] : []), ...(access ? [ACCESS_LINK_SAYS] : []), ...(none ? [NO_LINKS_SAYS] : []),
-          ...(filters ? [FILTER_LINK_SAYS[filters]] : []), ...(marks ? [FILTER_MARK_SAYS[marks]] : []), ...(accessMarks ? [ACCESS_MARK_SAYS[accessMarks]] : []),
+          ...(filters ? [FILTER_LINK_SAYS[filters]] : []), ...(marks ? [FILTER_MARK_SAYS[marks]] : []), ...(keySays ? [keySays] : []),
         ];
         expect(legend.querySelectorAll("p").map(line => line.textContent), drawn).toEqual(lines);
         expect(legend.children[0]?.children.map(child => child.localName), drawn).toEqual(["div", "button", ...lines.map(() => "p")]);

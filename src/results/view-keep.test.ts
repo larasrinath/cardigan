@@ -172,15 +172,26 @@ describe("What the tab keeps of how a result is looked at", () => {
       tables: { "Line Items.csv": { filters: { Format: { t: ["Number"] }, Bad: { t: [1] } }, ranges: { Count: { from: "1", to: "", blanks: "no" },
         Started: { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" }, Ended: { from: "2026-03-14", to: "", blanks: true, zone: 9 } },
         sort: { column: "Format", dir: "up" }, page: -1, hidden: ["Notes"] }, Odd: 3 },
-      map: { view: "drill", module: "Revenue", others: true, access: "yes" }, drawer: { kind: "row", file: "Line Items.csv", key: "3:abc" },
+      map: { view: "drill", module: "Revenue", others: false, access: "yes" }, drawer: { kind: "row", file: "Line Items.csv", key: "3:abc" },
     }));
     // A range's zone is read where it is a name, and left out where it is not: the range stays, set in no zone.
     expect(readKept(tab)).toEqual({
       subject: "model:ABC", search: { view: "2", text: "rev" },
       tables: { "Line Items.csv": { filters: { Format: { t: ["Number"] } }, ranges: { Started: { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" },
         Ended: { from: "2026-03-14", to: "", blanks: true } }, hidden: ["Notes"] } },
-      map: { view: "drill", module: "Revenue", others: true }, drawer: { kind: "row", file: "Line Items.csv", key: "3:abc" },
+      map: { view: "drill", module: "Revenue", others: false }, drawer: { kind: "row", file: "Line Items.csv", key: "3:abc" },
     });
+  });
+
+  it("reads back whether other modules' line items stand one by one as kept, true or false, and nothing else", () => {
+    const tab = storage();
+    const read = (others: unknown) => {
+      tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "drill", module: "Revenue", others } }));
+      return readKept(tab)?.map;
+    };
+    // The map tells `others: false` where they are grouped; a view kept before they stood one by one by default can say true.
+    expect([read(false), read(true)]).toEqual([{ view: "drill", module: "Revenue", others: false }, { view: "drill", module: "Revenue", others: true }]);
+    for (const others of ["false", 0, 1, null, {}]) expect(read(others), JSON.stringify(others)).toEqual({ view: "drill", module: "Revenue" });
   });
 
   it("writes settings in the place of those kept before, and settings that say nothing take the place of none", () => {
