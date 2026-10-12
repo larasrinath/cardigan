@@ -88,7 +88,9 @@ if (window.top === window) {
    * its export through its frame, and beside it the pages built on the model with the model's names,
    * which need nothing of the export to be read (model-pages.ts `startModelPages`). A failed or stopped export gives up
    * what was started beside it. The IDs of its line items come with the export for reading the pages built on it, and go
-   * no further: they are taken off the result here, so that the results page never holds them. The export says it was
+   * no further: they are taken off the result here, so that the results page never holds them. So do the Line Items
+   * grid's columns, which tell the engine where the export has no Line Items table, as when the model refused the grid's
+   * later pages, and how many of its rows the model refused, which Unused Line Items says. The export says it was
    * made with this version, whichever version the model's reader is of (version-label.ts). A model read in Model
    * Building carries where it is, which the results page opens its modules, apps and pages by. */
   const readModel = async (seen: Seen, progress: Progress, signal: AbortSignal) => {
@@ -132,8 +134,8 @@ if (window.top === window) {
       pages.abandon(error);
       throw error;
     }
-    const { lineItemIds, ...result } = exported;
-    const engine = engineFromColumns(result.tables.find(table => table.file === "Line Items.csv")?.headers ?? []);
+    const { lineItemIds, lineItemColumns, lineItemsRefused, ...result } = exported;
+    const engine = engineFromColumns(result.tables.find(table => table.file === "Line Items.csv")?.headers ?? lineItemColumns ?? []);
     logEngine(engineLine(engine));
     if (engine === "polaris") {
       result.summary.push(POLARIS_FULL_NOTE);
@@ -141,7 +143,7 @@ if (window.top === window) {
     }
     // What nothing uses is known once the pages built on the model are read: it is made from the result and the line items'
     // IDs, which go no further (model/unused.ts).
-    const read = keepEngineLog(addUnused(await pages.finish(withVersion(result), lineItemIds), lineItemIds, progress.log));
+    const read = keepEngineLog(addUnused(await pages.finish(withVersion(result), lineItemIds), lineItemIds, progress.log, lineItemsRefused));
     return seen.origin && seen.customer ? { ...read, site: { origin: seen.origin, customer: seen.customer } } : read;
   };
 

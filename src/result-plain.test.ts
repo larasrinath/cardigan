@@ -77,6 +77,15 @@ describe("A result as plain data", () => {
       expect(plainResult({ ...model, lineItemIds: ids }), JSON.stringify(ids)).toEqual(model);
     }
     expect(plainResult({ ...result, lineItemIds })).toEqual(result);
+    // So do the columns of its Line Items grid, and how many of the grid's rows the model refused: a list of texts and a whole
+    // number above nought. Anything else is left out; an app has neither.
+    const lineItemColumns = ["Formula", "Populated Cell Count", ""];
+    expect(plainResult({ ...model, lineItemColumns, lineItemsRefused: 2 })).toEqual({ ...model, lineItemColumns, lineItemsRefused: 2 });
+    for (const odd of [["Formula", 3], "Formula", [null], { 0: "Formula" }]) {
+      expect(plainResult({ ...model, lineItemColumns: odd }), JSON.stringify(odd)).toEqual(model);
+    }
+    for (const odd of [0, -1, 1.5, "2", Number.NaN, null]) expect(plainResult({ ...model, lineItemsRefused: odd }), String(odd)).toEqual(model);
+    expect(plainResult({ ...result, lineItemColumns, lineItemsRefused: 2 })).toEqual(result);
     // So does where a model was read: an Anaplan site's origin and a customer's ID. Anything else is left out.
     const site = { origin: "https://us1a.app.anaplan.com", customer: "5555eeee6666ffff7777aaaa8888bbbb" };
     expect(plainResult({ ...model, site: { ...site, extra: "<b>" } })).toEqual({ ...model, site });

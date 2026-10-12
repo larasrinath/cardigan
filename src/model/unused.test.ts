@@ -284,6 +284,27 @@ describe("The tables of what nothing in a model uses", () => {
       "The mapping of 1 import could not be read, so every line item without a formula in the module it loads counts as imported."]);
   });
 
+  it("says, where the model refused rows of Line Items, that line items used only by them may be listed, and their modules; what their formulas read is used", () => {
+    // Line Items without the rows the model refused: REP01 Report's own and its Total, which reads Units. Units' Referenced By
+    // names Total all the same, and a name that is no line item of the table counts as a use: Units is not listed.
+    const result = model([lineItems(own("REV01 Revenue"), item("REV01 Revenue", "Units", { "Referenced By": "'REP01 Report'.Total" }), item("REV01 Revenue", "Price")),
+      modules(own("REV01 Revenue"), own("REP01 Report"))]);
+    const made = (refused?: number) => {
+      const added = addUnused(result, undefined, () => undefined, refused);
+      const rows = (name: string) => added.tables.find(each => each.file === name)!.rows;
+      return { items: rows(UNUSED_LINE_ITEMS_FILE).map(row => `${row[1]} / ${row[0]}: ${row[2]}`), modules: rows(UNUSED_MODULES_FILE).map(row => `${row[0]}: ${row[1]}`),
+        notes: added.tables[0].rows.filter(row => row[0] === "Notes" && row[1] === "Unused Line Items").map(row => String(row[2])) };
+    };
+    // What only the refused rows use but by a formula, as Price may be by a ratio, and a module whose rows were all refused,
+    // as REP01 Report's were, are listed all the same: the note says they may be.
+    expect(made(2)).toEqual({ items: ["REV01 Revenue / Price: Read by nothing"], modules: ["REP01 Report: Empty"],
+      notes: ["2 rows of Line Items could not be read, so line items used only by them may be listed, and so may their modules."] });
+    expect(made(1).notes).toEqual(["1 row of Line Items could not be read, so line items used only by it may be listed, and so may its module."]);
+    // Where the model refused none, there is no such note.
+    expect(made(0)).toEqual({ ...made(2), notes: [] });
+    expect(made()).toEqual(made(0));
+  });
+
   it("counts what an imported line item uses as used, as the summary parent it is summed into, and still lists the imported line item", () => {
     const imports = file("Imports", IMPORT_HEADERS, [{ "": "Load stock", "Source Type": "FILE", "Target Object": "STK01 Stock", "Target Type": "MODULE" }]);
     const { items } = unused(model([lineItems(own("STK01 Stock"), item("STK01 Stock", "Stock Total", { "Is Summary": "true" }), item("STK01 Stock", "Stock In", { Parent: "Stock Total" }),

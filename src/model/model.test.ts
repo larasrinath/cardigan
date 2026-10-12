@@ -5,10 +5,12 @@ import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS
   LIST_IDS_ADDED, SUBSETS_READ_ADDED, MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
+import { engineFromColumns } from "../model-engine.js";
 import { Failure } from "../progress.js";
 import { plainResult } from "../result-plain.js";
 import { resultZip, tableCsv } from "../result-zip.test-support.js";
 import { actionWords } from "../results/readable-cells.js";
+import { overviewOf } from "../results/result-view.js";
 import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "../zip.test-support.js";
 import * as access from "./access.js";
 import { ACCESS_HEADERS } from "./access.js";
@@ -22,7 +24,8 @@ import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
 import * as lineItems from "./lineitems.js";
 import { FORMAT_LIST_COLUMN, lineItemsTable, RATIO_COLUMNS } from "./lineitems.js";
-import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
+import { assertRead, GridFailure, modelOnPage, readGrid, type Native } from "./native.js";
+import { addUnused } from "./unused.js";
 
 // Synthetic IDs and names only. Entity type = ID / 1e9 (102 module, 118 process, 4 property), as the classic client encodes it.
 
@@ -678,8 +681,8 @@ describe("Model export: Model settings grids to tables", () => {
     expect(csv(without, "Line Items.csv")).toEqual(csv(result, "Line Items.csv").map((row, index) => (index === 0 ? row : [...row.slice(0, 5), ""])));
     expect([without.tables.map(table => table.file).slice(0, 4), without.summary.slice(0, 2), without.summary.slice(-3)]).toEqual([
       ["Model Details.csv", "Line Items.csv", "Modules.csv", "Processes.csv"], ["Line Items: 5 rows", "Modules: 2 rows"],
-      ["General Lists: not exported (The model rejected the read.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
-    expect(details(without)).toEqual(details(result).map(row => (row[1] === "General Lists.csv" ? ["Files", "General Lists.csv", "Not exported: The model rejected the read."] : row)));
+      ["General Lists: not exported (The model rejected the read: no such grid.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+    expect(details(without)).toEqual(details(result).map(row => (row[1] === "General Lists.csv" ? ["Files", "General Lists.csv", "Not exported: The model rejected the read: no such grid."] : row)));
   });
 
   it("exports Other Actions.csv with the name of the list each action deletes from or orders, from General Lists, which it reads before the Actions list, and reads no grid more", async () => {
@@ -843,7 +846,7 @@ describe("Model export: Model settings grids to tables", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const [LINE_ITEMS, MODULES, LISTS] = ["LINE ITEMS × LINE ITEM PROPERTIES", "MODULES × MODULE PROPERTIES", "LISTS × LIST PROPERTIES"];
-    const REJECTED = "The model rejected the read.";
+    const REJECTED = "The model rejected the read: no such grid.";
     const NO_SUBSETS = "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).";
     const NO_SOURCE_MODELS = "Source Models: not exported (This model page has no REMOTE_MODEL axis.).";
     // Dynamic Cell Access is made from Line Items, and is no grid: nothing is read for it. This model gets none: its
@@ -942,9 +945,9 @@ describe("Model export: Model settings grids to tables", () => {
     const { "MODULES × MODULE PROPERTIES": _modules, ...withoutModules } = GOLDEN_GRIDS;
     const both = await exportGoldenModel(withoutModules);
     expect(both.tables[0].rows.filter(row => row[0] === "Files").slice(0, 4).map(row => `${row[1]}: ${row[2]}`)).toEqual(["Line Items.csv: Not exported: no table",
-      "Dynamic Cell Access.csv: Not exported: Line Items was not exported.", "Modules.csv: Not exported: The model rejected the read.", "General Lists.csv: 2 rows"]);
+      "Dynamic Cell Access.csv: Not exported: Line Items was not exported.", "Modules.csv: Not exported: The model rejected the read: no such grid.", "General Lists.csv: 2 rows"]);
     expect(both.summary.filter(line => line.includes("not exported"))).toEqual(["Line Items: not exported (no table).", "Dynamic Cell Access: not exported (Line Items was not exported.).",
-      "Modules: not exported (The model rejected the read.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+      "Modules: not exported (The model rejected the read: no such grid.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
   });
 
   it("writes Dynamic Cell Access.csv right after Line Items.csv for a model that drives access, and otherwise the zip 0.8.1 wrote for the same model, byte for byte but for the Action List column of Other Actions.csv and the rows of Model Details.csv that are named", async () => {
@@ -1285,14 +1288,20 @@ const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS
  * With `said`, the export's steps and log lines are kept there as the model's frame keeps them (bridge.ts `serveCore`):
  * each stamped as it is said, a step as a line, and all of them together the log the export is given for its Details file.
  * `client` can keep every request the page's client is given to send (`posted`), and make the requests its generator
- * makes (`request`), where they are not the reads it makes otherwise. */
+ * makes (`request`), where they are not the reads it makes otherwise. `refuse` is given each read as `reads` is, and
+ * where it gives an answer, the model answers that read with it instead. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = [], said?: string[], client: { posted?: any[]; request?: (params: any) => unknown } = {}) {
+async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = [], said?: string[], client: { posted?: any[]; request?: (params: any) => unknown; refuse?: (read: string) => unknown } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
     client.posted?.push(request);
     const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
     reads.push(`${viewDefinition.rowAxis} ${startRow}+${rowCount}`);
+    const refusal = client.refuse?.(reads.at(-1)!);
+    if (refusal !== undefined) {
+      queueMicrotask(() => ok(refusal));
+      return true;
+    }
     const grid = grids[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
     if (!grid) {
       queueMicrotask(() => ok({ error: "no such grid" }));
@@ -1483,7 +1492,7 @@ describe("The mappings of a model's imports", () => {
     // sources' definitions are not read without the imports'.
     expect(reads.slice(reads.indexOf("IMPORTS 0+1333") + 1, reads.indexOf("IMPORTS 0+1333") + 3)).toEqual(["IMPORTS 0+1333", "DATA SOURCES 0+1333"]);
     expect(said.filter(line => line.includes("Import mapping"))).toEqual(["12:30:10 Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 2 mappings to read", "12:30:10 Reading Import mappings…",
-      "12:30:10 Import mappings: The model rejected the read.", "12:30:10 Import mappings: 0 of 2 read; the model gave no grid of definitions"]);
+      "12:30:10 Import mappings: The model rejected the read: no such grid.", "12:30:10 Import mappings: 0 of 2 read; the model gave no grid of definitions"]);
     expect([result.summary.filter(line => /mapping/i.test(line)), result.tables[0].rows.filter(row => row[0] === "Notes")]).toEqual([[], []]);
     expect(result.tables.find(table => table.file === "Imports.csv")).toEqual((await exportGoldenModel()).tables.find(table => table.file === "Imports.csv"));
   });
@@ -1533,7 +1542,7 @@ describe("The actions of a model's processes", () => {
     const result = await exportGoldenModel(without, [], said);
     expect(result.processActions).toEqual([{ id: "118000000001", name: "Nightly load", actions: [], note: PROCESS_NOTES.notRead }]);
     expect(said.map(line => line.slice(9)).filter(line => line.startsWith("Process"))).toEqual(["Process actions: 1 process to read",
-      "Process actions: The model rejected the read.", "Process actions: 0 of 1 read; 0 actions; the model gave no grid of definitions"]);
+      "Process actions: The model rejected the read: no such grid.", "Process actions: 0 of 1 read; 0 actions; the model gave no grid of definitions"]);
     expect([result.summary.filter(line => /process actions/i.test(line)), result.tables.map(table => table.file)])
       .toEqual([[], (await exportGoldenModel()).tables.map(table => table.file)]);
   });
@@ -1559,5 +1568,278 @@ describe("The actions of a model's processes", () => {
       const received = plainResult(JSON.parse(JSON.stringify({ ...result, processActions: odd })));
       expect([received?.name, received?.processActions], JSON.stringify(odd)).toEqual([result.name, undefined]);
     }
+  });
+});
+
+describe("A grid the model refuses part of", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  const [WS, MODEL] = ["0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
+  /** Twenty-seven columns, as Line Items has: a page after the first is 1,481 rows, the 40,000 cells a read asks for, as
+   * in the run whose second page the model refused. */
+  const COLUMNS = ["Formula", "Populated Cell Count", ...Array.from({ length: 25 }, (_, index) => `Column ${index + 3}`)];
+  /** The page's client, serving a grid of `total` rows, Item 0, Item 1 and so on, each read answered with the rows asked for,
+   * unless `refuse` gives the model's answer to it instead. Each read is kept as its first row and how many it asks for, and
+   * whether the model answered it. */
+  function serving(total: number, refuse: (startRow: number, rowCount: number) => unknown = () => undefined) {
+    const reads: string[] = [];
+    const answered: boolean[] = [];
+    const native = { cache: { getAllCurrenciesLabelPage: () => undefined }, ids: {}, constants: {}, axisHelper: {}, workspaceId: WS, modelId: MODEL,
+      helper: { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) },
+      RequestGenerator: class { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      DataPage: class extends FakePage { constructor({ page }: any) { super(page); } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      aggregator: { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
+        const { startRow, rowCount } = request.params.pageRequests[0];
+        reads.push(`${startRow}+${rowCount}`);
+        const refusal = refuse(startRow, rowCount);
+        answered.push(refusal === undefined);
+        const rows = Array.from({ length: Math.max(0, Math.min(rowCount, total - startRow)) }, (_, index) => startRow + index);
+        queueMicrotask(() => ok(refusal ?? { result: { viewRequestResults: [{ rowCount: total, columnCount: COLUMNS.length,
+          rowLabelPages: [{ start: startRow, count: rows.length, entityLongIds: [rows.map(row => 1901000000000 + row)], labels: [rows.map(row => `Item ${row}`)] }],
+          columnLabelPages: [{ start: 0, count: COLUMNS.length, entityLongIds: [COLUMNS.map((_, index) => 4000000001 + index)], labels: [COLUMNS] }],
+          dataPages: [{ startRow, rows: rows.map(row => COLUMNS.map((_, column) => `${row}:${column}`)) }] }] } }));
+        return true;
+      } } } as unknown as Native;
+    /** The most reads the model refused in a row, with none answered between them. */
+    const inARow = (): number => {
+      let [most, run] = [0, 0];
+      for (const ok of answered) {
+        run = ok ? 0 : run + 1;
+        most = Math.max(most, run);
+      }
+      return most;
+    };
+    return { native, reads, inARow };
+  }
+  /** The log, with each page's time as the same words. */
+  const lines = (log: readonly string[]): string[] => log.map(line => line.replace(/ in \d+\.\d\d s$/, " in … s"));
+  const HEADER = `Line Items: 3000 rows × 27 columns; columns: ${COLUMNS.join(" | ")}`;
+  /** The names of the grid's rows, and those of `total` rows but some. */
+  const names = (grid: Grid): string[] => grid.rows.map(row => row.labels[0]);
+  const every = (total: number, ...but: number[]): string[] => Array.from({ length: total }, (_, row) => row).filter(row => !but.includes(row)).map(row => `Item ${row}`);
+  /** A model that answers the first page, as the one that refused a page of Line Items did, and refuses any later read of
+   * more than 300 rows, saying why. */
+  const LARGE = (start: number, count: number): unknown => (start > 0 && count > 300 ? { error: "Too many rows asked for" } : undefined);
+
+  it("reads a page it refuses again in halves, both halves before either's halves, until each part is answered, and reads every row", async () => {
+    const { native, reads, inARow } = serving(3000, LARGE);
+    const log: string[] = [];
+    const grid = await readGrid(native, "ROWS", "COLS", "Line Items", line => log.push(line));
+    // The first page, 1,333 rows sized for thirty columns, is answered. The next, 1,481 rows of the grid's 27, is refused:
+    // both its halves are asked for, both refused, then each one's two halves, until parts of 186 rows or fewer are
+    // answered. The page after them is of the usual size again: the 186 rows left.
+    expect(reads).toEqual(["0+1333", "1333+1481", "1333+741", "2074+740", "1333+371", "1704+370", "1333+186", "1519+185", "1704+185", "1889+185",
+      "2074+370", "2444+370", "2074+185", "2259+185", "2444+185", "2629+185", "2814+186"]);
+    expect(inARow()).toBe(5);
+    // Every row, once each, with its cells, in the grid's order: none is left out.
+    expect([names(grid), grid.rows[2999].cells.slice(0, 2), grid.refused]).toEqual([every(3000), ["2999:0", "2999:1"], undefined]);
+    // One line for each refusal, with the model's words; the time of each part read; and how many rows were read.
+    expect(lines(log)).toEqual([HEADER,
+      ...["1333–2813", "1333–2073", "2074–2813", "1333–1703", "1704–2073", "2074–2443", "2444–2813"]
+        .map(rows => `Line Items: rows ${rows} refused by the model (Too many rows asked for); reading them in smaller pages`),
+      ...["0–1332", "1333–1518", "1519–1703", "1704–1888", "1889–2073", "2074–2258", "2259–2443", "2444–2628", "2629–2813", "2814–2999"]
+        .map(rows => `Line Items: rows ${rows} in … s`),
+      "Line Items: 3,000 of 3,000 rows read"]);
+  });
+
+  it("leaves out a row it refuses even alone, the first of a page among them, reads every other row, and names the rows left out", async () => {
+    // Rows 1,333, the first of the second page, and 2,999 can't be described: the model refuses any read that holds one,
+    // and says why in the answer's errorInfo.
+    const REASON = "A line item could not be described.";
+    const holds = (start: number, count: number) => [1333, 2999].some(row => row >= start && row < start + count);
+    const { native, reads, inARow } = serving(4500, (start, count) => (holds(start, count) ? { result: { errorInfo: { message: REASON } } } : undefined));
+    const log: string[] = [];
+    const grid = await readGrid(native, "ROWS", "COLS", "Line Items", line => log.push(line));
+    // Both halves of a refused part are asked for before either's halves, so one row it refuses costs two refusals in a
+    // row at most, wherever it is. Reading the first half first would have taken twelve in a row to reach row 1,333 alone,
+    // and given the grid up.
+    expect(inARow()).toBe(2);
+    expect(reads.filter(read => read.endsWith("+1"))).toEqual(["1335+1", "1333+1", "1334+1", "2998+1", "2999+1"]);
+    // Once the refused page is read, the next page is of the usual size again.
+    expect(reads[reads.indexOf("1334+1") + 1]).toBe("2814+1481");
+    expect([names(grid), grid.refused]).toEqual([every(4500, 1333, 2999), { rowCount: 4500, places: [1333, 2999] }]);
+    const refused = (rows: string) => `Line Items: rows ${rows} refused by the model (${REASON}); reading them in smaller pages`;
+    expect(lines(log).filter(line => !line.endsWith(" in … s"))).toEqual([HEADER.replace("3000 rows", "4500 rows"),
+      ...["1333–2813", "1333–2073", "1333–1703", "1333–1518", "1333–1425", "1333–1379", "1333–1356", "1333–1344", "1333–1338", "1333–1335", "1333–1334"].map(refused),
+      `Line Items: row 1333 refused by the model (${REASON}); left out`,
+      ...["2814–4294", "2814–3554", "2814–3184", "2814–2999", "2907–2999", "2954–2999", "2977–2999", "2989–2999", "2995–2999", "2998–2999"].map(refused),
+      `Line Items: row 2999 refused by the model (${REASON}); left out`,
+      "Line Items: 4,498 of 4,500 rows read; 2 rows refused: 1,333 and 2,999"]);
+    // The summing-up comes last, after each part's time.
+    expect(log.at(-2)).toMatch(/^Line Items: rows 4295–4499 in \d+\.\d\d s$/);
+  });
+
+  it("gives the grid up as it does one whose first page it refuses, with its words, once it has refused twelve reads in a row", async () => {
+    const { native, reads, inARow } = serving(3000, start => (start > 0 ? { error: { message: "Service unavailable", code: 503 } } : undefined));
+    const log: string[] = [];
+    const failure = await readGrid(native, "ROWS", "COLS", "Line Items", line => log.push(line)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(GridFailure);
+    expect((failure as GridFailure).message).toBe("The model rejected the read: Service unavailable (503).");
+    // Twelve refusals after the first page, none answered between them: the page, both its halves, then each refused half's two.
+    expect([reads.length, inARow()]).toEqual([13, 12]);
+    expect(reads).toEqual(["0+1333", "1333+1481", "1333+741", "2074+740", "1333+371", "1704+370", "1333+186", "1519+185", "1333+93", "1426+93", "1333+47", "1380+46", "1333+24"]);
+    // Each refusal but the last has its line; the grid's failure says the last. No page's time is said: the grid was not read.
+    expect([log.filter(line => line.includes("refused by the model")).length, log.filter(line => / in \d+\.\d\d s$/.test(line))]).toEqual([11, []]);
+    // The failure keeps the columns the first page gave, which say a model's engine.
+    expect((failure as GridFailure).columns).toEqual(COLUMNS);
+    // Any other failure after the first page keeps them too, and is no refusal: it is not read again in halves.
+    const slow = serving(3000);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const post = (slow.native as any).aggregator.post;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (slow.native as any).aggregator.post = (request: any, flag: boolean, ok: unknown, failed: () => boolean) => (request.params.pageRequests[0].startRow > 0
+      ? (slow.reads.push("unsent"), queueMicrotask(() => failed()), true) : post(request, flag, ok));
+    const unsent = await readGrid(slow.native, "ROWS", "COLS", "Line Items", () => undefined).catch((error: unknown) => error);
+    expect([unsent instanceof GridFailure && unsent.message, unsent instanceof GridFailure && unsent.columns, slow.reads])
+      .toEqual(["The read did not reach the model.", COLUMNS, ["0+1333", "unsent"]]);
+  });
+
+  it("keeps the model's words on a refused read as plain text of one line, cut to 200 characters, without an address or an ID", async () => {
+    /** The first page answered so: the grid fails as it always has, now with the model's words, and keeps no columns. */
+    const failing = (answer: unknown) => readGrid(serving(10, () => answer).native, "ROWS", "COLS", "Line Items", () => undefined)
+      .then(() => ["read"], (error: Error) => [error.message, error instanceof GridFailure]);
+    const PREFIX = "The model rejected the read: ";
+    // Markup, a line break, addresses, the model's and the workspace's IDs in any case, a request's ID and another model's.
+    const CUSTOMER = "8a81b09a5f3e4c1e015f4d2b3c6a7b8d";
+    const words = `<b>Read refused</b> for model ${MODEL.toLowerCase()} in workspace ${WS.toUpperCase()}:\nsee https://eu2a.app.anaplan.com/a/modeling/customers/${CUSTOMER}/models/${MODEL}?view=1 `
+      + `&amp; /core-webapp/anaplan/framework.jsp, request 01234567-89ab-cdef-0123-456789abcdef, other model ABCDEF0123456789ABCDEF0123456789. ${"Rows ".repeat(60)}`;
+    const [said, kept] = await failing({ error: { message: words, errorCode: "VIEW_REFUSED" } });
+    const plain = `Read refused for model [ID] in workspace [ID]: see [address] & [address], request [ID], other model [ID]. ${"Rows ".repeat(60)}`;
+    expect([said, kept]).toEqual([`${PREFIX}${Array.from(plain).slice(0, 199).join("").trimEnd()}…`, false]);
+    expect([Array.from(String(said).slice(PREFIX.length)).length, String(said)]).toEqual([200, expect.not.stringMatching(/https?:|anaplan\.com|[<>\n]|[0-9A-Za-z]{32}|01234567-/i)]);
+    // A short refusal is said whole, its kind after its words; one with no words, by its kind.
+    expect(await failing({ result: { errorInfo: { errorMessage: "Too many cells", code: "VIEW_TOO_LARGE" } } })).toEqual([`${PREFIX}Too many cells (VIEW_TOO_LARGE).`, false]);
+    expect(await failing({ result: { errorInfo: { errorType: "MODEL_LOCKED" } } })).toEqual([`${PREFIX}MODEL_LOCKED.`, false]);
+    // A refusal of other fields is said as it is, without what was asked, an address or an ID's field.
+    expect(await failing({ error: { rows: 1481, limit: 40000, request: { modelId: MODEL, workspaceId: WS }, url: "https://eu2a.app.anaplan.com/x", modelId: MODEL } }))
+      .toEqual([`${PREFIX}{"rows":1481,"limit":40000}.`, false]);
+    // A grid the model returns with its own errorInfo, or none at all.
+    expect(await failing({ result: { viewRequestResults: [{ errorInfo: "Grid not available" }] } })).toEqual(["The model returned no grid for this read: Grid not available.", false]);
+    expect(await failing({ result: { viewRequestResults: [] } })).toEqual(["The model returned no grid for this read.", false]);
+    // Nothing said, or nothing that can be read, which can't keep the read from ending: no words at all.
+    const loop: Record<string, unknown> = { rows: 1481 };
+    loop.again = loop;
+    for (const answer of [{}, { error: true }, { error: "  " }, { result: { errorInfo: loop } }, { error: { get message(): string { throw new Error("unreadable"); } } }]) {
+      expect(await failing(answer)).toEqual(["The model rejected the read.", false]);
+    }
+  });
+
+  it("asks whether to stop before every read, those of a refused page's halves too, and reads no further once asked to", async () => {
+    const { native, reads } = serving(3000, LARGE);
+    let asked = 0;
+    await readGrid(native, "ROWS", "COLS", "Line Items", () => undefined, undefined, false, { throwIfAborted: () => { asked++; } });
+    expect([asked, reads.length]).toEqual([17, 17]);
+    // Asked to stop while a half is read: that read is let finish, and it is the last.
+    const stopped = new Error("The export was stopped.");
+    const stopping = new AbortController();
+    const halted = serving(3000, (start, count) => {
+      if (start === 2074 && count === 740) stopping.abort(stopped);
+      return LARGE(start, count);
+    });
+    await expect(readGrid(halted.native, "ROWS", "COLS", "Line Items", () => undefined, undefined, false, stopping.signal)).rejects.toBe(stopped);
+    expect(halted.reads).toEqual(["0+1333", "1333+1481", "1333+741", "2074+740"]);
+    // A line of the log can be that ask too (bridge.ts `serveCore`): it fails as it is, not as the grid's failure.
+    const said = serving(3000, LARGE);
+    await expect(readGrid(said.native, "ROWS", "COLS", "Line Items", line => { if (line.includes("refused")) throw stopped; })).rejects.toBe(stopped);
+    expect(said.reads).toEqual(["0+1333", "1333+1481"]);
+  });
+
+  it("says the rows left out by their places, with their thousands apart: the first ten of more, and how many more", () => {
+    expect([[2345], [2345, 5012], [12, 40, 41]].map(places => grids.placesSaid(places))).toEqual(["2,345", "2,345 and 5,012", "12, 40 and 41"]);
+    const many = Array.from({ length: 1234 }, (_, index) => 2000 + index);
+    expect(grids.placesSaid(many)).toBe("2,000, 2,001, 2,002, 2,003, 2,004, 2,005, 2,006, 2,007, 2,008, 2,009 and 1,224 more");
+    const rows = (count: number): GridRow[] => Array.from({ length: count }, (_, index) => ({ ids: [index], labels: [`Item ${index}`], cells: [] }));
+    const partly = (places: number[], rowCount: number): Grid => ({ columns: [], rows: rows(rowCount - places.length), refused: { rowCount, places } });
+    expect([grids.refusedNote(partly([5012], 7100)), grids.refusedRemark(partly([5012], 7100))]).toEqual(["7,099 of 7,100 rows: the model refused 1 (row 5,012).", "the model refused 1 of 7100"]);
+    expect(grids.refusedNote(partly(many, 9000))).toBe("7,766 of 9,000 rows: the model refused 1,234 (rows 2,000, 2,001, 2,002, 2,003, 2,004, 2,005, 2,006, 2,007, 2,008, 2,009 and 1,224 more).");
+    // A grid read whole says nothing.
+    expect([grids.refusedNote({ columns: [], rows: rows(3) }), grids.refusedRemark({ columns: [], rows: rows(3), refused: { rowCount: 3, places: [] } })]).toEqual([undefined, undefined]);
+  });
+
+  const LINE_ITEMS = "LINE ITEMS × LINE ITEM PROPERTIES";
+  /** A Line Items grid of 1,400 rows, Polaris's Populated Cell Count among its columns: Profitability's own row, then its line
+   * items, Access first, the driver of who may read and write three of the others, Item 1333 to Item 1335. */
+  const BIG_COLUMNS = ["Formula", "Read Access Driver", "Write Access Driver", "Populated Cell Count", "Referenced By", "Module Name"];
+  const BIG: FakeGrid = { columns: BIG_COLUMNS, rows: [{ ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", "", "2252068", "", ""] },
+    ...Array.from({ length: 1399 }, (_, index) => {
+      const row = index + 1;
+      const driven = row >= 1333 && row <= 1335 ? "Access" : "";
+      return { ids: [1901000000000 + row, 102000000001], labels: [row === 1 ? "Access" : `Item ${row}`, "Profitability"], cells: ["", driven, driven, "10", "", "Profitability"] };
+    })] };
+  /** The model refuses any read of Line Items that holds row 1,334. */
+  const UNREADABLE = (read: string): unknown => {
+    const [start, count] = /^LINE ITEMS (\d+)\+(\d+)$/.exec(read)?.slice(1).map(Number) ?? [];
+    return start !== undefined && start <= 1334 && 1334 < start + count ? { error: "A line item could not be described." } : undefined;
+  };
+
+  it("keeps the rows of Line Items it could read, says which it couldn't in a note and the file's Files row, and makes DCA and the unused tables of them", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [reads, said, goldenReads]: string[][] = [[], [], []];
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [LINE_ITEMS]: BIG }, reads, said, { refuse: UNREADABLE });
+    // Only Line Items is read again, in halves, down to row 1,334 alone; every other grid is read as ever.
+    expect(reads.filter(read => read.startsWith("LINE ITEMS")).slice(-4)).toEqual(["LINE ITEMS 1333+2", "LINE ITEMS 1335+1", "LINE ITEMS 1333+1", "LINE ITEMS 1334+1"]);
+    await exportGoldenModel({ ...GOLDEN_GRIDS, [LINE_ITEMS]: BIG }, goldenReads);
+    expect(reads.filter(read => !read.startsWith("LINE ITEMS"))).toEqual(goldenReads.filter(read => !read.startsWith("LINE ITEMS")));
+    // The table has every row but that one.
+    const table = result.tables.find(each => each.file === "Line Items.csv")!;
+    expect([table.rows.length, table.rows.map(row => row[0]).filter(name => /^Item 133[3-5]$/.test(String(name)))]).toEqual([1399, ["Item 1333", "Item 1335"]]);
+    // A note says how many rows were read and which was not; the file's line and its Files row say it beside the count.
+    const NOTE = "1,399 of 1,400 rows: the model refused 1 (row 1,334).";
+    const COUNTED = "1399 rows (the model refused 1 of 1400)";
+    expect([result.summary[0], result.summary.filter(line => line.startsWith("Line Items: 1,399"))]).toEqual([`Line Items: ${COUNTED}`, [`Line Items: ${NOTE}`]]);
+    const details = result.tables[0].rows;
+    expect([details.find(row => row[1] === "Line Items.csv"), details.filter(row => row[0] === "Notes")]).toEqual([["Files", "Line Items.csv", COUNTED], [["Notes", "Line Items", NOTE]]]);
+    // The page shows both where it shows such notes: the note under Notes, the count's words under Tables.
+    const overview = overviewOf(result);
+    expect([overview.notes.filter(line => line.startsWith("Line Items")), overview.files.filter(([file]) => file === "Line Items")]).toEqual([[`Line Items: ${NOTE}`], [["Line Items", COUNTED]]]);
+    // The log says the refusals, the row left out, and how many rows were read.
+    const logged = said.map(line => line.slice(9));
+    expect(logged).toContain("Line Items: row 1334 refused by the model (A line item could not be described.); left out");
+    expect(logged).toContain("Line Items: 1,399 of 1,400 rows read; 1 row refused: 1,334");
+    // Dynamic Cell Access is made from the rows read: Access controls the two of the three it could read.
+    const dca = result.tables.find(each => each.file === "Dynamic Cell Access.csv")!;
+    expect(dca.rows).toEqual([["Profitability", "Access", "Read", "Profitability", "Item 1333"], ["Profitability", "Access", "Read", "Profitability", "Item 1335"],
+      ["Profitability", "Access", "Write", "Profitability", "Item 1333"], ["Profitability", "Access", "Write", "Profitability", "Item 1335"]]);
+    // The result carries the grid's columns, and how many of its rows the model refused, with its rows' IDs.
+    expect([result.lineItemColumns, result.lineItemsRefused, result.lineItemIds?.length]).toEqual([BIG_COLUMNS, 1, 1399]);
+    expect(engineFromColumns(result.lineItemColumns!)).toBe("polaris");
+    // Unused Line Items and Unused Modules are made of the rows read, and say that what the refused row alone uses may be
+    // listed, and its module. Of the 1,398 line items read, Access drives access: it is not listed, and the others are.
+    const { lineItemIds, lineItemColumns: _columns, lineItemsRefused, ...exported } = result;
+    const unused = addUnused(exported, lineItemIds, () => undefined, lineItemsRefused);
+    const unusedItems = unused.tables.find(each => each.file === "Unused Line Items.csv")!;
+    expect([unusedItems.rows.length, unusedItems.rows.some(row => row[0] === "Access"), unused.tables.some(each => each.file === "Unused Modules.csv")]).toEqual([1397, false, true]);
+    expect(unused.tables[0].rows.filter(row => row[0] === "Notes" && row[1] === "Unused Line Items").map(row => row[2]))
+      .toContain("1 row of Line Items could not be read, so line items used only by it may be listed, and so may its module.");
+  });
+
+  it("fails Line Items once the model refuses twelve of its reads in a row, with the model's words, and keeps its columns, which say the engine", async () => {
+    const reads: string[] = [];
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [LINE_ITEMS]: BIG }, reads, undefined, { refuse: read => (/^LINE ITEMS [1-9]/.test(read) ? { error: "The model is busy." } : undefined) });
+    expect(reads.filter(read => read.startsWith("LINE ITEMS"))).toHaveLength(13);
+    const WHY = "The model rejected the read: The model is busy.";
+    expect([result.tables.some(table => table.file === "Line Items.csv"), result.summary.includes(`Line Items: not exported (${WHY}).`),
+      result.tables[0].rows.find(row => row[1] === "Line Items.csv")]).toEqual([false, true, ["Files", "Line Items.csv", `Not exported: ${WHY}`]]);
+    // No rows, so none of their IDs and no count of rows refused; but the columns of the grid's first page.
+    expect([result.lineItemColumns, result.lineItemsRefused, result.lineItemIds]).toEqual([BIG_COLUMNS, undefined, undefined]);
+    expect(engineFromColumns(result.lineItemColumns!)).toBe("polaris");
+    // A model whose first page of Line Items is refused gives no columns: nothing of the grid was read.
+    const first = await exportGoldenModel({ ...GOLDEN_GRIDS, [LINE_ITEMS]: BIG }, [], undefined, { refuse: read => (read.startsWith("LINE ITEMS") ? { error: "The model is busy." } : undefined) });
+    expect([first.summary.includes(`Line Items: not exported (${WHY}).`), Object.hasOwn(first, "lineItemColumns")]).toEqual([true, false]);
+  });
+
+  it("notes a grid other than Line Items read in part under its name, and its file's Files row says so where the file is its rows alone", async () => {
+    // General Lists of 1,400 rows, of which the model refuses row 1,334 even alone.
+    const LISTS = "LISTS × LIST PROPERTIES";
+    const lists: FakeGrid = { columns: ["Top Level Item"], rows: Array.from({ length: 1400 }, (_, row) => ({ ids: [101000000000 + row], labels: [`List ${row}`], cells: [""] })) };
+    const refuse = (read: string): unknown => UNREADABLE(read.replace(/^LISTS /, "LINE ITEMS "));
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [LISTS]: lists }, [], undefined, { refuse: read => (read.startsWith("LISTS") ? refuse(read) : undefined) });
+    expect(result.summary).toContain("General Lists: 1399 rows (the model refused 1 of 1400)");
+    expect(result.tables[0].rows.filter(row => row[0] === "Notes")).toEqual([["Notes", "General Lists", "1,399 of 1,400 rows: the model refused 1 (row 1,334)."]]);
+    expect(result.listIds).toHaveLength(1399);
+    // Line Items was read whole: the result says no rows of it were refused.
+    expect([Object.hasOwn(result, "lineItemsRefused"), result.lineItemColumns]).toEqual([false, ["Formula", "Summary", "Notes"]]);
   });
 });

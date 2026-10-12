@@ -615,7 +615,7 @@ describe("The sources of a model's imports", () => {
     const refused = await run();
     expect(refused.result.importMappings?.map(mapping => mapping.targets)).toEqual(result.importMappings?.map(mapping => mapping.targets));
     expect([refused.result.importMappings?.some(mapping => mapping.fileOptions), refused.log.filter(line => line.startsWith("Import mapping sources"))])
-      .toEqual([false, ["Import mapping sources: The model rejected the read."]]);
+      .toEqual([false, ["Import mapping sources: The model rejected the read: unavailable."]]);
   });
 
   it("keeps whether a model's object is this model's only where its source's definition was read, and never for uploaded data", () => {
@@ -821,7 +821,7 @@ describe("Missing import property names through Model Building", () => {
     ]);
     expect(requests).toHaveLength(1);
     expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
-      "Import mappings: list Division (101000000007): unnamed targets: ID 4100000000001 (targetType hierarchyProperty), ID 4100000000002 (targetType hierarchyProperty); properties grid not read (The model rejected the read.)",
+      "Import mappings: list Division (101000000007): unnamed targets: ID 4100000000001 (targetType hierarchyProperty), ID 4100000000002 (targetType hierarchyProperty); properties grid not read (The model rejected the read: unavailable.)",
     ]);
   });
 

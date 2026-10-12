@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Large models.** A page of a settings grid the model refuses is read again in smaller pages, so Line Items is no longer lost whole; a row it still refuses is left out and named in the notes, the log keeps the model's reason, and the engine is told from the grid's columns. Refresh the Anaplan tab once after updating.
+
 ## 0.41.0 (12 October 2026)
 
 - **Faint lines through hidden calculations.** In Find source inputs, hiding Calculations in the legend draws a faint line from each input to the line item it feeds through them, and the legend says what a faint line is. (#8)

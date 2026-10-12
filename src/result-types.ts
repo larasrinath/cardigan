@@ -64,6 +64,15 @@ export interface AnalysisResult {
    * reads the pages built on the model with them (model-pages.ts), so that the modules the pages use are not read again:
    * it takes them off the result before the result leaves the Anaplan tab. No results page holds them. */
   lineItemIds?: [id: string, moduleId: string][];
+  /** The columns of a model's Line Items grid, by their labels, as the grid's first page gave them, wherever that page was
+   * read: the content script tells the model's engine by them where the result has no Line Items table, as when the model
+   * refused the grid's later pages (model-engine.ts `engineFromColumns`). It takes them off the result, as it takes
+   * `lineItemIds`. */
+  lineItemColumns?: string[];
+  /** How many rows of a model's Line Items grid the model refused, where the export kept the grid without them
+   * (model/native.ts `readGrid`): Unused Line Items says that what only they use may be listed (model/unused.ts). The
+   * content script takes it off the result, as it takes `lineItemIds`. */
+  lineItemsRefused?: number;
   /** What the pages built on a model use of it by name, out of the page definitions the run read (page-uses.ts): the run
    * finds the model's unused line items with it (model/unused.ts). None in an app's result, in a model's whose pages could
    * not be read, nor in one that an earlier version kept. */
