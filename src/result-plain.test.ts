@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readDefinition } from "./model/import-mappings.js";
-import { plainCell, plainResult, plainRows, readImportItemNames, textOf } from "./result-plain.js";
+import { plainCell, plainResult, plainRows, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { toCsv } from "./zip.test-support.js";
 
@@ -170,46 +169,31 @@ describe("A result as plain data", () => {
     }
   });
 
-  it("keeps a list's items mapped manually with the module's and the list's IDs, as the reader makes them, and reads a mapping of 0.37.0 without them as it is", () => {
+  it("reads a result 0.38.0 kept, with a list's items mapped manually and their names, without them: whatever they hold, they never keep it from loading", () => {
     const model = { ...result, kind: "model" as const };
-    // As the export reads them out of a definition (model/import-mappings.ts), and as the bridge then checks them: every
-    // pair, ID and module ID comes through, so that the run can ask for the items' names.
-    const definition = JSON.stringify({ importType: "MODULE_DATA", target: "_102000000041_", mappings: [
-      { targetType: "moduleDimension", target: "_101000000041_", sourceType: "column", sourceColumnId: "#1", sourceColumnName: "Division" }],
-    valueMaps: [{ targetType: "moduleDimension", target: "_101000000041_", values: { North: 201000000011, "Old office": -1 } }] });
-    const { mapping: read } = readDefinition(definition, { list: id => (id === 101000000041 ? "Division" : undefined), lineItem: () => undefined, property: () => undefined });
-    const reader = { id: "112000000072", name: "Load division costs", sourceType: "FILE", ...read };
-    expect([read.moduleId, read.targets[0].dimensionId, read.targets[0].pairs]).toEqual(["102000000041", "101000000041", [{ source: "North", item: "201000000011" }, { source: "Old office" }]]);
-    expect(plainResult({ ...model, importMappings: [reader] })).toEqual({ ...model, importMappings: [reader] });
-    // A mapping of 0.37.0 says only how many are mapped manually: it is read as it is.
-    const { pairs, dimensionId, ...earlierTarget } = reader.targets[0];
-    const { moduleId, ...withoutModule } = reader;
-    const earlier = { ...withoutModule, targets: [earlierTarget] };
-    expect([moduleId, pairs?.length, dimensionId, plainResult({ ...model, importMappings: [earlier] })])
-      .toEqual(["102000000041", 2, "101000000041", { ...model, importMappings: [earlier] }]);
-    // Anything else is no mapping, and none of the result's mappings is kept.
-    const target = reader.targets[0];
-    for (const odd of [{ ...reader, moduleId: 102000000041 }, { ...reader, moduleId: "102x" }, { ...reader, moduleId: "" }, { ...reader, targets: [{ ...target, dimensionId: 101000000041 }] },
-      { ...reader, targets: [{ ...target, dimensionId: "-5" }] }, { ...reader, targets: [{ ...target, pairs: "North" }] }, { ...reader, targets: [{ ...target, pairs: [null] }] },
-      { ...reader, targets: [{ ...target, pairs: [{ item: "201000000011" }] }] }, { ...reader, targets: [{ ...target, pairs: [{ source: "North", item: 201000000011 }] }] },
-      { ...reader, targets: [{ ...target, pairs: [{ source: "North", item: "-1" }] }] }, { ...reader, targets: [{ ...target, pairs: [{ source: 1 }] }] }]) {
-      expect(plainResult({ ...model, importMappings: [odd] }), JSON.stringify(odd)).toEqual(model);
+    // An import into a module as this version keeps it: of its list mapped manually, how many items, and how many ignored.
+    const now = { id: "112000000072", name: "Load division costs", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Division", source: "column", column: 1, text: "Division", kind: "list", area: "ALL_ITEMS", items: { byHand: 1, ignored: 1 } },
+      { target: "Line Items", source: "headerRow", kind: "lineItems", items: { byHand: 1, ignored: 0 } }],
+    headers: [{ header: "Cost (EUR)", lineItem: "Cost" }] };
+    // The same as 0.38.0 kept it: the module's ID, each of the list's pairs with the list's ID, and the names the run read
+    // of those items. Every name and ID is made up.
+    const division = { ...now.targets[0], dimensionId: "101000000041", pairs: [{ source: "North", item: "201000000011" }, { source: "Old office" }] };
+    const old = { ...now, moduleId: "102000000041", targets: [division, now.targets[1]] };
+    const kept = { ...model, importMappings: [old], importItemNames: [["201000000011", "North Division"]] };
+    // It loads as this version's would: the counts, and the line items' header pair by pair; no list item, no name, no ID.
+    const read = plainResult(kept);
+    expect(read).toEqual({ ...model, importMappings: [now] });
+    expect([Object.hasOwn(read!, "importItemNames"), Object.hasOwn(read!.importMappings![0], "moduleId"), Object.keys(read!.importMappings![0].targets[0]).sort()])
+      .toEqual([false, false, ["area", "column", "items", "kind", "source", "target", "text"]]);
+    // Not even what 0.38.0 itself refused keeps the mapping out now: those fields are left out as they are.
+    for (const odd of [{ ...old, moduleId: 102000000041 }, { ...old, moduleId: "102x" }, { ...old, targets: [{ ...division, dimensionId: -5 }, now.targets[1]] },
+      { ...old, targets: [{ ...division, pairs: "North" }, now.targets[1]] }, { ...old, targets: [{ ...division, pairs: [null, { item: 201000000011 }] }, now.targets[1]] }]) {
+      expect(plainResult({ ...kept, importMappings: [odd] }), JSON.stringify(odd)).toEqual({ ...model, importMappings: [now] });
     }
-  });
-
-  it("keeps the names of the items the imports map manually, and leaves them out, the result kept, where anything is not as it should be", () => {
-    const model = { ...result, kind: "model" as const };
-    const importItemNames = [["201000000011", "North Division"], ["201000000012", ""]];
-    const read = plainResult({ ...model, importItemNames });
-    expect(read).toEqual({ ...model, importItemNames });
-    expect(read!.importItemNames).not.toBe(importItemNames);
-    for (const odd of [[["201000000011"]], [["201000000011", "North", "x"]], [[201000000011, "North"]], [["2010x", "North"]], [["201000000011", 7]], [null], "North",
-      { "201000000011": "North" }]) {
-      expect(plainResult({ ...model, importItemNames: odd }), JSON.stringify(odd)).toEqual(model);
+    for (const names of [[["2010x", "North"]], [["201000000011", 7]], [null], "North", { "201000000011": "North" }]) {
+      expect(plainResult({ ...kept, importItemNames: names }), JSON.stringify(names)).toEqual({ ...model, importMappings: [now] });
     }
-    // An app's result has none.
-    expect(plainResult({ ...result, importItemNames })).toEqual(result);
-    expect([readImportItemNames(importItemNames), readImportItemNames(undefined), readImportItemNames([["1", 2]])]).toEqual([importItemNames, undefined, undefined]);
   });
 
   it("takes a file name only when it is a name: no path, no drive, no line break, and the extension expected", () => {

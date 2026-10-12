@@ -1,7 +1,7 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import { missingIn, missingText } from "../page-files.js";
 import type { Log, Stop } from "../progress.js";
-import type { FileOptions, ImportHeader, ImportMapping, ItemMatch, ItemPair, MappedSource, MappedTarget, TargetKind } from "../result-types.js";
+import type { FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, TargetKind } from "../result-types.js";
 import { message } from "../util.js";
 import { plainText, type Grid } from "./grid.js";
 import { axis, readGrid, type Native } from "./native.js";
@@ -58,9 +58,9 @@ import { axis, readGrid, type Native } from "./native.js";
  *   (view/MappedDimensionImportOptions.js `_onTargetSelectionChange`, `_onIgnoreButtonClick`). Empty `values` is the
  *   dialog's "Match on names or codes": the items are matched when the import runs, and nothing of them is stored. Where
  *   the line items come from the header row, the source values are the headers: each header mapped manually, or ignored,
- *   is stored with its text. Of a list, or a list subset, each pair is kept as it is stored, its item by its ID, with the
- *   list's ID and the module's: by them the run asks the model data service for the items' names, as Page Builder asks
- *   for an item's (model-pages.ts, analyse.ts `readImportItemNames`). The client names none of them here.
+ *   is stored with its text. Of any other dimension, a list or a list subset among them, the pairs are counted, not kept:
+ *   how many values are mapped manually, and how many are ignored. The Mapping stops at such a dimension, and lists only
+ *   the line items pair by pair.
  * - `periodFormats`, Time's entry `{"targetType":"moduleDimension","target":"_9000000001_","periodFormat":…}`: null where
  *   the periods are matched by their names, else the format they are read by (view/TimeDimensionImportOptions.js).
  * - `dataFormatsByTarget`, which takes a date line item's identifier to a key of `dataFormatDefinitions`, whose entry of
@@ -495,7 +495,7 @@ function matchOf(definition: Json, mappings: readonly Json[], into: number, name
  * object), gives the note that it could not be read. One of a kind whose mapping is not listed gives no targets: the page
  * says what it loads. `model` is where an import of a model's object reads from, for naming the object's columns. */
 export function readDefinition(text: string, names: ImportNames, list?: string, model?: ModelSource):
-  { mapping: Pick<ImportMapping, "importType" | "targets" | "matchedBy" | "headers" | "clear" | "moduleId" | "note">; shape: string; details: string[] } {
+  { mapping: Pick<ImportMapping, "importType" | "targets" | "matchedBy" | "headers" | "clear" | "note">; shape: string; details: string[] } {
   if (text.trim() === "") return { mapping: { importType: "", targets: [], note: MAPPING_NOTES.noDefinition }, shape: "no definition", details: [] };
   let definition: unknown;
   try {
@@ -553,12 +553,7 @@ export function readDefinition(text: string, names: ImportNames, list?: string, 
     if (targetKey(mapping.target) === "" && source.source === "headerRow" && byHand.length) {
       headers = byHand.map(([header, item]): ImportHeader => (item === -1 ? { header } : { header, lineItem: names.lineItem(item, into) ?? names.entity?.(item, into) ?? asId(item) }));
     }
-    const counted: MappedTarget = { ...cleared, items: { byHand: byHand.length - ignored, ignored } };
-    // A list's items mapped manually: each source value with its item's ID, or ignored, and the list's ID, by which the run
-    // asks the module for the items' names. Versions keep their counts alone.
-    if (kindOf(mapping) !== "list" || !byHand.length) return counted;
-    const pairs = byHand.map(([value, item]): ItemPair => (item === -1 ? { source: value } : { source: value, item: String(item) }));
-    return { ...counted, pairs, ...(id > 0 ? { dimensionId: String(id) } : {}) };
+    return { ...cleared, items: { byHand: byHand.length - ignored, ignored } };
   });
   if (fromHeaderRow) {
     const pairs = headers ?? [];
@@ -575,9 +570,7 @@ export function readDefinition(text: string, names: ImportNames, list?: string, 
   // What the import does to the module before it loads, as the dialog's Mapping tab reads it: any value of
   // `globalTargetAreaSpecification` checks Only update imported cells, and none Clear target prior to import.
   const clear = module ? { clear: definition.globalTargetAreaSpecification ? "update" as const : "clear" as const } : {};
-  // The module whose dimensions the run asks for the names of a list's items mapped manually.
-  const asked = Number.isSafeInteger(into) && into > 0 && targets.some(target => target.pairs) ? { moduleId: String(into) } : {};
-  return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}), ...clear, ...asked }, shape, details };
+  return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}), ...clear }, shape, details };
 }
 
 /** The place of the Imports tab's column of that label, or -1. */

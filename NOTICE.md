@@ -54,7 +54,7 @@ The socket connects to `wss://{Anaplan host}/a/springboard-widget-data-service/w
 | `core://{workspace}:{model}/lists?subsets=true` | Names of additional dimensions and subsets. This does not establish per-list subset membership on Polaris. |
 | `core://{workspace}:{model}/modules/{module}/lineItems` | Line-item names, IDs and formats for page references. Classic settings can supply these names without repeating every subscription. |
 | `core://{workspace}:{model}/dimensions` | Dimensions of the requested modules. |
-| `core://{workspace}:{model}/modules/{module}/dimensions/{dimension}` | Names of selected items used in page context or filter rules, and of the list items an import into a module maps manually. |
+| `core://{workspace}:{model}/modules/{module}/dimensions/{dimension}` | Names of selected items used in page context or filter rules. |
 | `core://{workspace}:{model}/applicableModules` | Modules that use a dimension, to find unnamed filter line items or dimensions. |
 | `core://{workspace}:{model}/views/{view}` | Saved-view metadata: rows, columns and context selectors for app analysis. Model analysis does not request these layouts. |
 

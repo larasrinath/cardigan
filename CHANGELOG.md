@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Find source inputs.** From a line item's details on the Model map or in Line Items, Find source inputs lists every line item without a formula that feeds it, however many calculations away, labelled Entered, Imported by or May be imported by its import, with its steps away and the line item it feeds. The map then shows just those inputs, the calculations between and the result; Back and Esc return to where you were.
 
+## 0.38.1 (12 October 2026)
+
+- **Import mappings stop at the list.** List items mapped manually are no longer listed item by item: an import's Mapping stops at the list, whose row says how many of its items are mapped manually and how many are ignored, and only line items are listed pair by pair. Refresh the Anaplan tab once after updating. (#4)
+
 ## 0.38.0 (12 October 2026)
 
 - **Lists mapped manually in import mappings.** An import into a module lists, after its line items, each list whose items are mapped manually, as that list's tab in Anaplan's import dialog shows them: each source item with the item it is mapped to, named where the model's names give one, or Ignored. Its dimensions follow the dialog's order: Time, the lists, Versions, then Line Items. "Mapped by hand" now reads "Mapped manually", as Anaplan says it, and the details' All columns section is now All details. Refresh the Anaplan tab once after updating. (#3)

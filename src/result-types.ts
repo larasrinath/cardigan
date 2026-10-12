@@ -53,11 +53,6 @@ export interface AnalysisResult {
    * tab could not be read, nor in one that an earlier version kept. An earlier version kept those of the imports from a
    * file alone (Source Type FILE), each without its `sourceType`. */
   importMappings?: ImportMapping[];
-  /** The names of the items that the imports into modules map manually (`MappedTarget.pairs`), each by its ID in the model,
-   * in digits, as the model data service named them while the run read the model's names (model-pages.ts): only of the IDs
-   * the mappings use, and only those it named. The results page says an item it did not name by its ID. None where it named
-   * none, in an app's result, and in one that an earlier version kept. */
-  importItemNames?: [id: string, name: string][];
   /** The actions each of a model's processes runs, in the order it runs them, as the process's own definition holds them:
    * one entry for each process of the Actions list, in that list's order. The results page lists them in the details of the
    * process's row of Processes. Empty for a model without a process; none in an app's result, in a model's whose Actions
@@ -125,20 +120,8 @@ export interface ImportMapping {
    * File Options. None where the source's definition was not read or holds none of them, and none in a result an earlier
    * version kept. Nothing else of a source is kept: never the model, the workspace or the object a model's import reads. */
   fileOptions?: FileOptions;
-  /** For an import into a module that maps a list's items manually (`MappedTarget.pairs`): the module's ID in the model, in
-   * digits, as its definition names it. The run asks the module for the names of those items (model-pages.ts). None for any
-   * other import, and none in a result an earlier version kept. */
-  moduleId?: string;
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
-}
-
-/** A source value of a list's items that an import into a module maps manually (the dialog's Map items manually), as the
- * import's definition keeps it in `valueMaps`: the value, as the column or the header row writes it, and the item it is
- * mapped to, by the item's ID in the model, in digits; none where the modeller ignored the value. */
-export interface ItemPair {
-  source: string;
-  item?: string;
 }
 
 /** How a data source of uploaded data reads it (anaplan/view/ManageImportSources/_EditUploadedText.js), each as the source's
@@ -241,11 +224,4 @@ export interface MappedTarget {
    * first, by Anaplan's word in the definition's `targetAreaSpecifications` (MATCHED_ITEMS, MAPPED_ITEMS_IN_SOURCE,
    * ALL_MAPPED_ITEMS or ALL_ITEMS). None where the definition says none. */
   area?: string;
-  /** For a dimension of an import into a module that is a list or a list subset, fed by a column or the header row, whose
-   * items are mapped manually: each source value with the item it is mapped to, or ignored, in the order the definition
-   * writes them (`ItemPair`), and the list's ID in the model, in digits, by which the run asks the module for the items'
-   * names. None where its items are matched on names or codes, which stores no pair, and none in a result an earlier
-   * version kept. */
-  pairs?: ItemPair[];
-  dimensionId?: string;
 }

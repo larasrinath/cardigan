@@ -7025,70 +7025,50 @@ describe("The mapping of an import from a file, in its row's details", () => {
     expect(page.has("#drawerMapping .m-clear")).toBe(false);
   });
 
-  /** An import into a module whose Division items are mapped manually, as the export keeps them, four source values, one
-   * ignored, and the names the run read of the items: all but East's. Every name and ID is made up. */
-  const DIVISION_COSTS = (pairs: ImportMapping["targets"][number]["pairs"] = [{ source: `North ${TAG}`, item: "201000000011" }, { source: "South", item: "201000000012" },
-    { source: "Old office" }, { source: "East", item: "201000000013" }]): ImportMapping => ({ id: "112000000003", name: "Prices from prices.csv", sourceType: "FILE",
-    importType: "MODULE_DATA", clear: "clear", moduleId: "102000000041", headers: [{ header: "Cost", lineItem: "Cost" }], targets: [
+  /** An import into a module whose Division items are mapped manually, three and one ignored, as the export keeps it: the
+   * counts alone; and a header mapped manually to its line item. Every name and ID is made up. */
+  const DIVISION_COSTS: ImportMapping = { id: "112000000003", name: "Prices from prices.csv", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear",
+    headers: [{ header: `Cost ${TAG}`, lineItem: "Cost" }], targets: [
       { target: "Line Items", source: "headerRow", kind: "lineItems", area: "MAPPED_ITEMS_IN_SOURCE", items: { byHand: 1, ignored: 0 } },
-      { target: "Division", source: "column", column: 1, text: "Division", kind: "list", area: "ALL_ITEMS",
-        items: { byHand: pairs!.filter(pair => pair.item !== undefined).length, ignored: pairs!.filter(pair => pair.item === undefined).length }, dimensionId: "101000000041", pairs },
-      { target: "Time", source: "column", column: 2, text: "Month", kind: "time", area: "MATCHED_ITEMS", periodFormat: "MMM YY" }] });
-  const ITEM_NAMES: [string, string][] = [["201000000011", `North Division ${TAG}`], ["201000000012", "South Division"]];
+      { target: "Division", source: "column", column: 1, text: "Division", kind: "list", area: "ALL_ITEMS", items: { byHand: 3, ignored: 1 } },
+      { target: "Time", source: "column", column: 2, text: "Month", kind: "time", area: "MATCHED_ITEMS", periodFormat: "MMM YY" }] };
+  /** The same result as 0.38.0 kept it: the import with the module's ID, and of Division its ID and each source item with
+   * the item it is mapped to, or none where it is ignored; and the names the run read of those items. */
+  const KEPT_BY_0_38: Partial<AnalysisResult> = {
+    importMappings: [MAPPINGS[0], { ...DIVISION_COSTS, moduleId: "102000000041", targets: DIVISION_COSTS.targets.map(target => (target.target !== "Division" ? target
+      : { ...target, dimensionId: "101000000041", pairs: [{ source: `North ${TAG}`, item: "201000000011" }, { source: "South", item: "201000000012" }, { source: "Old office" },
+        { source: "East", item: "201000000013" }] })) } as ImportMapping],
+    importItemNames: [["201000000011", `North Division ${TAG}`], ["201000000012", "South Division"]] } as Partial<AnalysisResult>;
   /** A table of the Mapping by its class: its headings, and its rows' cells. */
   const mappingTable = (kind: string) => [page.texts(`#drawerMapping table.${kind} th`), page.all(`#drawerMapping table.${kind} tbody tr`).map(row => row.children.map(cell => cell.textContent))];
 
-  it("lists a list's items mapped manually after the line items, as the list's tab does: each source item with its item's name, its ID, or Ignored, through a refresh too", async () => {
-    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], DIVISION_COSTS()], importItemNames: ITEM_NAMES });
-    goTo(3);
-    openImport("Prices from prices.csv");
-    const shown = () => {
-      // The dimensions in the dialog's order, the line items, then the list under its name and how many source items it has.
-      expect([mappingTable("m-dims")[1].map(row => row[0]), page.texts("#drawerMapping h4")]).toEqual([["Time", "Division", "Line Items"], ["Line items (1)", "Division (4)"]]);
-      expect(mappingTable("m-pairs")).toEqual([["Source item", "Mapped to"],
-        [[`North ${TAG}`, `North Division ${TAG}`], ["South", "South Division"], ["Old office", "Ignored"], ["East", "ID 201000000013"]]]);
-      // The dimensions table keeps its count words; nothing is a link, and nothing is folded.
-      expect([mappingTable("m-dims")[1][1][2], page.all("#drawerMapping table.m-pairs a, #drawerMapping table.m-pairs button").length, page.has("#drawerMapping .cell-more"),
-        page.texts("#drawerMapping p"), strayImg()]).toEqual(["Mapped manually: 3 items, 1 ignored", 0, false, ["Columns 1 and 2 are both used."], false]);
-      const html = page.id("drawerMapping").innerHTML;
-      const order = ["m-dims", "Line items (1)", "Division (4)", "Columns 1 and 2 are both used."].map(words => html.indexOf(words));
-      expect([order.every(at => at >= 0), order.every((at, index) => index === 0 || at > order[index - 1])]).toEqual([true, true]);
-    };
-    shown();
-    // Kept and refreshed, the result still names the items: the page reads them back with the rest of the result.
-    await letKeep();
-    await open("?tab=42");
-    await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
-    goTo(3);
-    openImport("Prices from prices.csv");
-    shown();
-  });
-
-  it.each([15, 16])("folds a list of %i items mapped manually as other long details lists fold", async count => {
-    const pairs = Array.from({ length: count }, (_, index) => ({ source: `Office ${index + 1}`, item: String(201000000100 + index) }));
-    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], DIVISION_COSTS(pairs)], importItemNames: [["201000000100", "First office"]] });
-    goTo(3);
-    openImport("Prices from prices.csv");
-    expect(page.texts("#drawerMapping h4")).toEqual(["Line items (1)", `Division (${count})`]);
-    const tables = page.all("#drawerMapping table.m-pairs");
-    if (count === 15) {
-      expect([tables.length, tables[0].querySelectorAll("tbody tr").length, page.has("#drawerMapping .cell-more")]).toEqual([1, 15, false]);
-      return;
-    }
-    // The first twelve in the table; the other four in a table of the same columns right under it, hidden where the
-    // browser's find in page still reaches them; then the control, in one place with both.
-    const rest = page.find("#drawerMapping .m-pairs-all .cell-rest")!;
-    const more = page.find("#drawerMapping .m-pairs-all .cell-more")!;
-    expect([tables.map(table => table.querySelectorAll("tbody tr").length), tables[0].querySelectorAll("th").length, tables[1].querySelectorAll("th").length,
-      rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded"), rest.parentElement === more.parentElement, tables[1].parentElement === rest])
-      .toEqual([[12, 4], 2, 0, "until-found", "Show all 16", "false", true, true]);
-    expect(tables[0].querySelector("td")?.textContent).toBe("Office 1");
-    expect(mappingTable("m-pairs")[1].slice(0, 1)).toEqual([["Office 1", "First office"]]);
-    more.press();
-    expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual([null, "Show fewer", "true"]);
-    more.press();
-    expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual(["until-found", "Show all 16", "false"]);
-  });
+  it.each<[string, Partial<AnalysisResult>]>([["this version", { importMappings: [MAPPINGS[0], DIVISION_COSTS] }], ["0.38.0, with the list's items and their names", KEPT_BY_0_38]])(
+    "shows a list whose items are mapped manually in the dimensions table, with its count words, and no section of its items, in a result kept by %s, through a refresh too",
+    async (_by, kept) => {
+      await openWith({ ...WITH_MAPPINGS, ...kept });
+      goTo(3);
+      openImport("Prices from prices.csv");
+      const shown = () => {
+        // Time first, as the dialog lists it; the list with how many of its items are mapped manually and ignored; then the
+        // line items, the header with the line item it is mapped to.
+        expect(mappingTable("m-dims")).toEqual([["Dimension", "Source", "Items", "Clear"], [["Time", "Column 2: Month", "Periods, MMM YY", "Matched items only"],
+          ["Division", "Column 1: Division", "Mapped manually: 3 items, 1 ignored", "All items"], ["Line Items", "Header row", "Mapped manually", "Mapped items in source"]]]);
+        expect([page.texts("#drawerMapping h4"), mappingTable("m-items")]).toEqual([["Line items (1)"], [["Header", "Line item"], [[`Cost ${TAG}`, "Cost"]]]]);
+        // Nothing more: those two tables alone, no section of the list's items, and no word of them.
+        const tables = page.all("#drawerMapping table");
+        expect([tables.length, tables.map(table => ["m-dims", "m-items"].filter(kind => table.classList.contains(kind))), page.has("#drawerMapping .cell-more"),
+          page.texts("#drawerMapping p"), strayImg()]).toEqual([2, [["m-dims"], ["m-items"]], false, ["Columns 1 and 2 are both used."], false]);
+        expect(["North", "South", "Old office", "East", "Ignored", "201000000011"].filter(words => page.id("drawerMapping").textContent.includes(words))).toEqual([]);
+      };
+      shown();
+      // Kept and refreshed, the result comes back, read field by field once more, and shows the same.
+      await letKeep();
+      await open("?tab=42");
+      await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
+      goTo(3);
+      openImport("Prices from prices.csv");
+      shown();
+    });
 
   it("writes every name, heading and value of a mapping as text", async () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], targets: [{ target: `Division ${TAG}`, source: "column", column: 1, text: `Name ${TAG}` },
