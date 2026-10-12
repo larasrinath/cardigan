@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
-import { columnLines, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, lineItemsOf, mappingOfRow, mappingView, matchWords, MISSING_LINE_ITEM_NOTE, NO_MAPPING, numbersWords,
-  sourceWords, unfedLine } from "./import-mapping-view.js";
+import type { AnalysisResult, FileOptions, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
+import { areaWords, CLEAR_TARGET, columnLines, fileOptionsWords, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, lineItemsOf, mappingOfRow, mappingView, matchWords, MISSING_LINE_ITEM_NOTE,
+  moduleSourceWords, NO_MAPPING, numbersWords, ONLY_UPDATE, sourceLine, sourceWords, unfedLine } from "./import-mapping-view.js";
 import { fileView } from "./result-view.js";
 
 // Mappings as the model export reads them out of an import's definition (model/import-mappings.ts). The first import is
@@ -247,6 +247,171 @@ describe("An import's mapping, in the drawer's words", () => {
   });
 });
 
+/** File Options as the export keeps them from an import's data source: the live import's, which the owner read in Anaplan's
+ * dialog (encoding ISO-8859-1, a comma between columns, '"' around text, a decimal dot, headers in row 1, data from row 2). */
+const OPTIONS: FileOptions = { encoding: "ISO-8859-1", separators: ",", delimiter: "\"", decimal: ".", headerRow: 1, firstDataRow: 2 };
+/** An import into a module shaped as that live import, with invented names: Time from a column kept by its heading, read
+ * by a period format; a list prompted each run; the line items from the header row, three headers mapped by hand; the
+ * import clears its target first, and each dimension fed by a column or the header row has its clear choice. */
+const JOINERS: ImportMapping = { id: "112000000051", name: "Load joiners", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", fileOptions: OPTIONS, targets: [
+  { target: "Time", source: "column", text: "Time", kind: "time", area: "MATCHED_ITEMS", periodFormat: "M-Y" },
+  { target: "Join Band", source: "prompt", kind: "list" },
+  { target: "Line Items", source: "headerRow", kind: "lineItems", area: "MAPPED_ITEMS_IN_SOURCE", items: { byHand: 3, ignored: 0 } }],
+headers: [{ header: "Bonus Rate", lineItem: "Bonus Rate" }, { header: "Band start", lineItem: "Band start" }, { header: "Band end", lineItem: "Band end" }] };
+
+describe("An import into a module, laid out as Anaplan's import dialog lays it out", () => {
+  it("shows the live import's shape as the owner chose: what it clears, how its file is read, its dimensions, then its line items", () => {
+    expect(mappingView(JOINERS)).toEqual({ clear: "Clear target prior to import", rows: [],
+      from: { label: "File", text: 'Header row 1 · data from row 2 · Comma · " · Dot · ISO-8859-1' },
+      // DIMENSION, SOURCE, ITEMS and CLEAR, in the definition's order. The prompted list has nothing more to say.
+      dimensions: [["Time", "Column: Time", "Periods, M-Y", "Matched items only"], ["Join Band", "Prompt each run", "", ""],
+        ["Line Items", "Header row", "Mapped by hand", "Mapped items in source"]],
+      // LINE ITEMS (3): each header with the line item it is mapped to.
+      lineItems: { count: 3, heading: "Header", rows: [["Bonus Rate", "Bonus Rate"], ["Band start", "Band start"], ["Band end", "Band end"]], notes: [] },
+      lines: ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+    // An ignored header says so, and is counted among the rows.
+    const ignored = mappingView({ ...JOINERS, targets: JOINERS.targets.map(target => (target.kind === "lineItems" ? { ...target, items: { byHand: 3, ignored: 1 } } : target)),
+      headers: [...JOINERS.headers!, { header: "Comment" }] });
+    expect([ignored.dimensions?.[2][2], ignored.lineItems?.count, ignored.lineItems?.rows.at(-1)]).toEqual(["Mapped by hand", 4, ["Comment", "Ignored"]]);
+    expect(CLEAR_TARGET).toBe("Clear target prior to import");
+  });
+
+  it("leaves every dimension's clear choice empty where the import only updates imported cells, as the dialog hides them then", () => {
+    const view = mappingView({ ...JOINERS, clear: "update" });
+    expect([view.clear, view.dimensions?.map(row => row[3])]).toEqual([ONLY_UPDATE, ["", "", ""]]);
+    expect(ONLY_UPDATE).toBe("Only update imported cells");
+    // A result that says nothing of what the import clears says nothing of it.
+    expect(mappingView({ ...JOINERS, clear: undefined }).clear).toBeUndefined();
+  });
+
+  it("says each clear choice in the dialog's words, Time's matched items its own way, and a word the dialog has no label for as it is", () => {
+    expect(["MATCHED_ITEMS", "MAPPED_ITEMS_IN_SOURCE", "ALL_MAPPED_ITEMS", "ALL_ITEMS", "SOME_NEW_AREA"].map(area => [areaWords(area), areaWords(area, true)])).toEqual([
+      ["Matched items in source", "Matched items only"], ["Mapped items in source", "Mapped items in source"], ["All mapped items", "All mapped items"],
+      ["All items", "All items"], ["SOME_NEW_AREA", "SOME_NEW_AREA"]]);
+    // Each in its dimension's row.
+    const areas = mappingView({ ...JOINERS, targets: [{ ...JOINERS.targets[0], area: "ALL_ITEMS" }, { target: "Join Band", source: "column", column: 2, kind: "list",
+      area: "ALL_MAPPED_ITEMS", items: { byHand: 1, ignored: 0 } }, { ...JOINERS.targets[2], area: "MATCHED_ITEMS" }] });
+    expect(areas.dimensions?.map(row => row[3])).toEqual(["All items", "All mapped items", "Matched items in source"]);
+  });
+
+  it("lists line items fed by columns of their own, each by its place, its heading or both, with its date format", () => {
+    // Headers the export keeps for a line item's own column too: said once, by the column.
+    const RATES: ImportMapping = { id: "112000000061", name: "Load rates", sourceType: "FILE", importType: "MODULE_DATA", clear: "update", targets: [
+      { target: "Staff", source: "column", column: 1, text: "Employee", kind: "list", area: "ALL_ITEMS", items: { byHand: 0, ignored: 0 } },
+      { target: "Line Items", source: "headerRow", kind: "lineItems", items: { byHand: 0, ignored: 0 } },
+      { target: "Hours", source: "column", column: 3, kind: "lineItem" },
+      { target: "Rate", source: "column", text: "Rate (EUR)", kind: "lineItem" },
+      { target: "Start Date", source: "column", column: 5, text: "Start", kind: "lineItem", dateFormat: "DD/MM/YYYY" }],
+    headers: [{ header: "Rate (EUR)", lineItem: "Rate" }, { header: "start", lineItem: "Start Date" }] };
+    expect(mappingView(RATES)).toEqual({ clear: ONLY_UPDATE, rows: [],
+      dimensions: [["Staff", "Column 1: Employee", "Matched on names or codes", ""], ["Line Items", "Header row", "Matched on names or codes", ""]],
+      lineItems: { count: 3, heading: "Column", notes: [], rows: [["Column 3", "Hours"], ["Column: Rate (EUR)", "Rate"], ["Column 5: Start", "Start Date", "Date format: DD/MM/YYYY"]] },
+      lines: ["Items set to match on names or codes are paired when the import runs, so Anaplan saves no pairs for them.",
+        "Columns 2 and 4 are not mapped by number. 1 target names its column by heading alone, and may use them."] });
+    // A header mapped by hand that no line item's column says stands among them: the table's heading says both.
+    const both = mappingView({ ...RATES, headers: [...RATES.headers!, { header: "Overtime", lineItem: "Overtime hours" }] }).lineItems;
+    expect([both?.heading, both?.rows.at(-1), both?.count]).toEqual(["Source", ["Overtime", "Overtime hours"], 4]);
+  });
+
+  it("says the header row that holds Time's periods as periods, and has no line items a header can match", () => {
+    const BY_PERIOD: ImportMapping = { id: "112000000062", name: "Load monthly units", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product", kind: "list", area: "ALL_ITEMS", items: { byHand: 2, ignored: 1 } },
+      { target: "Time", source: "headerRow", kind: "time", area: "MATCHED_ITEMS", periodFormat: "MMM YY" },
+      { target: "Line Items", source: "constant", text: "Units", kind: "lineItems" }] };
+    const view = mappingView(BY_PERIOD, ["Units", "Price"]);
+    expect(view).toEqual({ clear: CLEAR_TARGET, rows: [],
+      dimensions: [["Products", "Column 1: Product", "Mapped by hand: 2 items, 1 ignored", "All items"], ["Time", "Header row", "Periods, MMM YY", "Matched items only"],
+        ["Line Items", "Fixed: Units", "", ""]],
+      // A constant feeding the line items says so, in the dialog's words.
+      lineItems: { rows: [], notes: [{ text: "Fixed line item: Units. Every value loads into it." }] },
+      lines: ["The periods are in the header row.", "Column 1 is used."] });
+    expect(JSON.stringify(view)).not.toContain("a header can match");
+    // Time's periods matched by their names.
+    expect(mappingView({ ...BY_PERIOD, targets: [{ ...BY_PERIOD.targets[1], periodFormat: null }] }).dimensions).toEqual([["Time", "Header row", "Periods matched by their names", "Matched items only"]]);
+    // A result an earlier version kept says the header row of Time so too, under its source, and no line item under it.
+    const earlier = mappingView({ ...BY_PERIOD, sourceType: undefined, clear: undefined, targets: [{ target: "Time", source: "headerRow" }] }, ["Units", "Price"]);
+    expect(earlier).toEqual({ rows: [["Header row: the periods", "Time"]], lines: [] });
+  });
+
+  it("says the header row that holds a list's items as that list's, and a column of line items with its items mapped by hand", () => {
+    const BY_REGION: ImportMapping = { id: "112000000063", name: "Load regional sales", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Time", source: "column", column: 1, text: "Month", kind: "time", periodFormat: null },
+      { target: "Regions", source: "headerRow", kind: "list", area: "MATCHED_ITEMS", items: { byHand: 0, ignored: 0 } },
+      { target: "Line Items", source: "column", column: 2, text: "Measure", kind: "lineItems", area: "MATCHED_ITEMS", items: { byHand: 1, ignored: 1 } }] };
+    expect(mappingView(BY_REGION, ["Units"])).toEqual({ clear: CLEAR_TARGET, rows: [],
+      dimensions: [["Time", "Column 1: Month", "Periods matched by their names", ""], ["Regions", "Header row", "Matched on names or codes", "Matched items in source"],
+        ["Line Items", "Column 2: Measure", "Mapped by hand: 1 item, 1 ignored", "Matched items in source"]],
+      lines: ["The items of Regions are in the header row.", "Items set to match on names or codes are paired when the import runs, so Anaplan saves no pairs for them.",
+        "Columns 1 and 2 are both used."] });
+    // A result an earlier version kept says it under the source.
+    expect(sourceWords({ target: "Regions", source: "headerRow" })).toBe("Header row: the items of Regions");
+  });
+
+  it("names under the header row of line items matched on names or codes the line items a header can match, as possibilities, and the column of values where each row names its line item", () => {
+    const MATCHED: ImportMapping = { ...JOINERS, fileOptions: undefined, headers: undefined, targets: [JOINERS.targets[0],
+      { target: "Line Items", source: "headerRow", kind: "lineItems", items: { byHand: 0, ignored: 0 } }] };
+    const many = ["Cost", "Hours", "Rate", "Start Date", "End Date", "Notes", "Active"];
+    expect(mappingView(MATCHED, many).lineItems).toEqual({ count: 7, rows: [], notes: [{ text: "Line items a header can match: Cost, Hours, Rate, Start Date, End Date and 2 more", all: many }] });
+    expect(mappingView(MATCHED, ["Cost", "Hours"]).lineItems).toEqual({ count: 2, rows: [], notes: [{ text: "Line items a header can match: Cost and Hours" }] });
+    // Where the page knows none, the row of the line items says all there is.
+    expect(mappingView(MATCHED).lineItems).toBeUndefined();
+    // Each row names its line item, and one column holds the values: the dialog's Data values from. A line item's own
+    // mapping that is not mapped is no row then: the dialog keeps none of them in such an import.
+    const SINGLE: ImportMapping = { ...MATCHED, targets: [{ target: "Line Items", source: "column", column: 3, text: "Measure", kind: "lineItems", items: { byHand: 0, ignored: 0 } },
+      { target: "Units", source: "none", kind: "lineItem" }, { target: "Value", source: "column", column: 5, text: "Amount", kind: "value" }] };
+    expect(mappingView(SINGLE).lineItems).toEqual({ rows: [], notes: [{ text: "Data values from Column 5: Amount" }] });
+    // Without one, a line item not mapped is a row of its own.
+    expect(mappingView({ ...SINGLE, targets: SINGLE.targets.slice(0, 2) }).lineItems).toEqual({ count: 1, heading: "Column", rows: [["Not mapped", "Units"]], notes: [] });
+  });
+
+  it("says what feeds a dimension in the dialog's words: a column by its place and heading, the header row, a prompt, a fixed item, not applicable, not mapped", () => {
+    expect(([column("A", 3, "Price"), column("A", undefined, "Price"), column("A", 3), { target: "A", source: "column", id: "f12" }, column("A"),
+      { target: "A", source: "headerRow" }, { target: "A", source: "prompt" }, { target: "A", source: "constant", text: "Actual" }, { target: "A", source: "constant" },
+      { target: "A", source: "ignore" }, { target: "A", source: "none" }, { target: "A", source: "other", text: "field" }] as MappedTarget[]).map(moduleSourceWords)).toEqual([
+      "Column 3: Price", "Column: Price", "Column 3", "Column with ID f12", "A column the definition neither numbers nor names", "Header row", "Prompt each run",
+      "Fixed: Actual", "Fixed, with no value given", "Not applicable", "Not mapped", "A source Cardigan does not know (field)"]);
+    // Not mapped and not applicable stand in the table, not in a line under it.
+    const unfed = mappingView({ ...JOINERS, targets: [...JOINERS.targets, { target: "Channels", source: "ignore", kind: "list" }, { target: "Versions", source: "none", kind: "versions" }] });
+    expect([unfed.dimensions?.slice(3), unfed.lines.some(line => line.startsWith("Not mapped:"))]).toEqual([[["Channels", "Not applicable", "", ""], ["Versions", "Not mapped", "", ""]], false]);
+  });
+
+  it("says the File Options in plain words, each separator and delimiter by its name or as itself, and an unusual one with what it is", () => {
+    expect(fileOptionsWords(OPTIONS)).toBe('Header row 1 · data from row 2 · Comma · " · Dot · ISO-8859-1');
+    const words = (options: FileOptions) => fileOptionsWords(options);
+    expect(["\t", ",", ";", "|", " ", ",\t", "\t,;|", ";;", "", "\u001f"].map(separators => words({ separators }))).toEqual(["Tab", "Comma", "Semicolon", "|", "Space",
+      "Comma and Tab", "Tab, Comma, Semicolon and |", "Semicolon", "No column separator", "U+001F"]);
+    expect(["\"", "'", "", "\u0000", "~"].map(delimiter => words({ delimiter }))).toEqual(['"', "'", "no text delimiter", "no text delimiter", "~ as text delimiter"]);
+    expect([".", ",", "_"].map(decimal => words({ decimal }))).toEqual(["Dot", "Comma", "_ as decimal separator"]);
+    expect([words({ headerRow: 0, firstDataRow: 1 }), words({ firstDataRow: 3 }), words({ encoding: "  ", headerRow: 2 }), words({ encoding: "UTF-16LE" })])
+      .toEqual(["No header row · data from row 1", "Data from row 3", "Header row 2", "UTF-16LE"]);
+  });
+
+  it("keeps an import into a list as it is, with its File line where its File Options were read", () => {
+    const DIVISION: ImportMapping = { id: "112000000001", name: "Division from HQ Network.csv", sourceType: "FILE", importType: "HIERARCHY_DATA",
+      targets: [column("Division", 1, "Division Name"), column("Parent", 2, "Region"), { target: "Code", source: "none" }] };
+    const withFile = mappingView({ ...DIVISION, fileOptions: { ...OPTIONS, separators: "\t" } });
+    expect(withFile).toEqual({ ...mappingView(DIVISION), from: { label: "File", text: 'Header row 1 · data from row 2 · Tab · " · Dot · ISO-8859-1' } });
+    expect(withFile).toEqual({ from: withFile.from, rows: [["Division Name", "Division"], ["Region", "Parent"]], lines: ["Not mapped: Code.", "Columns 1 and 2 are both used."] });
+  });
+
+  it("names the object an import of a model's object reads in place of the File line, and says nothing of the columns it does not use", () => {
+    const HUB: ImportMapping = { id: "112000000002", name: "Regions from the hub", sourceType: "SAVED VIEW", importType: "HIERARCHY_DATA",
+      targets: [{ target: "+ Regions", source: "column", text: "Region" }] };
+    expect(mappingView(HUB, undefined, "Model: Hub · Module: LIST - Regions · Saved view: Export")).toEqual({ from: { label: "Source", text: "Model: Hub · Module: LIST - Regions · Saved view: Export" },
+      rows: [["Region", "+ Regions"]], lines: [] });
+    // An import of a module into a module, laid out as any import into a module is.
+    const STAFF: ImportMapping = { id: "112000000058", name: "Bands from staff costs", sourceType: "MODULE", importType: "MODULE_DATA", clear: "update", targets: [
+      { target: "Time", source: "column", text: "Time", kind: "time" }, { target: "Join Band", source: "column", text: "Join Band", kind: "list", area: "ALL_ITEMS" },
+      { target: "Line Items", source: "headerRow", kind: "lineItems" }, { target: "Bonus Rate", source: "column", text: "Bonus paid", kind: "lineItem" },
+      { target: "Band end", source: "column", text: "ID 1901000000099", kind: "lineItem" }],
+    headers: [{ header: "Bonus paid", lineItem: "Bonus Rate" }, { header: "ID 1901000000099", lineItem: "Band end" }] };
+    expect(mappingView(STAFF, undefined, "Model: Invented plan · Module: PLN08 Staff Costs")).toEqual({ clear: ONLY_UPDATE, rows: [],
+      from: { label: "Source", text: "Model: Invented plan · Module: PLN08 Staff Costs" },
+      dimensions: [["Time", "Column: Time", "", ""], ["Join Band", "Column: Join Band", "", ""], ["Line Items", "Header row", "", ""]],
+      lineItems: { count: 2, heading: "Column", notes: [], rows: [["Column: Bonus paid", "Bonus Rate"], ["Column: ID 1901000000099", "Band end"]] }, lines: [] });
+  });
+});
+
 describe("The mapping of a row of a model's Imports", () => {
   const HEADERS = ["", "Source Label", "Source Object", "Source Type", "Target Object", "Target Type"];
   const ROWS = [
@@ -305,11 +470,36 @@ describe("The mapping of a row of a model's Imports", () => {
     expect(lineItemsOf(MODEL, table, table.rows[2])).toBeUndefined();
   });
 
+  it("is that of the import of the row's name and Source Type where the result keeps every import's, and names the object an import of a model's object reads", () => {
+    const listed = (name: string, sourceType: string, target: string): ImportMapping => ({ id: "", name, sourceType, importType: "HIERARCHY_DATA", targets: [column(target, 1)] });
+    const EVERY: AnalysisResult = { ...MODEL, importMappings: [listed("Division from HQ Network.csv", "FILE", "Division"),
+      { ...listed("Regions from the hub", "SAVED VIEW", "Regions"), targets: [{ target: "Regions", source: "column", text: "Region" }] },
+      listed("Prices", "FILE", "First"), listed("Prices", " file ", "Second"), listed("Prices", "SAVED VIEW", "Third")] };
+    const table = fileView(EVERY, IMPORTS).table;
+    // Each row has its own, among imports of one name by its Source Type and its place, the Source Type told in any case.
+    expect(table.rows.map(row => mappingOfRow(EVERY, table, row)?.rows[0]?.[1])).toEqual(["Division", "Regions", "First", "Second", "Third"]);
+    // The import of a saved view names the object it reads as its row does, in the File line's place, and says nothing of
+    // its columns' places: the object has none.
+    expect(mappingOfRow(EVERY, table, table.rows[1])).toEqual({ from: { label: "Source", text: "Model: Hub · Module: LIST - Regions · Saved view: Export" },
+      rows: [["Region", "Regions"]], lines: [] });
+    expect([sourceLine(table, table.rows[0]), sourceLine(table, table.rows[4])]).toEqual([undefined, "Model: Hub · Module: Prices · Saved view: Export"]);
+    // An import of a list names it as the cell writes it.
+    const list = { ...IMPORTS, rows: [["Regions list", "Hub / G1 Regions", "Hub / G1 Regions", "LIST", "Regions", "LIST"]] };
+    const listTable = fileView({ ...EVERY, tables: [list] }, list).table;
+    expect(sourceLine(listTable, listTable.rows[0])).toBe("List: Hub / G1 Regions");
+    // A row without a Source Type, as one of an import the Actions list has and the Imports tab did not give, has none.
+    const blank = { ...IMPORTS, rows: [...ROWS, ["Only in Actions", "", "", "", "", ""]] };
+    const blankTable = fileView({ ...EVERY, tables: [blank] }, blank).table;
+    expect(mappingOfRow({ ...EVERY, tables: [blank] }, blankTable, blankTable.rows[5])).toBeUndefined();
+  });
+
   it("says that it has none where the result has mappings but none for the row's import", () => {
     const few: AnalysisResult = { ...MODEL, importMappings: [mapping("Prices", "First")] };
     const table = fileView(few, IMPORTS).table;
-    expect(table.rows.map(row => mappingOfRow(few, table, row))).toEqual([{ rows: [], lines: [NO_MAPPING] }, undefined,
+    // The mappings of a result an earlier version kept are those of imports from a file: a row of another Source Type has
+    // none either, and its details say to run again, which reads it.
+    expect(table.rows.map(row => mappingOfRow(few, table, row))).toEqual([{ rows: [], lines: [NO_MAPPING] }, { rows: [], lines: [NO_MAPPING] },
       { rows: [["Column 1", "First"]], lines: ["Column 1 is used."] },
-      { rows: [], lines: [NO_MAPPING] }, undefined]);
+      { rows: [], lines: [NO_MAPPING] }, { rows: [], lines: [NO_MAPPING] }]);
   });
 });

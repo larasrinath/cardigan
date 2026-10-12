@@ -1,18 +1,30 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import { missingIn, missingText } from "../page-files.js";
 import type { Log, Stop } from "../progress.js";
-import type { ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget } from "../result-types.js";
+import type { FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, TargetKind } from "../result-types.js";
 import { message } from "../util.js";
-import { plainText, type Grid, type GridRow } from "./grid.js";
+import { plainText, type Grid } from "./grid.js";
 import { axis, readGrid, type Native } from "./native.js";
 
-/** The mapping of each import from a file, out of the import's own definition: the JSON that Anaplan's import dialog reads
- * and saves (anaplan/view/ImportDefinition.js), which the Model settings grid of the imports against their properties
- * holds in the column of SYSTEM_PROPERTY_IMPORT_DEFINITION. The export reads that grid as it reads the others (native.ts
- * `readGrid`), with the dialog's own axes, IMPORT_ALL against IMPORT_PROPERTY: one view, read, and nothing saved. The
- * dialog's way to a file's columns, the system action GET_IMPORT_SOURCE_FIELDS, is never sent: it may store what it is
- * given. So the file itself is never asked for, and an import whose file is no longer available keeps its mapping: the
- * mapping is the import's.
+/** The mapping of each import, whatever its Source Type, out of the import's own definition: the JSON that Anaplan's import
+ * dialog reads and saves (anaplan/view/ImportDefinition.js), which the Model settings grid of the imports against their
+ * properties holds in the column of SYSTEM_PROPERTY_IMPORT_DEFINITION. The export reads that grid as it reads the others
+ * (native.ts `readGrid`), with the dialog's own axes, IMPORT_ALL against IMPORT_PROPERTY: one view, read, and nothing
+ * saved. The dialog's way to a source's columns, the system action GET_IMPORT_SOURCE_FIELDS, is never sent, nor is
+ * GET_IMPORT_SOURCE_ITEMS: either may store what it is given. So the source itself is never asked for, and an import whose
+ * file is no longer available keeps its mapping: the mapping is the import's. An import of a model's module, saved view
+ * or list has a definition made the same way (view/ManageImportSources/_ModelSource.js): its columns are the object's own,
+ * each kept by the entity it is (`sourceColumnEntityLongId`) and its name (`sourceColumnName`) where the dialog kept it.
+ *
+ * An import's definition names its data source in `source`, by the source's identifier ("_113000000012_"). The sources'
+ * own definitions are in the grid of the data sources against their properties, IMPORT_DATA_SOURCE against
+ * IMPORT_DATA_SOURCE_PROPERTY, in the column of SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION, as anaplan-sam's
+ * definition-core.ts reads them: null, or the text "null", for a source that is not set up; else JSON, of uploaded data
+ * (`dataSourceType` UPLOADED_FILE, with its encoding, separators, text delimiter, decimal separator, header row and first
+ * row of data, the rows as text) or of a model's object (MODEL_OBJECT, with the object's ID and name, and the model's and
+ * the workspace's IDs, empty for this model). The export reads that grid once, after the imports' definitions, and keeps
+ * of uploaded data its settings alone, the import's File Options (`fileOptionsOf`). Of a model's object it keeps nothing:
+ * it names the object's columns by this model's names only where the object is this model's (`ModelSource`).
  *
  * A definition is written by the dialog (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
  * view/LineItemImportMapper.js, view/ImportDefinitionHierarchyMapping.js) as
@@ -51,8 +63,13 @@ import { axis, readGrid, type Native } from "./native.js";
  *   the periods are matched by their names, else the format they are read by (view/TimeDimensionImportOptions.js).
  * - `dataFormatsByTarget`, which takes a date line item's identifier to a key of `dataFormatDefinitions`, whose entry of
  *   type "date" holds the format its column's dates are read by.
- * - `aliasMaps` and `targetAreaSpecifications`, which the log describes: the codes behind the labels of `valueMaps`, and
- *   which of a dimension's items the import clears first. Neither says more of the sources.
+ * - `aliasMaps`, which the log describes: the codes behind the labels of `valueMaps`.
+ * - `targetAreaSpecifications`, an entry for each dimension, keyed as `valueMaps` is, whose `area` says which of the
+ *   dimension's items the import clears first (view/MappedDimensionImportOptions.js, view/TimeDimensionImportOptions.js):
+ *   kept for a dimension fed by a column or the header row, as the dialog shows the choice for no other.
+ * - `globalTargetAreaSpecification`: none where the import clears its target first (the dialog's "Clear target prior to
+ *   import"), and MAPPED_ITEMS_IN_SOURCE where it only updates the cells it imports (view/ImportDefinitionModuleMapping.js
+ *   `_initTargetItemsOptions`, `_onRadioButtonChange`).
  * A header the import matches when it runs, on a line item's name or code, is not stored anywhere: nor is any column the
  * definition does not name.
  *
@@ -66,6 +83,9 @@ import { axis, readGrid, type Native } from "./native.js";
 
 /** SYSTEM_PROPERTY_IMPORT_DEFINITION (anaplan/constants.js): the grid's column that holds each import's definition. */
 export const IMPORT_DEFINITION = 4000001300;
+/** SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION (anaplan/constants.js): the column of the grid of the data sources that
+ * holds each source's definition. */
+export const SOURCE_DEFINITION = 4000001400;
 /** The label of that column, by which it is found where the client numbers it otherwise. */
 const DEFINITION_LABEL = "import definition";
 /** MODEL_CONTENT_TIMESCALE_ENTITY_LONG_ID and MODEL_CONTENT_VERSION_ENTITY_LONG_ID: Time and Versions as a module's
@@ -158,6 +178,72 @@ function headingOf(mapping: Json): string | undefined {
   return named(id) && !id.trim().startsWith("#") ? id.trim() : undefined;
 }
 
+/** Where an import of a model's object reads from, for naming the object's columns: the object, a module, a saved view or
+ * a list, by its ID where its source's definition gives one, and whether the object is this model's. A source of another
+ * model has entities of that model, which this model's names do not know: an ID of theirs could be one of this model's
+ * with another meaning. Nothing of it is kept. */
+export interface ModelSource { object?: number; here: boolean }
+
+/** The entity a column of a model's object is, where the definition says it: `sourceColumnEntityLongId`, a number, or its
+ * digits as view/LineItemImportMapper.js writes it, -1 for none; or a `sourceColumnId` written as an entity's identifier
+ * ("_1901000000003_"). Nothing where it says neither. */
+function columnEntityOf(mapping: Json): number | undefined {
+  const entity = idOf(mapping.sourceColumnEntityLongId);
+  if (Number.isSafeInteger(entity) && entity > 0) return entity;
+  const id = mapping.sourceColumnId;
+  const identified = typeof id === "string" && /^_\d{1,19}_$/.test(id.trim()) ? idOf(id) : NaN;
+  return Number.isSafeInteger(identified) && identified > 0 ? identified : undefined;
+}
+
+/** The name this model gives an entity that is a column of one of its own objects: Time, Versions, a line item (of the
+ * object, where it is a module), a list, a property (of the object, where it is a list), then what the client's entity
+ * information names it by (`ImportNames.entity`), as a target is named. */
+function sourceNameOf(id: number, names: ImportNames, object: number): string | undefined {
+  if (id === TIME) return "Time";
+  if (id === VERSIONS) return "Versions";
+  return names.lineItem(id, object) ?? names.list(id) ?? names.property(id, object) ?? names.entity?.(id, object);
+}
+
+/** A column of a model's object, by the name the definition writes for it, as it is written: `sourceColumnName`, or a
+ * `sourceColumnId` that is neither a "#" and a number nor an identifier. Else by the entity it is (`columnEntityOf`), named
+ * as this model names it where the object is this model's (`sourceNameOf`), or by its ID. Nothing where the definition
+ * says none of these. */
+function modelColumnOf(mapping: Json, names: ImportNames, model: ModelSource, into: number): string | undefined {
+  if (named(mapping.sourceColumnName)) return mapping.sourceColumnName;
+  const entity = columnEntityOf(mapping);
+  if (entity !== undefined) return (model.here ? sourceNameOf(entity, names, model.object ?? into) : undefined) ?? asId(entity);
+  const id = mapping.sourceColumnId;
+  return named(id) && !id.trim().startsWith("#") ? id.trim() : undefined;
+}
+
+/** What a target of an import into a module is (result-types.ts `TargetKind`), by its `targetType` and its target, as
+ * `targetOf` names it. */
+function kindOf(mapping: Json): TargetKind {
+  const id = idOf(mapping.target);
+  const known = Number.isFinite(id) && id !== -1;
+  if (mapping.targetType === "moduleDimension") return !known ? "lineItems" : id === TIME ? "time" : id === VERSIONS ? "versions" : "list";
+  if (mapping.targetType === "moduleLineItem") return known ? "lineItem" : "value";
+  return "other";
+}
+
+/** Anaplan's words for which of a dimension's items an import clears first: an upper-case word, as the definition writes
+ * them. Anything else is no area. */
+const AREA = /^[A-Z][A-Z_]{0,39}$/;
+
+/** Which of each dimension's items an import into a module clears first, by the dimension's key (`targetKey`), out of
+ * `targetAreaSpecifications`: the first entry for a dimension, as the dialog takes it (view/ImportDefinition.js
+ * `_getDimensionsInfo`). */
+function areasOf(definition: Json): Map<string, string> {
+  const found = new Map<string, string>();
+  if (!Array.isArray(definition.targetAreaSpecifications)) return found;
+  for (const entry of Array.from(definition.targetAreaSpecifications as unknown[])) {
+    if (!isObject(entry) || typeof entry.area !== "string" || !AREA.test(entry.area)) continue;
+    const key = targetKey(entry.target);
+    if (!found.has(key)) found.set(key, entry.area);
+  }
+  return found;
+}
+
 /** What a definition identifies a column by where it gives neither its place nor its heading: a `sourceColumnId` of a "#"
  * and no number Cardigan can read, or a number, a field's ID (`sourceFieldId`), or a model's column's
  * (`sourceColumnEntityLongId`, -1 for none). Nothing where it gives none. */
@@ -232,13 +318,14 @@ function dateFormatsOf(definition: Json): Map<number, string> {
   return found;
 }
 
-/** What feeds a target, as the definition says it. */
-function sourceOf(mapping: Json, names: ImportNames, into: number): Pick<MappedTarget, "source" | "column" | "text" | "id"> {
+/** What feeds a target, as the definition says it: of an import of a model's object, a column by its name or the entity it
+ * is (`modelColumnOf`). */
+function sourceOf(mapping: Json, names: ImportNames, into: number, model?: ModelSource): Pick<MappedTarget, "source" | "column" | "text" | "id"> {
   const word = mapping.sourceType;
   const source = typeof word === "string" ? SOURCES.get(word) : undefined;
   if (source === "column") {
     const column = columnOf(mapping);
-    const heading = headingOf(mapping);
+    const heading = model ? modelColumnOf(mapping, names, model, into) : headingOf(mapping);
     const id = column === undefined && heading === undefined ? identifierOf(mapping) : undefined;
     return { source, ...(column !== undefined ? { column } : {}), ...(heading !== undefined ? { text: heading } : {}), ...(id !== undefined ? { id } : {}) };
   }
@@ -404,8 +491,9 @@ function matchOf(definition: Json, mappings: readonly Json[], into: number, name
 /** An import's mapping out of its definition's text, and how the definition is made for the log: `shape`, and where it is
  * an object, `details`. A definition that is no JSON, or JSON of another make (no list of mappings, a mapping that is no
  * object), gives the note that it could not be read. One of a kind whose mapping is not listed gives no targets: the page
- * says what it loads. */
-export function readDefinition(text: string, names: ImportNames, list?: string): { mapping: Pick<ImportMapping, "importType" | "targets" | "matchedBy" | "headers" | "note">; shape: string; details: string[] } {
+ * says what it loads. `model` is where an import of a model's object reads from, for naming the object's columns. */
+export function readDefinition(text: string, names: ImportNames, list?: string, model?: ModelSource):
+  { mapping: Pick<ImportMapping, "importType" | "targets" | "matchedBy" | "headers" | "clear" | "note">; shape: string; details: string[] } {
   if (text.trim() === "") return { mapping: { importType: "", targets: [], note: MAPPING_NOTES.noDefinition }, shape: "no definition", details: [] };
   let definition: unknown;
   try {
@@ -424,11 +512,13 @@ export function readDefinition(text: string, names: ImportNames, list?: string):
   const matchedBy = importType === HIERARCHY_DATA ? matchOf(definition, mappings as Json[], into, names) : undefined;
   // A numbered list told apart by code or by properties gives its items their names itself.
   const numbers = matchedBy?.numbered === true && (matchedBy.by === "code" || matchedBy.by === "properties");
-  // An import into a module also holds how its dimensions' items, Time's periods and its dates are read.
+  // An import into a module also holds how its dimensions' items, Time's periods and its dates are read, and what it
+  // clears first.
   const module = importType === MODULE_DATA;
   const valueMaps = module ? valueMapsOf(definition) : undefined;
   const period = module ? periodFormatOf(definition) : undefined;
   const dates = module ? dateFormatsOf(definition) : new Map<number, string>();
+  const areas = module ? areasOf(definition) : new Map<string, string>();
   let headers: ImportHeader[] | undefined;
   // Where the line items come from the header row, each line item's values are in the column it heads: the dialog asks
   // for no column of values then (view/ImportDefinitionModuleMapping.js `validate`), so the blank line item it keeps for
@@ -439,48 +529,50 @@ export function readDefinition(text: string, names: ImportNames, list?: string):
     && mapping.sourceType === "undefined")) : (mappings as Json[]);
   const targets = kept.map((mapping): MappedTarget => {
     const target = targetOf(mapping, importType, into, names, list);
-    const source = sourceOf(mapping, names, into);
+    const source = sourceOf(mapping, names, into, model);
     if (numbers && mapping.targetType === "hierarchyMemberEntityName" && source.source === "none") return { target, source: "numbered" };
-    const read: MappedTarget = { target, ...source };
-    if (!module) return read;
+    if (!module) return { target, ...source };
+    const read: MappedTarget = { target, ...source, kind: kindOf(mapping) };
     const id = idOf(mapping.target);
     if (mapping.targetType === "moduleLineItem") {
       const format = Number.isFinite(id) ? dates.get(id) : undefined;
       return format === undefined ? read : { ...read, dateFormat: format };
     }
     if (mapping.targetType !== "moduleDimension" || (source.source !== "column" && source.source !== "headerRow")) return read;
-    if (id === TIME) return period === undefined ? read : { ...read, periodFormat: period };
-    if (!valueMaps) return read;
+    // What the dimension clears first, as the dialog shows it for a dimension fed by a column or the header row alone
+    // (view/ImportDefinitionListMapping.js `_isUnmapped`).
+    const area = areas.get(targetKey(mapping.target));
+    const cleared: MappedTarget = area === undefined ? read : { ...read, area };
+    if (id === TIME) return period === undefined ? cleared : { ...cleared, periodFormat: period };
+    if (!valueMaps) return cleared;
     const byHand = valueMaps.get(targetKey(mapping.target)) ?? [];
     const ignored = byHand.filter(([, item]) => item === -1).length;
     // The line items from the header row: the source values mapped by hand are the headers, each with its line item.
     if (targetKey(mapping.target) === "" && source.source === "headerRow" && byHand.length) {
       headers = byHand.map(([header, item]): ImportHeader => (item === -1 ? { header } : { header, lineItem: names.lineItem(item, into) ?? names.entity?.(item, into) ?? asId(item) }));
     }
-    return { ...read, items: { byHand: byHand.length - ignored, ignored } };
+    return { ...cleared, items: { byHand: byHand.length - ignored, ignored } };
   });
   if (fromHeaderRow) {
-    headers ??= [];
-    for (const mapping of kept) {
-      const header = headingOf(mapping);
-      if (mapping.targetType !== "moduleLineItem" || targetKey(mapping.target) === "" || mapping.sourceType !== "column" || header === undefined) continue;
-      const lineItem = targetOf(mapping, importType, into, names, list);
+    const pairs = headers ?? [];
+    kept.forEach((mapping, at) => {
+      // A line item's own column, by the heading it is read by, as its target says it.
+      const header = targets[at].source === "column" ? targets[at].text : undefined;
+      if (mapping.targetType !== "moduleLineItem" || targetKey(mapping.target) === "" || header === undefined) return;
+      const lineItem = targets[at].target;
       // The value map and a line item's own mapping may store the same pair. Keep distinct stored mappings.
-      if (!headers.some(entry => entry.header.trim().toLowerCase() === header.trim().toLowerCase() && entry.lineItem === lineItem)) headers.push({ header, lineItem });
-    }
-    if (!headers.length) headers = undefined;
+      if (!pairs.some(entry => entry.header.trim().toLowerCase() === header.trim().toLowerCase() && entry.lineItem === lineItem)) pairs.push({ header, lineItem });
+    });
+    headers = pairs.length ? pairs : undefined;
   }
-  return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}) }, shape, details };
+  // What the import does to the module before it loads, as the dialog's Mapping tab reads it: any value of
+  // `globalTargetAreaSpecification` checks Only update imported cells, and none Clear target prior to import.
+  const clear = module ? { clear: definition.globalTargetAreaSpecification ? "update" as const : "clear" as const } : {};
+  return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}), ...clear }, shape, details };
 }
 
 /** The place of the Imports tab's column of that label, or -1. */
 const columnAt = (grid: Grid, label: string): number => grid.columns.findIndex(column => (column.labels[0] ?? "").trim() === label);
-
-/** The imports of the Imports tab that read a file, in the tab's order (file-imports.ts `readsFile`). */
-export function fileImports(tab: Grid): GridRow[] {
-  const at = columnAt(tab, SOURCE_TYPE);
-  return at < 0 ? [] : tab.rows.filter(row => readsFile(row.cells[at]));
-}
 
 /** A Source Type as the log writes it: Anaplan's own word for a kind of source, such as FILE or SAVED VIEW, in letters and
  * spaces; "blank" for an empty cell, and a question mark for anything else, which could be a value of the model's. */
@@ -490,18 +582,96 @@ const typeWord = (cell: string | undefined): string => {
 };
 
 /** The log's line on the Imports tab, where the mappings start: how many imports it lists, each Source Type it holds with
- * how many imports have it, and how many mappings are to be read, one for each import from a file; or that it has no
- * Source Type column. One live log then tells whether an import from a file was found at all. As the page's other words,
- * the line names no file: FILE is Anaplan's own word, as the tab holds it. */
+ * how many imports have it, or that it has no Source Type column, and how many mappings are to be read: one for each
+ * import, whatever its Source Type. As the page's other words, the line names no file: FILE is Anaplan's own word, as the
+ * tab holds it. */
 export function importsLine(tab: Grid): string {
   const at = columnAt(tab, SOURCE_TYPE);
-  if (at < 0) return `Import mappings: ${tab.rows.length} imports; the Imports tab has no ${SOURCE_TYPE} column`;
+  const toRead = `${tab.rows.length} ${tab.rows.length === 1 ? "mapping" : "mappings"} to read`;
+  if (at < 0) return `Import mappings: ${tab.rows.length} imports; the Imports tab has no ${SOURCE_TYPE} column; ${toRead}`;
   const types = new Map<string, number>();
   for (const row of tab.rows) types.set(typeWord(row.cells[at]), (types.get(typeWord(row.cells[at])) ?? 0) + 1);
-  const toRead = fileImports(tab).length;
-  return `Import mappings: ${tab.rows.length} imports; Source Types: ${[...types].map(([type, count]) => `${type} ×${count}`).join(", ") || "none"}; `
-    + `${toRead} ${toRead === 1 ? "mapping" : "mappings"} to read`;
+  return `Import mappings: ${tab.rows.length} imports; Source Types: ${[...types].map(([type, count]) => `${type} ×${count}`).join(", ") || "none"}; ${toRead}`;
 }
+
+/** The data sources' definitions the export read, for linking each import to its own source: the grid of the sources
+ * against their properties, the ID of its column of definitions, and this model's ID, against which a model's object is
+ * told to be this model's or another's. Nothing of them is kept. */
+export interface SourceDefinitions { grid: Grid; column: number; model: string }
+
+/** A data source as its definition says it (`dataSourceOf`): its type, as the log writes it, with the File Options of
+ * uploaded data where it holds any, and where a model's object is. */
+interface DataSource { type: string; options?: FileOptions; model?: ModelSource }
+/** What the log says of a source that is not set up, and of one whose definition cannot be read. */
+const NOT_SET_UP = "not set up";
+const UNREADABLE = "not readable";
+
+/** The settings of a source of uploaded data that Anaplan's own dialog reads (view/ManageImportSources/_EditUploadedText.js
+ * `setSourceDefinition`), each where the definition holds it as text of a sensible length, and the two rows as whole
+ * numbers from 0, in digits or as numbers, as the dialog writes them: the import's File Options. Nothing else of the
+ * source is taken, by name: neither its name nor any ID. None where it holds none of them. */
+function fileOptionsOf(source: Json): FileOptions | undefined {
+  const text = (value: unknown, longest: number): string | undefined => (typeof value === "string" && value.length <= longest ? value : undefined);
+  const row = (value: unknown): number | undefined => {
+    const number = typeof value === "number" ? value : typeof value === "string" && /^\s*\d{1,6}\s*$/.test(value) ? Number(value) : NaN;
+    return Number.isSafeInteger(number) && number >= 0 && number < 1e6 ? number : undefined;
+  };
+  const encoding = text(source.textEncoding, 60)?.trim();
+  const separators = text(source.columnSeparators, 20);
+  const delimiter = text(source.textDelimiter, 4);
+  const decimal = text(source.decimalSeparator, 4);
+  const [headerRow, firstDataRow] = [row(source.headerRow), row(source.firstDataRow)];
+  const options: FileOptions = { ...(encoding ? { encoding } : {}), ...(separators !== undefined ? { separators } : {}),
+    ...(delimiter !== undefined ? { delimiter } : {}), ...(decimal ? { decimal } : {}), ...(headerRow !== undefined ? { headerRow } : {}),
+    ...(firstDataRow !== undefined ? { firstDataRow } : {}) };
+  return Object.keys(options).length ? options : undefined;
+}
+
+/** A data source out of its definition's cell (anaplan-sam's definition-core.ts reads the same cell): null, the text
+ * "null" or nothing for one that is not set up; JSON of uploaded data, with its File Options (`fileOptionsOf`); JSON of a
+ * model's object, with the object's ID and whether the model it is in is this one, which its definition says by an empty
+ * `modelId`, or by this model's own (view/ManageImportSources.js `_onModelSourceSelected`); JSON of another type; or text
+ * that is no JSON object. */
+function dataSourceOf(cell: string, model: string): DataSource {
+  const text = cell.trim();
+  if (text === "" || text === "null") return { type: NOT_SET_UP };
+  let value: unknown;
+  try { value = JSON.parse(text); } catch { return { type: UNREADABLE }; }
+  if (value === null) return { type: NOT_SET_UP };
+  if (!isObject(value)) return { type: UNREADABLE };
+  const type = logWord(value.dataSourceType);
+  if (value.dataSourceType === "UPLOADED_FILE") {
+    const options = fileOptionsOf(value);
+    return { type, ...(options ? { options } : {}) };
+  }
+  if (value.dataSourceType === "MODEL_OBJECT") {
+    const object = idOf(value.objectId);
+    const owner = value.modelId === undefined || value.modelId === null ? "" : typeof value.modelId === "string" ? value.modelId.trim() : "?";
+    return { type, model: { ...(Number.isSafeInteger(object) && object > 0 ? { object } : {}), here: owner === "" || owner.toLowerCase() === model.trim().toLowerCase() } };
+  }
+  return { type };
+}
+
+/** The ID of an import's data source, out of its definition's `source` ("_113000000012_"); nothing where the definition is
+ * no JSON object or names none. */
+function sourceIdOf(text: string): number | undefined {
+  try {
+    const definition: unknown = JSON.parse(text);
+    const id = isObject(definition) ? idOf(definition.source) : NaN;
+    return Number.isSafeInteger(id) && id > 0 ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Counts, by their words, for the log: "not set up ×1, not readable ×2". */
+const tallied = (counts: ReadonlyMap<string, number>): string => [...counts].map(([word, count]) => `${word} ×${count}`).join(", ");
+const add = (counts: Map<string, number>, word: string): void => { counts.set(word, (counts.get(word) ?? 0) + 1); };
+
+/** How the imports of one kind found their sources, for the log: how many of them there are, how many found what the
+ * page shows of their source, and why each other one did not. */
+interface SourcesFound { total: number; found: number; why: Map<string, number> }
+const sourcesFound = (): SourcesFound => ({ total: 0, found: 0, why: new Map() });
 
 /** The column of the grid of definitions that holds them: the one the client numbers `column`, or else the one labelled
  * Import Definition, as a client that numbers it otherwise would give it; -1 where there is neither. No other column is
@@ -511,18 +681,19 @@ function definitionsAt(definitions: Grid, column: number): number {
   return byId >= 0 ? byId : definitions.columns.findIndex(entry => (entry.labels[0] ?? "").trim().toLowerCase() === DEFINITION_LABEL);
 }
 
-/** Fill gaps in the client's property names before making the mappings. Only file imports into lists with unnamed
- * numeric targets need a read: CUSTOM_PROPERTY against PROPERTY_PROPERTY, with the target list as static context, as the
+/** Fill gaps in the client's property names before making the mappings. Only imports into lists with unnamed numeric
+ * targets need a read: CUSTOM_PROPERTY against PROPERTY_PROPERTY, with the target list as static context, as the
  * list-property blueprint in anaplan-sam's authoring-core.ts reads it. Group all missing IDs first so each list's grid,
- * including a failed read, is tried only once per export. Names stay local to the run; the client cache is not changed. */
+ * including a failed read, is tried only once per export. Names stay local to the run; the client cache is not changed.
+ * `sources` is the grid of the data sources' definitions, where the export read it, in its column `sourceColumn`. */
 export async function readImportMappings(native: Native, tab: Grid, definitions: Grid | undefined, names: ImportNames,
-  log: Log, column = IMPORT_DEFINITION, stop?: Stop): Promise<ImportMapping[]> {
+  log: Log, column = IMPORT_DEFINITION, stop?: Stop, sources?: Grid, sourceColumn = SOURCE_DEFINITION): Promise<ImportMapping[]> {
   stop?.throwIfAborted();
   const at = definitions ? definitionsAt(definitions, column) : -1;
   const byId = new Map((definitions?.rows ?? []).map(row => [row.ids[0], row]));
   const target = columnAt(tab, "Target Object");
   const missing = new Map<number, { name: string; mappings: Json[] }>();
-  for (const row of at < 0 ? [] : fileImports(tab)) {
+  for (const row of at < 0 ? [] : tab.rows) {
     let definition: unknown;
     try { definition = JSON.parse(byId.get(row.ids[0])?.cells[at] ?? ""); } catch { continue; }
     if (!isObject(definition) || definition.importType !== HIERARCHY_DATA || !Array.isArray(definition.mappings)
@@ -575,36 +746,64 @@ export async function readImportMappings(native: Native, tab: Grid, definitions:
       + (failure === undefined ? "" : `; properties grid not read (${failure})`));
   }
   stop?.throwIfAborted();
-  return importMappings(tab, definitions, withProperties, log, column);
+  return importMappings(tab, definitions, withProperties, log, column, sources ? { grid: sources, column: sourceColumn, model: native.modelId } : undefined);
 }
 
-/** Each import of the Imports tab that reads a file, in the tab's order, with its mapping: out of its definition's cell in
- * `definitions`, the grid of the imports against their properties, in its column of definitions (`definitionsAt`). Without
- * that grid, which the model did not give, each says so, and so does an import the grid has no definition for: none is
- * left out, so that the page has one for each such row of the Imports table. The log has lines for each: how its
- * definition is made, how it writes its first column, and the parts that could say more of its columns (`detailsOf`).
- * A last line counts what was read and what was found, and says why nothing was where the grid or its column is missing. */
-export function importMappings(tab: Grid, definitions: Grid | undefined, names: ImportNames, log: Log, column = IMPORT_DEFINITION): ImportMapping[] {
-  const imports = fileImports(tab);
+/** Each import of the Imports tab, whatever its Source Type, in the tab's order, with its mapping: out of its definition's
+ * cell in `definitions`, the grid of the imports against their properties, in its column of definitions
+ * (`definitionsAt`), and with the Source Type the tab gives it. Without that grid, which the model did not give, each says
+ * so, and so does an import the grid has no definition for: none is left out, so that the page has one for each row of
+ * the Imports table. The log has lines for each: how its definition is made, how it writes its first column, and the
+ * parts that could say more of its columns (`detailsOf`). A line counts what was read and what was found, and says why
+ * nothing was where the grid or its column is missing.
+ *
+ * With `sources`, the data sources' definitions, each import is linked to its source by its definition's `source`: an
+ * import of uploaded data keeps its File Options, and an import of a model's object has the object's columns named
+ * (`ModelSource`). An import of a model's object whose source is not known names its columns by what the definition
+ * writes, and by their IDs. A last line then says of the sources how they are made and what each kind of import found,
+ * by counts and Anaplan's words alone: no setting and no name (`sourcesLine`). */
+export function importMappings(tab: Grid, definitions: Grid | undefined, names: ImportNames, log: Log, column = IMPORT_DEFINITION,
+  sources?: SourceDefinitions): ImportMapping[] {
+  const imports = tab.rows;
   const target = columnAt(tab, "Target Object");
+  const type = columnAt(tab, SOURCE_TYPE);
   const at = definitions ? definitionsAt(definitions, column) : -1;
   const byId = new Map((definitions?.rows ?? []).map(row => [row.ids[0], row]));
   if (definitions && at < 0) log(`Import mappings: no column of definitions among the ${definitions.columns.length} given`);
+  // Each data source, read once, by its ID.
+  const sourceAt = sources ? sources.grid.columns.findIndex(entry => entry.ids[0] === sources.column) : -1;
+  const dataSources = new Map<number, DataSource>();
+  for (const row of sources && sourceAt >= 0 ? sources.grid.rows : []) {
+    if (Number.isSafeInteger(row.ids[0]) && !dataSources.has(row.ids[0])) dataSources.set(row.ids[0], dataSourceOf(row.cells[sourceAt] ?? "", sources!.model));
+  }
+  const [uploaded, fromModels] = [sourcesFound(), sourcesFound()];
+  let elsewhere = 0;
   let [found, read] = [0, 0];
   // Why a constant into Time keeps its ID is said once a run, for the first such constant.
   let periodsLogged = false;
   const mappings = imports.map((row): ImportMapping => {
     const id = Number.isSafeInteger(row.ids[0]) && row.ids[0] > 0 ? String(row.ids[0]) : "";
-    const known = { id, name: row.labels[0] ?? "" };
+    const sourceType = type < 0 ? "" : (row.cells[type] ?? "").trim();
+    const known = { id, name: row.labels[0] ?? "", sourceType };
+    // The imports whose sources the last line counts: of uploaded data, and of a model's object.
+    const kind = readsFile(sourceType) ? uploaded : sourceType !== "" ? fromModels : undefined;
+    if (kind) kind.total++;
     if (!definitions || at < 0) return { ...known, importType: "", targets: [], note: MAPPING_NOTES.notRead };
     const cell = byId.get(row.ids[0])?.cells[at];
     if (cell === undefined) {
       log(`Import mapping ${id || "?"}: not in the grid of definitions`);
+      if (kind) add(kind.why, "definition not read");
       return { ...known, importType: "", targets: [], note: MAPPING_NOTES.noDefinition };
     }
     found++;
+    // The import's own data source, where the export read them: why it has none, for the last line, where it has none.
+    const reference = sourceIdOf(cell);
+    const source = reference === undefined ? undefined : dataSources.get(reference);
+    const why = !sources || sourceAt < 0 ? undefined : reference === undefined ? "no source in the definition" : !source ? "source not in the grid"
+      : source.type === NOT_SET_UP ? "source not set up" : source.type === UNREADABLE ? "source not readable" : undefined;
+    const model = source?.model ?? (kind === fromModels && source?.type !== "UPLOADED_FILE" ? { here: false } : undefined);
     try {
-      const { mapping, shape, details } = readDefinition(cell, names, target < 0 ? undefined : row.cells[target] || undefined);
+      const { mapping, shape, details } = readDefinition(cell, names, target < 0 ? undefined : row.cells[target] || undefined, model);
       log(`Import mapping ${id || "?"}: ${shape}`);
       for (const detail of details) log(`Import mapping ${id || "?"}: ${detail}`);
       const unnamed = new Set<number>();
@@ -620,7 +819,15 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
       }
       for (const header of mapping.headers ?? []) inspect(header.lineItem);
       for (const property of mapping.matchedBy?.properties ?? []) inspect(property);
+      // A column of a model's object that keeps its ID: of this model's, the log says what the client classes it as, as of
+      // any other; of another model's, that this model's names are not its own.
+      const kept = model ? mapping.targets.filter(target => target.source === "column" && idSaid(target.text) !== undefined) : [];
+      if (model?.here) for (const target of kept) inspect(target.text);
       if (unnamed.size && names.describe) log(`Import mappings: ${known.name}: ${[...unnamed].map(entity => names.describe!(entity)).join("; ")}`);
+      if (model && !model.here && kept.length) {
+        log(`Import mappings: ${known.name}: ${kept.length} source ${kept.length === 1 ? "column keeps its ID" : "columns keep their IDs"}: `
+          + (source?.model ? "the source is another model's" : "the source is not known"));
+      }
       if (!periodsLogged && names.periodsLine) {
         const time = mapping.targets.find(target => target.target === "Time" && target.source === "constant" && idSaid(target.text) !== undefined);
         if (time) {
@@ -629,16 +836,44 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
         }
       }
       if (mapping.note === undefined) read++;
-      return { ...known, ...mapping };
+      // What the page shows of the source: the File Options of uploaded data, and of a model's object nothing it keeps.
+      const options = source?.options;
+      if (kind) {
+        const [shown, own, empty] = kind === uploaded ? [options !== undefined, "UPLOADED_FILE", "source holds no settings"]
+          : [source?.model?.object !== undefined, "MODEL_OBJECT", "source names no object"];
+        if (shown) kind.found++;
+        else add(kind.why, mapping.note !== undefined ? "definition not read" : why ?? (source?.type === own ? empty : `source of type ${source?.type ?? "?"}`));
+        if (kind === fromModels && source?.model && !source.model.here) elsewhere++;
+      }
+      return { ...known, ...mapping, ...(options ? { fileOptions: options } : {}) };
     } catch (error) {
       log(`Import mapping ${id || "?"}: ${error instanceof Error ? error.name : "error"} while reading the definition`);
+      if (kind) add(kind.why, "definition not read");
       return { ...known, importType: "", targets: [], note: MAPPING_NOTES.unknown };
     }
   });
-  // The page shows the log, and no word of the page names a file: nor does this line.
+  // The page shows the log, and no word of the page names a file: nor do these lines.
   const where = !definitions ? "the model gave no grid of definitions" : at < 0 ? "the grid has no column of definitions" : `${found} found in the grid of definitions`;
   log(`Import mappings: ${read} of ${imports.length} read; ${where}`);
+  if (sources && definitions && at >= 0) log(sourcesLine(sources.grid, sourceAt, dataSources, uploaded, fromModels, elsewhere));
   return mappings;
+}
+
+/** The log's line on the data sources, where the export read their definitions: how many definitions the grid holds, by
+ * their types (Anaplan's own words, or not set up, or not readable); how many imports of uploaded data have File Options,
+ * and how many of a model's object have the object they read, with how many of those are another model's; and why each
+ * other one has not, counted by why. No setting, no name and no ID: a log a user passes on says how the sources are made,
+ * not what they hold. */
+function sourcesLine(grid: Grid, at: number, sources: ReadonlyMap<number, DataSource>, uploaded: SourcesFound, fromModels: SourcesFound, elsewhere: number): string {
+  if (at < 0) return `Import mapping sources: no column of source definitions among the ${grid.columns.length} given`;
+  const types = new Map<string, number>();
+  for (const source of sources.values()) add(types, source.type);
+  const why = (found: SourcesFound): string => (found.why.size ? ` (${tallied(found.why)})` : "");
+  const imports = (count: number): string => `${count} ${count === 1 ? "import" : "imports"}`;
+  const parts = [`${sources.size} ${sources.size === 1 ? "definition" : "definitions"}${types.size ? `: ${tallied(types)}` : ""}`,
+    ...(uploaded.total ? [`settings for ${uploaded.found} of ${imports(uploaded.total)} of uploaded data${why(uploaded)}`] : []),
+    ...(fromModels.total ? [`objects for ${fromModels.found} of ${imports(fromModels.total)} from a model${elsewhere ? `, ${elsewhere} in another model` : ""}${why(fromModels)}`] : [])];
+  return `Import mapping sources: ${parts.join("; ")}`;
 }
 
 /** A name out of a page of names of the model page's own (anaplan/data/ModelContentCache.js): its IDs and its labels, each

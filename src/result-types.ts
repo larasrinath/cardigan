@@ -47,10 +47,11 @@ export interface AnalysisResult {
    * page opens a list in Model Building by. Empty where the export found none; none in an app's result, nor in one that an
    * earlier version kept. */
   listIds?: [name: string, id: string][];
-  /** The mapping of each of a model's imports from a file (Source Type FILE in the Imports tab), in the order of that tab:
-   * what feeds each target of the import, as the import's own definition says it. The results page shows it in the
-   * details of the import's row of Imports. Empty for a model that has no import from a file; none in an app's result, in
-   * a model's whose Imports tab could not be read, nor in one that an earlier version kept. */
+  /** The mapping of each of a model's imports, whatever its Source Type in the Imports tab, in the order of that tab: what
+   * feeds each target of the import, as the import's own definition says it. The results page shows it in the details of
+   * the import's row of Imports. Empty for a model that has no import; none in an app's result, in a model's whose Imports
+   * tab could not be read, nor in one that an earlier version kept. An earlier version kept those of the imports from a
+   * file alone (Source Type FILE), each without its `sourceType`. */
   importMappings?: ImportMapping[];
   /** The actions each of a model's processes runs, in the order it runs them, as the process's own definition holds them:
    * one entry for each process of the Actions list, in that list's order. The results page lists them in the details of the
@@ -68,13 +69,17 @@ export interface AnalysisResult {
   site?: { origin: string; customer: string };
 }
 
-/** One import from a file, with its mapping. The mapping is the import's own: it holds whether the file it was made with is
- * still there or not. */
+/** One import, with its mapping. The mapping is the import's own: it holds whether the source it was made with is still
+ * there or not. */
 export interface ImportMapping {
   /** The import's ID in the model (the entity's long ID, in digits) and its name, as the Imports tab lists it. The page
-   * finds an import's row by the name: the Imports table has no column of IDs. */
+   * finds an import's row by the name, among the rows of its Source Type: the Imports table has no column of IDs. */
   id: string;
   name: string;
+  /** Anaplan's word for the kind of source the import reads, as the Imports tab's Source Type writes it, trimmed: FILE for
+   * uploaded data, MODULE, SAVED VIEW or LIST for a model's object, and empty where the tab says none. None in a result an
+   * earlier version kept, whose mappings are all of imports whose Source Type is FILE. */
+  sourceType?: string;
   /** Anaplan's word for what the import loads, as its definition says it: MODULE_DATA into a module, HIERARCHY_DATA into a
    * list, and others such as USERS, VERSIONS or LINE_ITEM_DEFINITION. Empty where the definition says none. */
   importType: string;
@@ -88,8 +93,33 @@ export interface ImportMapping {
    * item by hand, with its line item, or ignored, in the order the definition writes them. None where no header is mapped
    * by hand: the headers are then matched on names or codes when the import runs, and the definition stores none. */
   headers?: ImportHeader[];
+  /** For an import into a module, what its dialog's Mapping tab says it does to the module before it loads: "clear" for
+   * Clear target prior to import, where the definition has no `globalTargetAreaSpecification`, and "update" for Only
+   * update imported cells, where it has one (anaplan/view/ImportDefinitionModuleMapping.js `_initTargetItemsOptions`).
+   * None for an import into a list, and none in a result an earlier version kept. */
+  clear?: "clear" | "update";
+  /** For an import of uploaded data, how its data source reads it, as the source's own definition holds it: the import's
+   * File Options. None where the source's definition was not read or holds none of them, and none in a result an earlier
+   * version kept. Nothing else of a source is kept: never the model, the workspace or the object a model's import reads. */
+  fileOptions?: FileOptions;
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
+}
+
+/** How a data source of uploaded data reads it (anaplan/view/ManageImportSources/_EditUploadedText.js), each as the source's
+ * definition holds it, where it holds it in a way Anaplan's own dialog reads. */
+export interface FileOptions {
+  /** The text encoding, by Anaplan's name for it: "ISO-8859-1", "UTF-8". */
+  encoding?: string;
+  /** The characters that separate the columns, one or more: a tab, a comma, a semicolon, or others of the modeller's. */
+  separators?: string;
+  /** The character that encloses text, '"' or "'"; empty for none. */
+  delimiter?: string;
+  /** The decimal separator: "." or ",". */
+  decimal?: string;
+  /** The row that holds the headers, counted from 1, and 0 for none; and the first row of data. */
+  headerRow?: number;
+  firstDataRow?: number;
 }
 
 /** How an import into a list tells the list's items apart (anaplan/view/ImportDefinitionHierarchyMapping.js): by their
@@ -141,6 +171,11 @@ export interface ProcessStep {
  * lets no column feed them then), or a source of another kind, which `text` names by Anaplan's word. */
 export type MappedSource = "column" | "constant" | "prompt" | "ignore" | "headerRow" | "none" | "numbered" | "other";
 
+/** What a target of an import into a module is, by its definition's `targetType` and target: one of the module's
+ * dimensions, Time, Versions, a list (or a subset) or the line items; one line item's own column; the column of values
+ * where each row names its line item (the blank line item, the dialog's "Data values from"); or a target of another kind. */
+export type TargetKind = "time" | "versions" | "list" | "lineItems" | "lineItem" | "value" | "other";
+
 export interface MappedTarget {
   /** The target by its name: a list, Time, Versions or Line Items, or a line item, for an import into a module; the list's
    * items, Parent, Code or a property, for an import into a list. A target the model gave no name for is named by its ID
@@ -149,7 +184,9 @@ export interface MappedTarget {
   source: MappedSource;
   /** A column's place in the file, counted from 1, where the definition gives it. */
   column?: number;
-  /** A column's heading, where the definition keeps it; a constant's value; or Anaplan's word for a source of another kind. */
+  /** A column's heading, where the definition keeps it; for a column of a model's object, its name as the definition writes
+   * it, else as this model names the entity it is, or that entity's ID ("ID 1901000000003"); a constant's value; or
+   * Anaplan's word for a source of another kind. */
   text?: string;
   /** A column's identifier as the definition writes it, where it gives neither the column's place nor its heading. */
   id?: string;
@@ -162,4 +199,11 @@ export interface MappedTarget {
   periodFormat?: string | null;
   /** For a line item formatted as a date: the format its column's dates are read by. */
   dateFormat?: string;
+  /** What the target is, for every target of an import into a module (`TargetKind`); none for an import into a list, and
+   * none in a result an earlier version kept. */
+  kind?: TargetKind;
+  /** For a dimension of an import into a module, fed by a column or the header row: which of its items the import clears
+   * first, by Anaplan's word in the definition's `targetAreaSpecifications` (MATCHED_ITEMS, MAPPED_ITEMS_IN_SOURCE,
+   * ALL_MAPPED_ITEMS or ALL_ITEMS). None where the definition says none. */
+  area?: string;
 }

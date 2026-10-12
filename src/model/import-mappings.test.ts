@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HEADER_ROW_BY_HAND, MISSING_LINE_ITEM_NOTE, mappingView } from "../results/import-mapping-view.js";
 import { exportModel } from "./export.js";
 import type { Grid } from "./grid.js";
-import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, readImportMappings, type ImportNames } from "./import-mappings.js";
+import { IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, readImportMappings, SOURCE_DEFINITION, type ImportNames } from "./import-mappings.js";
 import { readGrid, type Native } from "./native.js";
 
 // Import definitions as Anaplan's import dialog saves them (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
@@ -34,18 +34,20 @@ describe("An import's mapping, read out of its definition", () => {
       { targetType: "moduleLineItem", target: id(PRICE), sourceType: "column", sourceColumnNumber: "5" },
       { targetType: "moduleLineItem", target: "_1901000000099_", sourceType: "undefined" }]);
     const { mapping } = readDefinition(text, NAMES);
-    expect(mapping).toEqual({ importType: "MODULE_DATA", targets: [
-      { target: "Products", source: "column", column: 1, text: "Product" },
-      { target: "Time", source: "column", column: 2, text: "Month" },
-      { target: "Versions", source: "constant", text: "Actual" },
-      { target: "+ Regions", source: "prompt" },
+    // Each target says what it is: a dimension of the module (Time, Versions, a list or the line items), or a line item.
+    // With no globalTargetAreaSpecification, the import clears its target first.
+    expect(mapping).toEqual({ importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product", kind: "list" },
+      { target: "Time", source: "column", column: 2, text: "Month", kind: "time" },
+      { target: "Versions", source: "constant", text: "Actual", kind: "versions" },
+      { target: "+ Regions", source: "prompt", kind: "list" },
       // A list the model names nowhere is said by its ID, as the page says one elsewhere.
-      { target: "ID 101000000099", source: "ignore" },
-      { target: "Line Items", source: "headerRow" },
+      { target: "ID 101000000099", source: "ignore", kind: "list" },
+      { target: "Line Items", source: "headerRow", kind: "lineItems" },
       // A line item's column can be named by its heading alone, or by its place counted from 0, written as digits.
-      { target: "Units", source: "column", text: "Units" },
-      { target: "Price", source: "column", column: 6 },
-      { target: "ID 1901000000099", source: "none" }], headers: [{ header: "Units", lineItem: "Units" }] });
+      { target: "Units", source: "column", text: "Units", kind: "lineItem" },
+      { target: "Price", source: "column", column: 6, kind: "lineItem" },
+      { target: "ID 1901000000099", source: "none", kind: "lineItem" }], headers: [{ header: "Units", lineItem: "Units" }] });
   });
 
   it("reads every way a definition writes a column and a constant, and keeps a source of another kind by its word", () => {
@@ -75,7 +77,8 @@ describe("An import's mapping, read out of its definition", () => {
       { sourceType: "field", sourceFieldId: "label" },
       { sourceType: 7 },
       {}].map(mapping => ({ targetType: "moduleLineItem", target: "", ...mapping }));
-    const sources = readDefinition(definition("MODULE_DATA", PRICES, mappings), NAMES).mapping.targets.map(({ target, ...source }) => (target === "Value" ? source : target));
+    // Each is the column of values where each row names its line item (the blank line item): a kind of its own.
+    const sources = readDefinition(definition("MODULE_DATA", PRICES, mappings), NAMES).mapping.targets.map(({ target, kind, ...source }) => (target === "Value" && kind === "value" ? source : target));
     expect(sources).toEqual([{ source: "column", column: 4 }, { source: "column", column: 1 }, { source: "column", column: 7 },
       { source: "column", text: "Price" }, { source: "column", text: "Product" }, { source: "column", column: 3, text: "Location" }, { source: "column", column: 2, text: "Expiry" },
       { source: "column", id: "#0" }, { source: "column", id: "f12" }, { source: "column", id: "101000000009" }, { source: "column" },
@@ -115,8 +118,8 @@ describe("An import's mapping, read out of its definition", () => {
       + "[targetType, target, sourceType, sourceColumnNumber, sourceColumnName, sourceColumnId] column ×2");
     // A target of any other kind with no target is named as a blank one is: by what the kind says, or by the kind's word.
     const kinds = ["moduleDimension", "moduleLineItem", "hierarchyProperty", "somethingNew"].map(targetType => ({ targetType, sourceType: "undefined" }));
-    expect(readDefinition(definition("MODULE_DATA", PRICES, kinds), NAMES).mapping.targets).toEqual(["Line Items", "Value", "Property", "somethingNew"]
-      .map(target => ({ target, source: "none" })));
+    expect(readDefinition(definition("MODULE_DATA", PRICES, kinds), NAMES).mapping.targets).toEqual([["Line Items", "lineItems"], ["Value", "value"], ["Property", "other"],
+      ["somethingNew", "other"]].map(([target, kind]) => ({ target, source: "none", kind })));
   });
 
   it("says how an import into a list tells the list's items apart, as the dialog's Items uniquely identified by says it", () => {
@@ -201,15 +204,15 @@ describe("An import's mapping, read out of its definition", () => {
       dataFormatDefinitions: { fmt: { type: "date", format: "DD/MM/YYYY", active: true }, num: { type: "number", format: "0.00" } },
       dataFormatsByTarget: { [id(PRICE)]: "fmt", [id(UNITS)]: "num" } });
     const { mapping, details } = readDefinition(text, NAMES);
-    expect(mapping).toEqual({ importType: "MODULE_DATA", targets: [
+    expect(mapping).toEqual({ importType: "MODULE_DATA", clear: "clear", targets: [
       // Each dimension fed by a column says how many of its items are mapped by hand and ignored: none of either is the
-      // dialog's Match on names or codes.
-      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 } },
-      { target: "Time", source: "column", column: 2, text: "Month", periodFormat: "MMM YY" },
-      { target: "+ Regions", source: "column", column: 3, items: { byHand: 0, ignored: 0 } },
-      { target: "Line Items", source: "headerRow", items: { byHand: 2, ignored: 1 } },
-      { target: "Units", source: "column", text: "Units" },
-      { target: "Price", source: "column", text: "Price", dateFormat: "DD/MM/YYYY" }],
+      // dialog's Match on names or codes. A dimension that targetAreaSpecifications names says which items it clears.
+      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 }, kind: "list", area: "ALL_ITEMS" },
+      { target: "Time", source: "column", column: 2, text: "Month", periodFormat: "MMM YY", kind: "time" },
+      { target: "+ Regions", source: "column", column: 3, items: { byHand: 0, ignored: 0 }, kind: "list" },
+      { target: "Line Items", source: "headerRow", items: { byHand: 2, ignored: 1 }, kind: "lineItems", area: "MATCHED_ITEMS" },
+      { target: "Units", source: "column", text: "Units", kind: "lineItem" },
+      { target: "Price", source: "column", text: "Price", dateFormat: "DD/MM/YYYY", kind: "lineItem" }],
     // The headers mapped by hand, each with its line item, and the one ignored; a value that is no item's ID is no mapping.
     headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Price (EUR)", lineItem: "Price" }, { header: "Notes" },
       { header: "Units", lineItem: "Units" }, { header: "Price", lineItem: "Price" }] });
@@ -225,12 +228,14 @@ describe("An import's mapping, read out of its definition", () => {
     const read = (more: Record<string, unknown>, importType = "MODULE_DATA") => readDefinition(definition(importType, PRICES, [time,
       { targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnId: "#2" }], more), NAMES).mapping.targets;
     expect(read({ periodFormats: [{ targetType: "moduleDimension", target: "_9000000001_", periodFormat: null }], valueMaps: [] })).toEqual([
-      { target: "Time", source: "column", column: 1, periodFormat: null }, { target: "Products", source: "column", column: 2, items: { byHand: 0, ignored: 0 } }]);
-    // Parts of another make say nothing: a value map that is no list, a period format with no format, entries that are no objects.
-    expect(read({ periodFormats: [{ target: "_9000000001_", periodFormat: { locale: "en_GB" } }], valueMaps: { [id(PRODUCTS)]: { A: 1 } } })).toEqual([
-      { target: "Time", source: "column", column: 1 }, { target: "Products", source: "column", column: 2 }]);
-    expect(read({ periodFormats: "MMM", valueMaps: [null, { target: id(PRODUCTS), values: [1] }] })).toEqual([
-      { target: "Time", source: "column", column: 1 }, { target: "Products", source: "column", column: 2, items: { byHand: 0, ignored: 0 } }]);
+      { target: "Time", source: "column", column: 1, periodFormat: null, kind: "time" }, { target: "Products", source: "column", column: 2, items: { byHand: 0, ignored: 0 }, kind: "list" }]);
+    // Parts of another make say nothing: a value map that is no list, a period format with no format, entries that are no
+    // objects, an area that is no word.
+    expect(read({ periodFormats: [{ target: "_9000000001_", periodFormat: { locale: "en_GB" } }], valueMaps: { [id(PRODUCTS)]: { A: 1 } },
+      targetAreaSpecifications: [{ target: "_9000000001_", area: "matched items" }, { target: id(PRODUCTS), area: 3 }] })).toEqual([
+      { target: "Time", source: "column", column: 1, kind: "time" }, { target: "Products", source: "column", column: 2, kind: "list" }]);
+    expect(read({ periodFormats: "MMM", valueMaps: [null, { target: id(PRODUCTS), values: [1] }], targetAreaSpecifications: { [id(PRODUCTS)]: "ALL_ITEMS" } })).toEqual([
+      { target: "Time", source: "column", column: 1, kind: "time" }, { target: "Products", source: "column", column: 2, items: { byHand: 0, ignored: 0 }, kind: "list" }]);
     // An import into a list reads none of them; a definition with none of the parts says nothing of them, and the log has
     // no line on them.
     expect(read({ periodFormats: [{ target: "_9000000001_", periodFormat: null }], valueMaps: [] }, "HIERARCHY_DATA")).toEqual([
@@ -245,8 +250,8 @@ describe("An import's mapping, read out of its definition", () => {
     }
     // A definition that names no kind is of another kind too.
     expect(readDefinition(JSON.stringify({ mappings: [] }), NAMES).mapping).toEqual({ importType: "", targets: [] });
-    // One into a module that maps nothing has no target, and no note: it is read.
-    expect(readDefinition(definition("MODULE_DATA", PRICES, []), NAMES).mapping).toEqual({ importType: "MODULE_DATA", targets: [] });
+    // One into a module that maps nothing has no target, and no note: it is read, with what it clears.
+    expect(readDefinition(definition("MODULE_DATA", PRICES, []), NAMES).mapping).toEqual({ importType: "MODULE_DATA", targets: [], clear: "clear" });
   });
 
   it("gives a note, not a failure, for a definition that is missing, no JSON, or JSON of another make", () => {
@@ -293,51 +298,298 @@ const PRICES_DEFINITION = definition("MODULE_DATA", PRICES, [{ targetType: "modu
 const DEFINITIONS = grid([[4000000017, "Notes"], [IMPORT_DEFINITION, "Import Definition"]], [
   [112000000001, "Division from HQ Network.csv", "", DIVISION_DEFINITION], [112000000002, "Regions from the hub", "", "{}"], [112000000003, "Prices", "Weekly", PRICES_DEFINITION]]);
 
-describe("The mappings of a model's imports from a file", () => {
-  it("are those of the Imports tab's imports whose Source Type is FILE, in the tab's order, each by its ID and name", () => {
-    expect(fileImports(TAB).map(row => row.labels[0])).toEqual(["Division from HQ Network.csv", "Prices", "Gone"]);
-    // A tab without the column names no import from a file.
-    expect(fileImports({ columns: TAB.columns.slice(0, 2), rows: TAB.rows })).toEqual([]);
+describe("The mappings of a model's imports", () => {
+  it("are those of every import of the Imports tab, whatever its Source Type, in the tab's order, each by its ID, name and Source Type", () => {
     const log: string[] = [];
     const mappings = importMappings(TAB, DEFINITIONS, NAMES, line => log.push(line));
     expect(mappings).toEqual([
-      { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1 }], matchedBy: { by: "name" } },
-      { id: "112000000003", name: "Prices", importType: "MODULE_DATA", targets: [{ target: "Value", source: "column", column: 3 }] },
-      // An import the grid holds no definition for says so: none of the imports from a file is left out.
-      { id: "112000000004", name: "Gone", importType: "", targets: [], note: MAPPING_NOTES.noDefinition }]);
-    // The import from another model is neither read nor said; each import from a file has its lines, how its definition
-    // is made, writes its first column and holds the parts that could say more, and the last line counts what was read
-    // and what the grid of definitions holds.
+      { id: "112000000001", name: "Division from HQ Network.csv", sourceType: "FILE", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1 }],
+        matchedBy: { by: "name" } },
+      // The import of a saved view is read as any other: this one's definition is of no make Cardigan knows.
+      { id: "112000000002", name: "Regions from the hub", sourceType: "SAVED VIEW", importType: "", targets: [], note: MAPPING_NOTES.unknown },
+      // The Source Type as the tab writes it, without the spaces around it.
+      { id: "112000000003", name: "Prices", sourceType: "file", importType: "MODULE_DATA", targets: [{ target: "Value", source: "column", column: 3, kind: "value" }], clear: "clear" },
+      // An import the grid holds no definition for says so: none of the imports is left out.
+      { id: "112000000004", name: "Gone", sourceType: "FILE", importType: "", targets: [], note: MAPPING_NOTES.noDefinition }]);
+    // Each import has its lines, how its definition is made, writes its first column and holds the parts that could say
+    // more, and the last line counts what was read and what the grid of definitions holds.
     const parts = "source absent; dataFormatDefinitions absent; dataFormatsByTarget absent";
     expect(log).toEqual(["Import mapping 112000000001: keys importType, target, mappings; 1 mappings: [targetType, target, sourceType, sourceColumnId] column ×1",
       'Import mapping 112000000001: first column: sourceColumnId text "#1", sourceColumnNumber absent, sourceColumnName absent', `Import mapping 112000000001: ${parts}`,
+      "Import mapping 112000000002: keys ; mappings is not a list", "Import mapping 112000000002: no mapping from a column", `Import mapping 112000000002: ${parts}`,
       "Import mapping 112000000003: keys importType, target, mappings; 1 mappings: [targetType, target, sourceType, sourceColumnId] column ×1",
       'Import mapping 112000000003: first column: sourceColumnId text "#3", sourceColumnNumber absent, sourceColumnName absent', `Import mapping 112000000003: ${parts}`,
-      "Import mapping 112000000004: not in the grid of definitions", "Import mappings: 2 of 3 read; 2 found in the grid of definitions"]);
+      "Import mapping 112000000004: not in the grid of definitions", "Import mappings: 2 of 4 read; 3 found in the grid of definitions"]);
     // What the tab holds, said before anything is read: its imports by Source Type, as Anaplan writes each, and how many
-    // mappings are to be read.
-    expect(importsLine(TAB)).toBe("Import mappings: 4 imports; Source Types: FILE ×2, SAVED VIEW ×1, file ×1; 3 mappings to read");
+    // mappings are to be read: all of them.
+    expect(importsLine(TAB)).toBe("Import mappings: 4 imports; Source Types: FILE ×2, SAVED VIEW ×1, file ×1; 4 mappings to read");
     expect(importsLine({ ...TAB, rows: TAB.rows.slice(1, 2).map(row => ({ ...row, cells: row.cells.map((cell, index) => (index === 2 ? " " : cell)) })) }))
-      .toBe("Import mappings: 1 imports; Source Types: blank ×1; 0 mappings to read");
+      .toBe("Import mappings: 1 imports; Source Types: blank ×1; 1 mapping to read");
   });
 
   it("say that they could not be read where the model gave no definitions, or none under the definitions' ID", () => {
     const log: string[] = [];
     const unread = importMappings(TAB, undefined, NAMES, line => log.push(line));
     expect(unread.map(mapping => [mapping.name, mapping.note, mapping.targets])).toEqual([["Division from HQ Network.csv", MAPPING_NOTES.notRead, []],
-      ["Prices", MAPPING_NOTES.notRead, []], ["Gone", MAPPING_NOTES.notRead, []]]);
-    expect(log).toEqual(["Import mappings: 0 of 3 read; the model gave no grid of definitions"]);
+      ["Regions from the hub", MAPPING_NOTES.notRead, []], ["Prices", MAPPING_NOTES.notRead, []], ["Gone", MAPPING_NOTES.notRead, []]]);
+    expect(log).toEqual(["Import mappings: 0 of 4 read; the model gave no grid of definitions"]);
     // A client that numbers the column of definitions otherwise: the definitions are looked for under the ID the client
     // says, then under the column's label, and are not taken from another column.
     const elsewhere = importMappings(TAB, DEFINITIONS, NAMES, line => log.push(line), 4000009999);
-    expect([elsewhere.map(mapping => mapping.note), log.at(-1)]).toEqual([[undefined, undefined, MAPPING_NOTES.noDefinition], "Import mappings: 2 of 3 read; 2 found in the grid of definitions"]);
+    expect([elsewhere.map(mapping => mapping.note), log.at(-1)]).toEqual([[undefined, MAPPING_NOTES.unknown, undefined, MAPPING_NOTES.noDefinition],
+      "Import mappings: 2 of 4 read; 3 found in the grid of definitions"]);
     log.length = 0;
     const unlabelled: Grid = { ...DEFINITIONS, columns: DEFINITIONS.columns.map(column => ({ ...column, labels: [column.labels[0] === "Import Definition" ? "Definition" : column.labels[0]] })) };
     const nowhere = importMappings(TAB, unlabelled, NAMES, line => log.push(line), 4000009999);
     expect([new Set(nowhere.map(mapping => mapping.note)), log]).toEqual([new Set([MAPPING_NOTES.notRead]),
-      ["Import mappings: no column of definitions among the 2 given", "Import mappings: 0 of 3 read; the grid has no column of definitions"]]);
-    // A tab without its Source Type column names no import from a file, and the line on it says so.
-    expect(importsLine({ columns: TAB.columns.slice(0, 2), rows: TAB.rows })).toBe("Import mappings: 4 imports; the Imports tab has no Source Type column");
+      ["Import mappings: no column of definitions among the 2 given", "Import mappings: 0 of 4 read; the grid has no column of definitions"]]);
+    // A tab without its Source Type column says so, and every import is read all the same, with no Source Type.
+    const typeless: Grid = { columns: TAB.columns.filter(column => column.labels[0] !== "Source Type"), rows: TAB.rows.map(row => ({ ...row, cells: row.cells.filter((_, at) => at !== 2) })) };
+    expect(importsLine(typeless)).toBe("Import mappings: 4 imports; the Imports tab has no Source Type column; 4 mappings to read");
+    expect(importMappings(typeless, DEFINITIONS, NAMES, () => undefined).map(mapping => [mapping.name, mapping.sourceType])).toEqual([["Division from HQ Network.csv", ""],
+      ["Regions from the hub", ""], ["Prices", ""], ["Gone", ""]]);
+  });
+});
+
+// The sources of imports, and an import shaped as a live one the owner compared with Anaplan's dialog: Time from a column
+// kept by its heading with a period format, a list prompted each run, the line items from the header row with three
+// headers mapped by hand, and the import clearing its target first. Every name and ID is made up.
+const [BANDS, JOIN_BAND, STAFF_COSTS] = [102000000005, 101000000005, 102000000008];
+const [BONUS, BAND_START, BAND_END] = [1901000000051, 1901000000052, 1901000000053];
+const [STAFF_BONUS, START_MONTH, GONE_COLUMN] = [1901000000081, 1901000000082, 1901000000099];
+const BAND_NAMES: ImportNames = {
+  list: entity => new Map([[JOIN_BAND, "Join Band"]]).get(entity),
+  lineItem: (entity, module) => (module === BANDS ? new Map([[BONUS, "Bonus Rate"], [BAND_START, "Band start"], [BAND_END, "Band end"]])
+    : module === STAFF_COSTS ? new Map([[STAFF_BONUS, "Staff bonus"], [START_MONTH, "Start month"]]) : new Map<number, string>()).get(entity),
+  property: () => undefined,
+};
+/** A data source's identifier, as an import's definition names it. */
+const sourceId = (source: number): string => `_${source}_`;
+/** The live import's shape, into the bands module, read from the data source `source`. */
+const JOINERS = (source: number, more: Record<string, unknown> = {}) => definition("MODULE_DATA", BANDS, [
+  { targetType: "moduleDimension", target: "_9000000001_", sourceType: "column", sourceColumnId: "Time", sourceColumnNumber: -1, sourceColumnName: null },
+  { targetType: "moduleDimension", target: id(JOIN_BAND), sourceType: "prompt" },
+  { targetType: "moduleDimension", target: "", sourceType: "headerRow" },
+  { targetType: "moduleLineItem", target: "", sourceType: "undefined" }], {
+  source: sourceId(source),
+  valueMaps: [{ targetType: "moduleDimension", target: "", values: { "Bonus Rate": BONUS, "Band start": BAND_START, "Band end": BAND_END } },
+    { targetType: "moduleDimension", target: id(JOIN_BAND), values: {} }, { targetType: "moduleDimension", target: "_9000000001_", values: {} }],
+  targetAreaSpecifications: [{ target: "", area: "MAPPED_ITEMS_IN_SOURCE" }, { target: id(JOIN_BAND), area: "MATCHED_ITEMS" }, { target: "_9000000001_", area: "MATCHED_ITEMS" }],
+  periodFormats: [{ targetType: "moduleDimension", target: "_9000000001_", periodFormat: { format: "M-Y", locale: "en_GB" } }], ...more });
+/** An import of the staff costs module into the bands module: its Time and its list by the entities they are, one kept
+ * with its name and one without; its line items from the header row, each from a line item of the source module, kept by
+ * its name and the entity as digits, by an entity's identifier, and by an entity that nothing names. */
+const FROM_STAFF_COSTS = (source: number) => definition("MODULE_DATA", BANDS, [
+  { targetType: "moduleDimension", target: "_9000000001_", sourceType: "column", sourceColumnEntityLongId: 9000000001, sourceColumnName: "Time" },
+  { targetType: "moduleDimension", target: id(JOIN_BAND), sourceType: "column", sourceColumnEntityLongId: JOIN_BAND },
+  { targetType: "moduleDimension", target: "", sourceType: "headerRow" },
+  { targetType: "moduleLineItem", target: id(BONUS), sourceType: "column", sourceColumnEntityLongId: String(STAFF_BONUS), sourceColumnName: "Bonus paid" },
+  { targetType: "moduleLineItem", target: id(BAND_START), sourceType: "column", sourceColumnId: id(START_MONTH) },
+  { targetType: "moduleLineItem", target: id(BAND_END), sourceType: "column", sourceColumnEntityLongId: GONE_COLUMN }],
+{ source: sourceId(source), globalTargetAreaSpecification: "MAPPED_ITEMS_IN_SOURCE", targetAreaSpecifications: [{ target: id(JOIN_BAND), area: "ALL_ITEMS" }] });
+/** Data sources as their definitions write them (anaplan-sam's definition-core.ts): uploaded data with its settings, the
+ * rows as text; a model's object of this model, and of another, with every ID and name a definition holds. */
+const UPLOADED = (settings: Record<string, unknown> = {}) => JSON.stringify({ dataSourceType: "UPLOADED_FILE", textEncoding: "ISO-8859-1", columnSeparators: ",",
+  textDelimiter: "\"", decimalSeparator: ".", headerRow: "1", firstDataRow: "2", ...settings });
+const THIS_MODEL = "4B7E0C1D9A2F4E3B8C6D5A4F3E2D1C0B";
+const OTHER_MODEL = "7C1D2E3F4A5B4C6D8E9F0A1B2C3D4E5F";
+const OWN_OBJECT = JSON.stringify({ dataSourceType: "MODEL_OBJECT", modelId: "", modelName: "Invented plan", objectId: STAFF_COSTS, objectName: "PLN08 Staff Costs",
+  splitCompositeDimensions: "false" });
+const OTHER_OBJECT = JSON.stringify({ dataSourceType: "MODEL_OBJECT", modelId: OTHER_MODEL, workspaceId: "8a81b09c5f4d2e01015f6c3d2a1b9999", modelName: "Invented hub",
+  objectId: STAFF_COSTS, objectName: "HUB08 Hub Costs", splitCompositeDimensions: "true" });
+
+describe("The sources of a model's imports", () => {
+  /** The Imports tab: imports of uploaded data, two of one source; one with a source not set up, one written "null",
+   * one whose source cannot be read, one whose definition names no source, one whose source is not in the grid; and two
+   * imports of a model's module, of this model and of another. */
+  const IMPORTS = grid([[4000000003, "Source Type"], [4000000004, "Target Object"]], [
+    [112000000051, "Load joiners", "FILE", "PLN05 Join Bands"], [112000000052, "Load joiners again", "FILE", "PLN05 Join Bands"],
+    [112000000053, "Load unset", "FILE", "PLN05 Join Bands"], [112000000054, "Load null", "FILE", "PLN05 Join Bands"],
+    [112000000055, "Load broken", "FILE", "PLN05 Join Bands"], [112000000056, "Load sourceless", "FILE", "PLN05 Join Bands"],
+    [112000000057, "Load elsewhere", "FILE", "PLN05 Join Bands"],
+    [112000000058, "Bands from staff costs", "MODULE", "PLN05 Join Bands"], [112000000059, "Bands from the hub", "SAVED VIEW", "PLN05 Join Bands"]]);
+  const DEFINED = grid([[IMPORT_DEFINITION, "Import Definition"]], [
+    [112000000051, "Load joiners", JOINERS(113000000012)], [112000000052, "Load joiners again", JOINERS(113000000012)],
+    [112000000053, "Load unset", JOINERS(113000000013)], [112000000054, "Load null", JOINERS(113000000014)],
+    [112000000055, "Load broken", JOINERS(113000000015)], [112000000056, "Load sourceless", JOINERS(113000000012, { source: undefined })],
+    [112000000057, "Load elsewhere", JOINERS(113000000099)],
+    [112000000058, "Bands from staff costs", FROM_STAFF_COSTS(113000000016)], [112000000059, "Bands from the hub", FROM_STAFF_COSTS(113000000017)]]);
+  /** The grid of the sources against their properties: a column before the definitions', found by its ID. */
+  const SOURCES = grid([[4000001401, "Notes"], [SOURCE_DEFINITION, "Data Source Definition"]], [
+    [113000000012, "joiners.csv", "", UPLOADED()], [113000000013, "unset.csv", "", ""], [113000000014, "null.csv", "", "null"],
+    [113000000015, "broken.csv", "", '{"dataSourceType":"UPLOADED_FILE",'], [113000000016, "PLN08 Staff Costs", "", OWN_OBJECT],
+    [113000000017, "Invented hub / HUB08", "", OTHER_OBJECT]]);
+  const read = (log: string[] = []) => importMappings(IMPORTS, DEFINED, BAND_NAMES, line => log.push(line), IMPORT_DEFINITION,
+    { grid: SOURCES, column: SOURCE_DEFINITION, model: THIS_MODEL });
+
+  it("reads the live import's shape as its dialog keeps it: what it clears, each dimension's clear choice, Time's period format and the headers mapped by hand", () => {
+    const [joiners] = read();
+    expect(joiners).toEqual({ id: "112000000051", name: "Load joiners", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Time", source: "column", text: "Time", kind: "time", area: "MATCHED_ITEMS", periodFormat: "M-Y" },
+      // The list is prompted each run: the dialog shows no clear choice for it, and none is kept.
+      { target: "Join Band", source: "prompt", kind: "list" },
+      { target: "Line Items", source: "headerRow", kind: "lineItems", area: "MAPPED_ITEMS_IN_SOURCE", items: { byHand: 3, ignored: 0 } }],
+    headers: [{ header: "Bonus Rate", lineItem: "Bonus Rate" }, { header: "Band start", lineItem: "Band start" }, { header: "Band end", lineItem: "Band end" }],
+    fileOptions: { encoding: "ISO-8859-1", separators: ",", delimiter: "\"", decimal: ".", headerRow: 1, firstDataRow: 2 } });
+    // Any globalTargetAreaSpecification is the dialog's Only update imported cells.
+    expect(readDefinition(JOINERS(113000000012, { globalTargetAreaSpecification: "MAPPED_ITEMS_IN_SOURCE" }), BAND_NAMES).mapping.clear).toBe("update");
+    expect(readDefinition(JOINERS(113000000012, { globalTargetAreaSpecification: null }), BAND_NAMES).mapping.clear).toBe("clear");
+  });
+
+  it("keeps of uploaded data its File Options alone, for each import of one source, and says in one line of the log how the sources are made and why an import has none", () => {
+    const log: string[] = [];
+    const mappings = read(log);
+    // Two imports of one source each keep its settings; the others have none, and nothing else of their sources.
+    expect(mappings.map(mapping => [mapping.name, mapping.fileOptions?.encoding])).toEqual([["Load joiners", "ISO-8859-1"], ["Load joiners again", "ISO-8859-1"],
+      ["Load unset", undefined], ["Load null", undefined], ["Load broken", undefined], ["Load sourceless", undefined], ["Load elsewhere", undefined],
+      ["Bands from staff costs", undefined], ["Bands from the hub", undefined]]);
+    // The line says how many definitions there are, of each type, how many imports of each kind found their sources, and
+    // why the others did not: no setting, no name and no ID.
+    const line = "Import mapping sources: 6 definitions: UPLOADED_FILE ×1, not set up ×2, not readable ×1, MODEL_OBJECT ×2; settings for 2 of 7 imports of uploaded data "
+      + "(source not set up ×2, source not readable ×1, no source in the definition ×1, source not in the grid ×1); objects for 2 of 2 imports from a model, 1 in another model";
+    expect(log.filter(entry => entry.startsWith("Import mapping sources:"))).toEqual([line]);
+    expect(line).not.toMatch(/ISO|joiners|PLN08|Invented|HUB08|4B7E|7C1D|11300000|\bfiles?\b/i);
+    // Its last lines: the mappings' line, then the sources'.
+    expect(log.slice(-2)).toEqual(["Import mappings: 9 of 9 read; 9 found in the grid of definitions", line]);
+    // A grid without its column of definitions says so, and keeps nothing.
+    const without: string[] = [];
+    const none = importMappings(IMPORTS, DEFINED, BAND_NAMES, entry => without.push(entry), IMPORT_DEFINITION, { grid: SOURCES, column: 4000009999, model: THIS_MODEL });
+    expect([none.some(mapping => mapping.fileOptions), without.at(-1)]).toEqual([false, "Import mapping sources: no column of source definitions among the 2 given"]);
+    // Without the sources' grid, which the export says why it has not, nothing is said of them.
+    const unread: string[] = [];
+    importMappings(IMPORTS, DEFINED, BAND_NAMES, entry => unread.push(entry));
+    expect(unread.filter(entry => entry.startsWith("Import mapping sources"))).toEqual([]);
+  });
+
+  it("takes each setting the dialog reads where it is as the dialog writes it, and nothing else", () => {
+    const options = (settings: Record<string, unknown>) => importMappings(grid([[1, "Source Type"]], [[112000000051, "Load joiners", "FILE"]]),
+      grid([[IMPORT_DEFINITION, "Import Definition"]], [[112000000051, "Load joiners", JOINERS(113000000012)]]), BAND_NAMES, () => undefined, IMPORT_DEFINITION,
+      { grid: grid([[SOURCE_DEFINITION, "Definition"]], [[113000000012, "joiners.csv", JSON.stringify(settings)]]), column: SOURCE_DEFINITION, model: THIS_MODEL })[0].fileOptions;
+    // Every separator the dialog ticks, and another of the modeller's; each delimiter; a decimal comma; rows as numbers.
+    expect(options({ dataSourceType: "UPLOADED_FILE", textEncoding: " UTF-8 ", columnSeparators: "\t,;|", textDelimiter: "'", decimalSeparator: ",", headerRow: 0, firstDataRow: 1 }))
+      .toEqual({ encoding: "UTF-8", separators: "\t,;|", delimiter: "'", decimal: ",", headerRow: 0, firstDataRow: 1 });
+    expect(options({ dataSourceType: "UPLOADED_FILE", columnSeparators: "", textDelimiter: "" })).toEqual({ separators: "", delimiter: "" });
+    // A setting of another make is left out; a source of uploaded data without any has none; a name or an ID is never taken.
+    expect(options({ dataSourceType: "UPLOADED_FILE", textEncoding: 7, columnSeparators: ",".repeat(21), textDelimiter: "\"\"\"\"\"", decimalSeparator: "",
+      headerRow: "first", firstDataRow: -2, fileName: "joiners.csv", objectId: STAFF_COSTS })).toBeUndefined();
+    expect(options({ dataSourceType: "UPLOADED_FILE", headerRow: "3", fileName: "joiners.csv", modelId: THIS_MODEL })).toEqual({ headerRow: 3 });
+    // A model's object, or a source of another type, keeps no settings.
+    expect([options({ dataSourceType: "MODEL_OBJECT", objectId: STAFF_COSTS, textEncoding: "UTF-8" }), options({ dataSourceType: "SALESFORCE_API", textEncoding: "UTF-8" })])
+      .toEqual([undefined, undefined]);
+  });
+
+  it("names the columns of this model's object by this model's names, keeps the names the definition writes, and keeps nothing of the object", () => {
+    const log: string[] = [];
+    const mappings = read(log);
+    const own = mappings.find(mapping => mapping.name === "Bands from staff costs")!;
+    expect(own).toEqual({ id: "112000000058", name: "Bands from staff costs", sourceType: "MODULE", importType: "MODULE_DATA", clear: "update", targets: [
+      // The name the definition writes stays as it is written.
+      { target: "Time", source: "column", text: "Time", kind: "time" },
+      // An entity the definition names by its ID alone is named as this model names it.
+      { target: "Join Band", source: "column", text: "Join Band", kind: "list", area: "ALL_ITEMS" },
+      { target: "Line Items", source: "headerRow", kind: "lineItems" },
+      // A line item of the source module, by the name the definition writes for it (its ID written as digits), by its
+      // identifier, and by an ID nothing names, which stays an ID.
+      { target: "Bonus Rate", source: "column", text: "Bonus paid", kind: "lineItem" },
+      { target: "Band start", source: "column", text: "Start month", kind: "lineItem" },
+      { target: "Band end", source: "column", text: `ID ${GONE_COLUMN}`, kind: "lineItem" }],
+    headers: [{ header: "Bonus paid", lineItem: "Bonus Rate" }, { header: "Start month", lineItem: "Band start" }, { header: `ID ${GONE_COLUMN}`, lineItem: "Band end" }] });
+    // Nothing of the source is kept: no model, no workspace, no object, by name or by ID.
+    expect(JSON.stringify(mappings)).not.toMatch(new RegExp(`${THIS_MODEL}|${OTHER_MODEL}|8a81b09c|${STAFF_COSTS}|PLN08|HUB08|Invented`));
+    // The ID that stays is said in the log as any other, by what the client classes it as.
+    const names: ImportNames = { ...BAND_NAMES, describe: entity => `ID ${entity} is described` };
+    const described: string[] = [];
+    importMappings(IMPORTS, DEFINED, names, line => described.push(line), IMPORT_DEFINITION, { grid: SOURCES, column: SOURCE_DEFINITION, model: THIS_MODEL });
+    expect(described.filter(line => line.startsWith("Import mappings: Bands from"))).toEqual([`Import mappings: Bands from staff costs: ID ${GONE_COLUMN} is described`,
+      "Import mappings: Bands from the hub: 3 source columns keep their IDs: the source is another model's"]);
+  });
+
+  it("gives the live import's dimensions and line items exactly as the owner chose to see them", () => {
+    expect(mappingView(read()[0])).toEqual({ clear: "Clear target prior to import", rows: [],
+      from: { label: "File", text: 'Header row 1 · data from row 2 · Comma · " · Dot · ISO-8859-1' },
+      dimensions: [["Time", "Column: Time", "Periods, M-Y", "Matched items only"], ["Join Band", "Prompt each run", "", ""],
+        ["Line Items", "Header row", "Mapped by hand", "Mapped items in source"]],
+      lineItems: { count: 3, heading: "Header", rows: [["Bonus Rate", "Bonus Rate"], ["Band start", "Band start"], ["Band end", "Band end"]], notes: [] },
+      lines: ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+  });
+
+  it("are read by the export in one grid more, once, after the imports' definitions, by the column's own ID where the client names none, and nothing else is sent", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const requests: any[] = [];
+    const served: Record<string, Grid | undefined> = { importsTab: IMPORTS, importDefinitions: DEFINED, sourceDefinitions: SOURCES };
+    const constants: Record<string, unknown> = { SYSTEM_AXIS_IDENTIFIER_IMPORT_ALL_IDENTIFIER: "imports", SYSTEM_AXIS_IDENTIFIER_IMPORT_DEFINITION_PROPERTY_IDENTIFIER: "importsTab",
+      SYSTEM_AXIS_IDENTIFIER_IMPORT_PROPERTY_IDENTIFIER: "importDefinitions", SYSTEM_AXIS_IDENTIFIER_IMPORT_DATA_SOURCE_IDENTIFIER: "dataSources",
+      SYSTEM_AXIS_IDENTIFIER_IMPORT_DATA_SOURCE_PROPERTY_IDENTIFIER: "sourceDefinitions" };
+    const native = {
+      workspaceId: "a".repeat(32), modelId: THIS_MODEL, cache: { getModelName: () => "Invented plan" }, ids: {}, axisHelper: {}, constants,
+      helper: { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) },
+      RequestGenerator: class { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } },
+      DataPage: class {
+        page: { startRow: number; rows: string[][] };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        constructor({ page }: any) { this.page = page; }
+        contains(row: number, column: number) { return this.page.rows[row - this.page.startRow]?.[column] !== undefined; }
+        getIndex(row: number, column: number) { return (row - this.page.startRow) * this.page.rows[0].length + column; }
+        getOriginalText(index: number) { return this.page.rows.flat()[index]; }
+        getCellText(index: number) { return this.getOriginalText(index); }
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      aggregator: { isDirty: () => false, post(request: any, _flag: boolean, ok: (response: unknown) => void) {
+        requests.push(request);
+        const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
+        const read = served[viewDefinition.columnAxis];
+        if (!read) { ok({ error: "unavailable" }); return; }
+        const rows = read.rows.slice(startRow, startRow + rowCount);
+        ok({ result: { viewRequestResults: [{ rowCount: read.rows.length, columnCount: read.columns.length,
+          rowLabelPages: [{ count: rows.length, entityLongIds: [rows.map(row => row.ids[0])], labels: [rows.map(row => row.labels[0])] }],
+          columnLabelPages: [{ count: read.columns.length, entityLongIds: [read.columns.map(column => column.ids[0])], labels: [read.columns.map(column => column.labels[0])] }],
+          dataPages: [{ startRow, rows: rows.map(row => row.cells) }] }] } });
+      } },
+    };
+    const run = async () => {
+      vi.stubGlobal("window", { workspaceId: native.workspaceId, modelId: native.modelId, require: (_modules: string[], loaded: (...modules: unknown[]) => void) =>
+        loaded(native.cache, native.aggregator, native.helper, native.ids, native.constants, native.RequestGenerator, native.DataPage, native.axisHelper) });
+      vi.stubGlobal("location", { host: "example.test", pathname: "/model" });
+      const log: string[] = [];
+      requests.length = 0;
+      const result = await exportModel({ status: () => undefined, log: line => log.push(line) }, () => "");
+      vi.unstubAllGlobals();
+      return { result, log };
+    };
+    const { result, log } = await run();
+    // The tab, the imports' definitions and the sources' definitions, each a read of a view, and nothing else.
+    expect(requests.map(request => `${request.params.viewDefinition.type} ${request.params.viewDefinition.rowAxis} × ${request.params.viewDefinition.columnAxis}`))
+      .toEqual(["MODEL_DEFINITION imports × importsTab", "MODEL_DEFINITION imports × importDefinitions", "MODEL_DEFINITION dataSources × sourceDefinitions"]);
+    expect(requests.every(request => request.requestType === "VIEW_REQUEST_SET" && !request.submissions.length && !request.systemActions.length)).toBe(true);
+    expect(JSON.stringify(requests)).not.toMatch(/GET_IMPORT_SOURCE/);
+    // The client names no column of the sources' definitions: it is found by SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION's own ID.
+    expect(result.importMappings?.map(mapping => mapping.fileOptions?.encoding)).toEqual(["ISO-8859-1", "ISO-8859-1", undefined, undefined, undefined, undefined, undefined, undefined, undefined]);
+    expect(log.filter(line => line.startsWith("Import mapping sources"))).toEqual(["Import mapping sources: 6 rows × 2 columns; columns: Notes | Data Source Definition",
+      expect.stringMatching(/^Import mapping sources: rows 0–5 in \d+\.\d\d s$/), expect.stringMatching(/^Import mapping sources: 6 definitions: UPLOADED_FILE ×1, not set up ×2, not readable ×1, MODEL_OBJECT ×2; settings for 2 of 7/)]);
+    // A client that numbers it otherwise: none is taken for it.
+    constants.SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION = 4000009999;
+    const elsewhere = await run();
+    expect([elsewhere.result.importMappings?.some(mapping => mapping.fileOptions), elsewhere.log.at(-1)]).toEqual([false, "Import mapping sources: no column of source definitions among the 2 given"]);
+    // A read the model refuses leaves the mappings as they are, and the log says why.
+    delete constants.SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION;
+    served.sourceDefinitions = undefined;
+    const refused = await run();
+    expect(refused.result.importMappings?.map(mapping => mapping.targets)).toEqual(result.importMappings?.map(mapping => mapping.targets));
+    expect([refused.result.importMappings?.some(mapping => mapping.fileOptions), refused.log.filter(line => line.startsWith("Import mapping sources"))])
+      .toEqual([false, ["Import mapping sources: The model rejected the read."]]);
+  });
+
+  it("names no column of another model's object by this model's names: its entities are that model's", () => {
+    const hub = read().find(mapping => mapping.name === "Bands from the hub")!;
+    expect(hub.targets.map(target => [target.target, target.text])).toEqual([["Time", "Time"], ["Join Band", `ID ${JOIN_BAND}`], ["Line Items", undefined],
+      ["Bonus Rate", "Bonus paid"], ["Band start", `ID ${START_MONTH}`], ["Band end", `ID ${GONE_COLUMN}`]]);
+    // A model's import whose source is not known is named as one of another model: by the names it writes, and by IDs.
+    const unknown = importMappings(IMPORTS, DEFINED, BAND_NAMES, () => undefined).find(mapping => mapping.name === "Bands from staff costs")!;
+    expect(unknown.targets.map(target => target.text)).toEqual(["Time", `ID ${JOIN_BAND}`, undefined, "Bonus paid", `ID ${START_MONTH}`, `ID ${GONE_COLUMN}`]);
+    // A model's own ID is this model's however it is written.
+    const upper = importMappings(IMPORTS, DEFINED, BAND_NAMES, () => undefined, IMPORT_DEFINITION, { grid: { ...SOURCES, rows: SOURCES.rows.map(row => (row.ids[0] === 113000000017
+      ? { ...row, cells: ["", OTHER_OBJECT.replace(OTHER_MODEL, THIS_MODEL.toLowerCase())] } : row)) }, column: SOURCE_DEFINITION, model: THIS_MODEL });
+    expect(upper.find(mapping => mapping.name === "Bands from the hub")!.targets[1].text).toBe("Join Band");
   });
 });
 
@@ -555,11 +807,13 @@ describe("Missing import property names through Model Building", () => {
     expect(requests).toEqual([]);
   });
 
-  it("ignores definitions of imports that do not read files", async () => {
+  it("reads the definitions of imports of a model's object as well, with the same one read of a list's properties", async () => {
     const { native, requests } = client();
     const modelTab = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: ["SAVED VIEW", "Division"] })) };
-    expect(await readImportMappings(native, modelTab, definitions, importNames(native, { lists }), () => undefined)).toEqual([]);
-    expect(requests).toEqual([]);
+    const result = await readImportMappings(native, modelTab, definitions, importNames(native, { lists }), () => undefined);
+    expect(result.map(mapping => [mapping.sourceType, mapping.targets.map(target => target.target)])).toEqual([["SAVED VIEW", ["Manager", "Active & available"]],
+      ["SAVED VIEW", ["Manager", "Active & available"]]]);
+    expect(requests.map(request => request.params.viewDefinition.staticContextIdentifiers)).toEqual([[id(DIVISION)]]);
   });
 
   it("uses the existing Line Items grid when the module cache has no names, leaving constants alone", async () => {
@@ -572,7 +826,8 @@ describe("Missing import property names through Model Building", () => {
     ])]]);
     const result = await readImportMappings(native, tab, moduleDefinitions, importNames(native, { lineItems }), () => undefined);
     expect(result[0].targets).toEqual([
-      { target: "Units", source: "column", column: 1 }, { target: `ID ${PRICE}`, source: "none" }, { target: "Time", source: "constant", text: "ID 5000000099" },
+      { target: "Units", source: "column", column: 1, kind: "lineItem" }, { target: `ID ${PRICE}`, source: "none", kind: "lineItem" },
+      { target: "Time", source: "constant", text: "ID 5000000099", kind: "time" },
     ]);
     expect(requests).toEqual([]);
   });
@@ -750,7 +1005,8 @@ describe("Mapping names from this model's entity information and calendar", () =
     vi.stubGlobal("location", { host: "example.test", pathname: "/model" });
     const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
     expect(result.importMappings?.[0].targets.slice(0, 3)).toEqual([
-      { target: "Markets", source: "column", text: "Market" }, { target: "Time", source: "constant", text: "Jan 24" }, { target: "Line Items", source: "headerRow" },
+      { target: "Markets", source: "column", text: "Market", kind: "list" }, { target: "Time", source: "constant", text: "Jan 24", kind: "time" },
+      { target: "Line Items", source: "headerRow", kind: "lineItems" },
     ]);
     expect(result.importMappings?.[0].headers).toEqual([{ header: "Planned units", lineItem: "Units" }]);
     expect(requests.map(request => request.params.viewDefinition.columnAxis)).toEqual(["tab", "definitions", "empty"]);
@@ -767,7 +1023,7 @@ describe("Mapping names from this model's entity information and calendar", () =
     vi.stubGlobal("location", { host: "example.test", pathname: "/model" });
     const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
     // The client's label of the period comes before the calendar's choice of it ("Jan 24"), and is read from memory once.
-    expect(result.importMappings?.[0].targets[1]).toEqual({ target: "Time", source: "constant", text: "Week 2 FY24" });
+    expect(result.importMappings?.[0].targets[1]).toEqual({ target: "Time", source: "constant", text: "Week 2 FY24", kind: "time" });
     expect(native.cache.getTimescaleSupersetInfo).toHaveBeenCalledTimes(1);
     expect(requests.map(request => request.params.viewDefinition.columnAxis)).toEqual(["tab", "definitions", "empty"]);
     expect(requests.every(request => !request.submissions.length && !request.systemActions.length)).toBe(true);
@@ -882,7 +1138,7 @@ describe("Periods named by the client's own labels, and line items the model doe
     const native = client();
     const log: string[] = [];
     const result = importMappings(tab, definitions([[timeConstant(unknown)]], [[timeConstant(unknown)]]), importNames(native, {}, CALENDAR), line => log.push(line));
-    expect(result.map(mapping => mapping.targets)).toEqual([1, 2].map(() => [{ target: "Time", source: "constant", text: `ID ${unknown}` }]));
+    expect(result.map(mapping => mapping.targets)).toEqual([1, 2].map(() => [{ target: "Time", source: "constant", text: `ID ${unknown}`, kind: "time" }]));
     expect(log.filter(line => /^Import mappings: (Load plan|Time constant)/.test(line))).toEqual([
       "Import mappings: Load plan: ID 9600097 is entity type 923 (class TIME) with no name in the client",
       "Import mappings: Time constant ID 9600097 is not among the client's periods (getTimescaleSupersetInfo: 2 label pages, 3 periods; getTimescaleInfo: 2 label pages, 3 periods) "
@@ -909,7 +1165,7 @@ describe("Periods named by the client's own labels, and line items the model doe
     expect([names.period?.(jan), names.period?.(apr)]).toEqual([undefined, "Apr 26"]);
     const log: string[] = [];
     const result = importMappings(tab, definitions([[timeConstant(jan)]]), names, line => log.push(line));
-    expect(result[0].targets).toEqual([{ target: "Time", source: "constant", text: `ID ${jan}` }]);
+    expect(result[0].targets).toEqual([{ target: "Time", source: "constant", text: `ID ${jan}`, kind: "time" }]);
     const said = failure === "missing" ? "missing" : "threw";
     expect(log.filter(line => line.includes("Time constant"))).toEqual([`Import mappings: Time constant ID 8600086 is not among the client's periods (getTimescaleSupersetInfo: ${said}; `
       + `getTimescaleInfo: ${said}) or the Model Calendar's 1 period choice; unnamed Time constants keep their IDs.`]);
@@ -945,26 +1201,28 @@ describe("Periods named by the client's own labels, and line items the model doe
     const valueMaps = [{ targetType: "moduleDimension", target: "", values: { "Unit count": units, Shelf: shelf, "Display share": gone, Comment: -1 } }];
     const log: string[] = [];
     const [mapping] = importMappings(tab, definitions([mappings, { valueMaps }]), importNames(native, { lists, lineItems }, CALENDAR), line => log.push(line));
-    expect(mapping).toEqual({ id: "45", name: "Load plan", importType: "MODULE_DATA", targets: [
-      { target: "Products", source: "column", column: 1, text: "Product", items: { byHand: 0, ignored: 0 } },
-      { target: "Time", source: "constant", text: "Mar 26" },
-      { target: "Line Items", source: "headerRow", items: { byHand: 3, ignored: 1 } },
+    expect(mapping).toEqual({ id: "45", name: "Load plan", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product", items: { byHand: 0, ignored: 0 }, kind: "list" },
+      { target: "Time", source: "constant", text: "Mar 26", kind: "time" },
+      { target: "Line Items", source: "headerRow", items: { byHand: 3, ignored: 1 }, kind: "lineItems" },
       // Named line items stay named; one the client classes as a line item, that nothing names, is missing; an ID of another
       // class that nothing names stays an ID.
-      { target: "Units", source: "column", column: 2 },
-      { target: "Missing line item (ID 3130054)", source: "column", column: 3 },
-      { target: "ID 5550061", source: "column", column: 4 }],
+      { target: "Units", source: "column", column: 2, kind: "lineItem" },
+      { target: "Missing line item (ID 3130054)", source: "column", column: 3, kind: "lineItem" },
+      { target: "ID 5550061", source: "column", column: 4, kind: "lineItem" }],
     headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Shelf", lineItem: "Shelf units" }, { header: "Display share", lineItem: "Missing line item (ID 6180093)" },
       { header: "Comment" }] });
     // The log says what the client classes each unnamed ID as, the missing line items among them.
     expect(log.filter(line => line.startsWith("Import mappings: Load plan:"))).toEqual([
       "Import mappings: Load plan: ID 3130054 is entity type 817 (class LINE_ITEM) with no name in the client; ID 5550061 is entity type 455 (class SYSTEM) with no name in the client; "
         + "ID 6180093 is entity type 817 (class LINE_ITEM) with no name in the client"]);
-    // The Mapping shows both, and its last line says what a missing line item is.
-    expect(mappingView(mapping)).toEqual({ rows: [["Product", "Products"], ["Column 2", "Units"], ["Column 3", "Missing line item (ID 3130054)"], ["Column 4", "ID 5550061"],
-      ["Constant: Mar 26", "Time"],
-      [HEADER_ROW_BY_HAND, "Line Items", undefined, undefined, ["Unit count to Units", "Shelf to Shelf units", "Display share to Missing line item (ID 6180093)", "Comment: Ignored"]]],
-    lines: ["Items of Products are matched on their names or codes when the import runs.", "Columns 1 to 4 are all used.", MISSING_LINE_ITEM_NOTE] });
+    // The Mapping shows both, among the line items: each line item's own column, then each header mapped by hand. Its last
+    // line says what a missing line item is.
+    expect(mappingView(mapping)).toEqual({ clear: "Clear target prior to import", rows: [],
+      dimensions: [["Products", "Column 1: Product", "Matched on names or codes", ""], ["Time", "Fixed: Mar 26", "", ""], ["Line Items", "Header row", "Mapped by hand", ""]],
+      lineItems: { count: 7, heading: "Source", notes: [], rows: [["Column 2", "Units"], ["Column 3", "Missing line item (ID 3130054)"], ["Column 4", "ID 5550061"],
+        ["Unit count", "Units"], ["Shelf", "Shelf units"], ["Display share", "Missing line item (ID 6180093)"], ["Comment", "Ignored"]] },
+      lines: ["Items set to match on names or codes are paired when the import runs, so Anaplan saves no pairs for them.", "Columns 1 to 4 are all used.", MISSING_LINE_ITEM_NOTE] });
   });
 
   it("says the line items fed by a constant as missing too, and keeps an unnamed ID of another class as an ID, with no line on missing line items", () => {
@@ -972,17 +1230,17 @@ describe("Periods named by the client's own labels, and line items the model doe
     const names = importNames(client(), { lineItems });
     // The line items fed by a constant: one line item, which the model doesn't have.
     const constant = readDefinition(definition("MODULE_DATA", plan, [{ targetType: "moduleDimension", target: "", sourceType: "constant", sourceValue: id(gone) }]), names);
-    expect(constant.mapping.targets).toEqual([{ target: "Line Items", source: "constant", text: "Missing line item (ID 6180093)" }]);
+    expect(constant.mapping.targets).toEqual([{ target: "Line Items", source: "constant", text: "Missing line item (ID 6180093)", kind: "lineItems" }]);
     expect(mappingView({ id: "45", name: "Load plan", ...constant.mapping }).lines).toEqual(["No column is mapped.", MISSING_LINE_ITEM_NOTE]);
     const other = readDefinition(definition("MODULE_DATA", plan, [{ targetType: "moduleLineItem", target: id(odd), sourceType: "column", sourceColumnId: "#1" }]), names);
-    expect(other.mapping.targets).toEqual([{ target: "ID 5550061", source: "column", column: 1 }]);
+    expect(other.mapping.targets).toEqual([{ target: "ID 5550061", source: "column", column: 1, kind: "lineItem" }]);
     expect(mappingView({ id: "45", name: "Load plan", ...other.mapping }).lines).toEqual(["Column 1 is used."]);
   });
 
   it("keeps a line item's ID where no Line Items grid was read: nothing then proves the model lacks it", () => {
     const names = importNames(client(), {});
     const read = readDefinition(definition("MODULE_DATA", plan, [{ targetType: "moduleLineItem", target: id(gone), sourceType: "column", sourceColumnId: "#1" }]), names);
-    expect(read.mapping.targets).toEqual([{ target: "ID 6180093", source: "column", column: 1 }]);
+    expect(read.mapping.targets).toEqual([{ target: "ID 6180093", source: "column", column: 1, kind: "lineItem" }]);
     expect(mappingView({ id: "45", name: "Load plan", ...read.mapping }).lines).toEqual(["Column 1 is used."]);
   });
 });
