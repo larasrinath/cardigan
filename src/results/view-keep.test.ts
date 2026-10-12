@@ -232,6 +232,18 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect([isMapAtStart({ view: "modules", noFormulas: true }), isMapAtStart({ view: "modules" })]).toEqual([false, true]);
   });
 
+  it("keeps a line item's source inputs shown on the map, with the box selected before, and knows the map is then not where it opens by itself", () => {
+    const tab = storage();
+    const map = { view: "drill" as const, module: "REV01 Revenue", selected: '["sourceItem","lineItem","List Price","PRC01 Prices",""]', sources: '["REV01 Revenue","Net Revenue"]',
+      originSelected: '["lineItem","lineItem","Net Revenue","REV01 Revenue",""]' };
+    tab.held.set(VIEW_KEY, keptText({ subject: "model:ABC", tables: {}, map })!);
+    expect(readKept(tab)?.map).toEqual(map);
+    // Anything but a text is left out, and the rest of the view is taken.
+    tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "modules", sources: ["REV01 Revenue", "Net Revenue"], originSelected: 7 } }));
+    expect(readKept(tab)?.map).toEqual({ view: "modules" });
+    expect([isMapAtStart({ view: "modules", sources: map.sources }), isMapAtStart({ view: "modules" })]).toEqual([false, true]);
+  });
+
   it.each([true, false])("keeps both map panel choices when they are %s, including explicit legend choices on small maps", open => {
     const tab = storage();
     const map = { view: "modules" as const, minimap: open, legend: open };

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ALL_WORDS } from "./spinner-words.js";
+import { SOURCES_ICON } from "../map/map-markup.js";
 import { DETAILS_HEADERS } from "../details.js";
 import { RESULTS_PAGE } from "../protocol.js";
 import { HEADERS } from "../report.js";
@@ -92,19 +93,26 @@ function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> 
 
 describe("The buttons at the top right of a row's details", () => {
   it("are filled buttons, each with the icon of where it leads and its words, named by their place, with what each opens as their title", () => {
-    const html = opensHtml([{ kind: "map", label: "Model map", title: "Show Revenue on the Model map" }, { kind: "module", label: "Model", title: `Open ${IMG} in Model Building` },
+    const html = opensHtml([{ kind: "map", label: "Model map", title: "Show Revenue on the Model map" },
+      { kind: "sources", label: "Find source inputs", title: "Find the source inputs of Revenue on the Model map" }, { kind: "module", label: "Model", title: `Open ${IMG} in Model Building` },
       { kind: "app", label: "App", title: "Open the app Plan in Anaplan" }, { kind: "page", label: "Page", title: "Open the page Board in Anaplan" }]);
     const buttons = parseMarkup(html).querySelectorAll("button");
     expect(buttons.map(button => [button.getAttribute("class"), button.dataset.act, button.dataset.open, button.textContent, button.title])).toEqual([
-      ["btn primary sm", "open", "0", "Model map", "Show Revenue on the Model map"], ["btn primary sm", "open", "1", "Model", `Open ${IMG} in Model Building`],
-      ["btn primary sm", "open", "2", "App", "Open the app Plan in Anaplan"], ["btn primary sm", "open", "3", "Page", "Open the page Board in Anaplan"]]);
+      ["btn primary sm", "open", "0", "Model map", "Show Revenue on the Model map"], ["btn primary sm", "open", "1", "Find source inputs", "Find the source inputs of Revenue on the Model map"],
+      ["btn primary sm", "open", "2", "Model", `Open ${IMG} in Model Building`], ["btn primary sm", "open", "3", "App", "Open the app Plan in Anaplan"],
+      ["btn primary sm", "open", "4", "Page", "Open the page Board in Anaplan"]]);
     // A name in a title is text: no tag and no handler come of it. What a button opens is not in the markup.
     expect([tagNames(html).includes("img"), attributeNames(html).filter(name => /^on/i.test(name)), html.includes("http")]).toEqual([false, [], false]);
-    // Each kind has its own icon: the map's and a page's as the navigation draws them, the model's and an app's of their own.
+    // Each kind has its own icon: the map's and a page's as the navigation draws them, Find source inputs' as the map's own
+    // details draw it, and the model's and an app's of their own. Each is drawn as the menu bar's icons are.
     expect(buttons.map(button => button.querySelector("svg")?.outerHTML)).toEqual(Object.values(OPEN_ICONS).map(icon => parseMarkup(icon).innerHTML));
-    expect([OPEN_ICONS.map, OPEN_ICONS.page]).toEqual([NAV_ICONS.map, FILE_ICONS.get(APP_FILES.Pages)]);
+    expect([OPEN_ICONS.map, OPEN_ICONS.page, OPEN_ICONS.sources]).toEqual([NAV_ICONS.map, FILE_ICONS.get(APP_FILES.Pages), SOURCES_ICON]);
     expect(new Set([...Object.values(OPEN_ICONS), ...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size)
-      .toBe(new Set([...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size + 2);
+      .toBe(new Set([...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size + 3);
+    for (const icon of Object.values(OPEN_ICONS)) {
+      const svg = /^<svg[^>]*>/.exec(icon)?.[0] ?? "";
+      expect([...svg.matchAll(/ (width|height|stroke-width)="([\d.]+)"/g)].map(match => match.slice(1)), icon).toEqual([["width", "14"], ["height", "14"], ["stroke-width", "1.5"]]);
+    }
     expect(opensHtml([])).toBe("");
   });
 });

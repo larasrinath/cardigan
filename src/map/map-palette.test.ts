@@ -192,6 +192,25 @@ describe("The map's colours in the stylesheet", () => {
     }
   });
 
+  it("tints an input among a line item's source inputs in the page's accent colours, its name and small line readable on the tint, in both themes", () => {
+    for (const theme of themes) {
+      const palette = paletteOf(theme);
+      const token = themeTokens(theme);
+      // The one selection highlight of the page: the accent's soft fill and its ink.
+      expect([palette.input, palette.inputFill, palette.inputText], theme).toEqual([token("--accent"), token("--accent-soft"), token("--accent-ink")]);
+      expect(on(palette.inputText, palette.inputFill), `${theme}: an input's name`).toBeGreaterThanOrEqual(4.5);
+      expect(on(palette.nodeTextMuted, palette.inputFill), `${theme}: an input's small line`).toBeGreaterThanOrEqual(4.5);
+      // Its edge and its rail are seen on the canvas and on its tint, and the tint is no plain node's fill.
+      expect(on(palette.input, palette.canvas), `${theme}: an input's edge`).toBeGreaterThanOrEqual(3);
+      expect(on(palette.input, palette.inputFill), `${theme}: an input's rail`).toBeGreaterThanOrEqual(3);
+      expect(palette.inputFill).not.toBe(palette.nodeFill);
+      expect(parseColor(palette.inputFill)?.a).toBe(1);
+      // The three kinds of box take their colours: an input the accent's, a calculation a heading's, the result the selection's.
+      expect(["input", "calculation", "result"].map(layer => layerColour(palette, layer))).toEqual([palette.input, palette.heading, palette.select]);
+    }
+    expect(["input", "calculation", "result"].map(layerClass)).toEqual(["map-c-input", "map-c-calculation", "map-c-result"]);
+  });
+
   it("draws a link in a colour that stands out from the canvas (3 to 1), in both themes, and lets nothing through it", () => {
     for (const theme of themes) {
       const palette = paletteOf(theme);

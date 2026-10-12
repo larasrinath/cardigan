@@ -1,3 +1,4 @@
+import { SOURCES_PATH } from "../map/map-marks.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { CalendarTile } from "./calendar-tile.js";
@@ -1102,17 +1103,18 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
 /** Which zone the page shows times in, and the viewer's own: a row's details say each time in both (times.ts). */
 export interface DrawerTimes { mode: TimeMode; zone: string }
 
-/** Where a button under the name in a row's details leads: the model map, a module or a list of the model in Model
- * Building, an app, or a page of an app. */
-export type OpenKind = "map" | "module" | "app" | "page";
+/** Where a button under the name in a row's details leads: the model map, a line item's source inputs on the model map,
+ * a module or a list of the model in Model Building, an app, or a page of an app. */
+export type OpenKind = "map" | "sources" | "module" | "app" | "page";
 /** One such button: where it leads, its few words, and what it opens, by name, which its title says. */
 export interface OpenButton { kind: OpenKind; label: string; title: string }
 
-/** The icon of each kind of button, a drawing of where it leads: the map's folded map, as the navigation's; the model, as a
- * box, for a module or a list opened in it; an app as a window with its bar; and a page with its text, as the Pages
- * table's. */
+/** The icon of each kind of button, a drawing of where it leads: the map's folded map, as the navigation's; three lines that
+ * come together in one value, as the map's own Find source inputs has it (map/map-marks.ts); the model, as a box, for a
+ * module or a list opened in it; an app as a window with its bar; and a page with its text, as the Pages table's. */
 export const OPEN_ICONS: Readonly<Record<OpenKind, string>> = {
   map: NAV_ICONS.map,
+  sources: navIcon(SOURCES_PATH),
   module: navIcon('<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'),
   app: navIcon('<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="2"/><path d="M1.8 6h12.4"/><path d="M4.2 4.3h.01M6.2 4.3h.01" stroke-width="1.8"/>'),
   page: FILE_ICONS.get(APP_FILES.Pages) ?? NAV_ICONS.table,

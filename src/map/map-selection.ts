@@ -16,3 +16,21 @@ export function keptSelection(model: MapModel, graph: ViewGraph, key: string | u
     || (node.kind === "externalModule" && selectionKey(model, { ...node, kind: "module" }) === key));
   return matches.length === 1 ? matches[0] : undefined;
 }
+
+/** The line item whose source inputs the map shows, as the page keeps it (graph-types.ts `MapView.sources`): by its
+ * module's name and its own, which a fresh reading keeps. Nothing for a node that is no line item of a module. */
+export function sourcesKey(model: MapModel, lineItem: number): string | undefined {
+  const node = model.node(lineItem);
+  const module = model.node(model.moduleOf(node));
+  return node?.kind === "lineItem" && module ? JSON.stringify([module.name, node.name]) : undefined;
+}
+
+/** That line item again, by its key: nothing where the model has no line item of those names, or more than one, and for a
+ * key that is not one. */
+export function keptSources(model: MapModel, key: string | undefined): number | undefined {
+  let names: unknown;
+  try { names = key === undefined ? undefined : JSON.parse(key); } catch { return undefined; }
+  if (!Array.isArray(names) || names.length !== 2 || !names.every(name => typeof name === "string")) return undefined;
+  const found = model.lineItems.filter(item => item.name === names[1] && model.node(item.module)?.name === names[0]);
+  return found.length === 1 ? found[0].id : undefined;
+}

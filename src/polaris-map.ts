@@ -1,41 +1,10 @@
 import { buildModelGraph } from "./map/build-graph.js";
 import type { GraphEdge, GraphNode, ModelGraph } from "./map/graph-types.js";
 import type { AnalysisResult, Cell, ResultTable } from "./result-types.js";
+import { formulaReferences } from "./map/map-formula.js";
 
-interface Token { text: string; start: number; end: number; kind: "name" | "word" | "other" }
-const KEYWORDS = new Set(["IF", "THEN", "ELSE", "AND", "OR", "NOT", "TRUE", "FALSE", "BLANK"]);
-
-/** Lexical references only. Double-quoted text and numeric literals are never object IDs. Single-quoted names,
- * qualified references and bare names are retained; function names and selector/aggregation labels are skipped. */
-export function polarisReferences(formula: string): { parts: string[]; written: string }[] {
-  const tokens: Token[] = [];
-  const pattern = /"(?:""|\\.|[^"\\])*"|'(?:''|[^'])*'|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[\p{L}_][\p{L}\p{N}_?]*|[^\s]/gu;
-  for (const match of formula.matchAll(pattern)) {
-    const raw = match[0];
-    const quoted = raw.startsWith("'");
-    tokens.push({ text: quoted ? raw.slice(1, -1).replace(/''/g, "'") : raw, start: match.index, end: match.index + raw.length,
-      kind: quoted ? "name" : /^[\p{L}_]/u.test(raw) ? "word" : "other" });
-  }
-  const references: { parts: string[]; written: string }[] = [];
-  const usable = (index: number): boolean => tokens[index]?.kind === "name" || (tokens[index]?.kind === "word" && !KEYWORDS.has(tokens[index].text.toUpperCase()));
-  for (let at = 0; at < tokens.length;) {
-    if (!usable(at)) { at++; continue; }
-    const start = at;
-    const parts: string[] = [];
-    const part = (): string => {
-      const first = at++;
-      if (tokens[first].kind === "name") return tokens[first].text;
-      while (usable(at) && tokens[at].kind === "word" && /^\s+$/.test(formula.slice(tokens[at - 1].end, tokens[at].start))) at++;
-      return formula.slice(tokens[first].start, tokens[at - 1].end);
-    };
-    parts.push(part());
-    while (tokens[at]?.text === "." && usable(at + 1)) { at++; parts.push(part()); }
-    // SUM: and LOOKUP: name what follows; a function's arguments are scanned on their own.
-    if (parts.length === 1 && tokens[start].kind === "word" && ["(", ":"].includes(tokens[at]?.text)) continue;
-    references.push({ parts, written: formula.slice(tokens[start].start, tokens[at - 1].end) });
-  }
-  return references;
-}
+/** A formula's references, as the map reads them (map/map-formula.ts): Polaris's formula links are made from them. */
+export const polarisReferences = formulaReferences;
 
 /** The Classic graph builder expects a module heading before its line items. Supply those only to the map; the
  * Polaris table remains exactly one row per returned line item. Formula links are added here, outside src/map. */
@@ -98,7 +67,7 @@ export function buildPolarisGraph(result: AnalysisResult): ModelGraph {
     if (node.kind !== "lineItem" || !node.formula) continue;
     const module = graph.nodes[node.module!].name;
     const seen = new Set<string>();
-    for (const ref of polarisReferences(node.formula)) {
+    for (const ref of formulaReferences(node.formula)) {
       if (seen.has(ref.written)) continue;
       seen.add(ref.written);
       const local = ref.parts.length === 1 ? locals.get(key(module, ref.parts[0])) : undefined;

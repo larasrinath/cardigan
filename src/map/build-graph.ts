@@ -742,6 +742,28 @@ function linkLineItems(draft: Draft, { table, rows, formatIds }: LineItemsRead, 
   return unnamed ? [`${count(unnamed, "line item is formatted as a list that the export does not name, and has", "line items are formatted as a list that the export does not name, and have")} no list on the map.`] : [];
 }
 
+/** Line Items read for each line item's summary: whether it is one, and the summary its Parent names. Only the map's graph
+ * reads them (`buildModelGraph`), for its source inputs (map-sources.ts): the model's reader, which builds the graph for the
+ * Dynamic Cell Access table alone (`readAccess`), has no use for them. A file without the columns says nothing of them. */
+const SUMMARIES = { file: LINE_ITEMS_FILE, objects: "line items", columns: [["Parent", null], ["Is Summary", null]] } as const satisfies Reads<string>;
+
+/** Each line item's summary, as Line Items says it: whether it is a summary (Is Summary), and the summary it is summed into,
+ * where its Parent names another line item of the map, by its name in the line item's module or behind its module's name
+ * and a dot. A name that is no line item's is passed over: it draws nothing and says nothing, as no link stands for it. */
+function readSummaries(draft: Draft, { rows }: LineItemsRead, tables: readonly ResultTable[]): void {
+  const table = tableOf(tables, SUMMARIES);
+  if (!table) return;
+  for (const [id, row] of rows) {
+    const node = draft.nodes[id];
+    if (node.kind !== "lineItem" || node.module === undefined) continue;
+    if (table.cell(row, "Is Summary").trim().toLowerCase() === "true") node.isSummary = true;
+    const parent = table.cell(row, "Parent");
+    if (nothing(parent)) continue;
+    const target = draft.resolve(parent, { inModule: draft.nodes[node.module].name });
+    if (target !== undefined && target !== id && draft.nodes[target].kind === "lineItem") node.summaryParent = target;
+  }
+}
+
 /** Processes: each row but those named as headings. It gives back the processes' names, made ready to be found in an
  * action's Used in Processes. */
 function readProcesses(draft: Draft, tables: readonly ResultTable[]): { known: KnownNames; says: string[] } {
@@ -1127,7 +1149,9 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
  * tables always give the same graph. */
 export function buildModelGraph(tables: readonly ResultTable[]): ModelGraph {
   try {
-    return build(tables).graph;
+    const { graph, draft, lineItems } = build(tables);
+    readSummaries(draft, lineItems, tables);
+    return graph;
   } catch (error) {
     return { nodes: [], edges: [], unresolved: [], sections: [], limitations: [`The map could not be made from this export's tables (${message(error)}).`] };
   }

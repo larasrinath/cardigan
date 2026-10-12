@@ -40,6 +40,12 @@ export interface GraphNode {
   summaryCell?: string;
   ratioNumerator?: string;
   ratioDenominator?: string;
+  /** For a line item: whether it is a summary of other line items, as the Line Items file's Is Summary says; and the
+   * summary it is summed into, where its Parent names another line item of the map (build-graph.ts): that line item's
+   * node. A summary's values are its children's, the line items that name it as their Parent, and the source inputs
+   * (map-sources.ts) count those as what feeds it. No link of the graph stands for it. */
+  isSummary?: true;
+  summaryParent?: number;
   /** A module's and a line item's cell count. */
   cells?: number;
   /** A list's item count. */
@@ -190,6 +196,27 @@ export interface AreaCheck {
   modulesNotInFile: string[];
 }
 
+/** One import of the model into a module, and the line items it loads there, as its saved mapping says it
+ * (model/import-loads.ts makes these from the result): what the page tells the map, for its source inputs to say which
+ * imports load an input (map-sources.ts). */
+export interface ImportLoad {
+  /** The import's name, as the Imports table has it, without the spaces at its ends. */
+  name: string;
+  /** The module it loads, by its Target Object, out of its quotes and without the spaces at its ends. */
+  module: string;
+  /** The names its mapping gives what it loads, in its order: each target it feeds but Line Items and the column of values,
+   * its constant into Line Items, and each header mapped manually. A reader takes those that name a line item of the module:
+   * a list's name among them names none. */
+  lineItems: string[];
+  /** Whether it can load any line item of the module that holds data and has no formula: its mapping is not known, or its
+   * line items come from a column or from the header row matched by name. */
+  any: boolean;
+  /** Whether its mapping could not be read, where the result should have it: an import from a file, or any import of a
+   * result that keeps every import's mapping. A result an earlier version kept has none for an import from a model, and
+   * that is no mapping that failed. */
+  unread: boolean;
+}
+
 /** A way the host page can open an object's row or its place in the model. */
 export interface MapOpen {
   label: "Table" | "Model";
@@ -201,6 +228,9 @@ export interface MapOpen {
 export interface ModelMapOptions {
   modelName: string;
   workspaceName?: string;
+  /** What each of the model's imports loads into a module's line items (model/import-loads.ts): the map's source inputs
+   * say from it which imports load an input. None where the result has no import into a module. */
+  imports?: readonly ImportLoad[];
   /** Only actions the page can carry out. Groups have no source object and no page actions. */
   opens?: (node: GraphNode) => readonly MapOpen[];
   /** Called once, with the reason as text, when a map that was drawn stops because it can no longer be drawn. The map
@@ -243,6 +273,11 @@ export interface MapView {
   legend?: boolean;
   /** The selected box by kind, full name and its module or parent, encoded by map-selection.ts. */
   selected?: string;
+  /** While the map shows a line item's source inputs (map-sources.ts): that line item, by its module's name and its own,
+   * encoded by map-selection.ts. The rest of the view is the one they were gone to from, which Back and Escape return to,
+   * and `originSelected` the box that was selected there. `selected` is then the box selected among the source inputs. */
+  sources?: string;
+  originSelected?: string;
 }
 
 /** The mounted map (map-view.ts). The page shows and hides it as its navigation goes: while hidden it draws nothing and
@@ -258,4 +293,9 @@ export interface ModelMap {
    * map's search does: a module among its section's modules, a line item among its module's line items. The node's
    * details then take the focus. True when the node is selected; only a map that is shown goes anywhere. */
   reveal(node: number): boolean;
+  /** Shows the source inputs of a line item of the graph, by its place in `ModelGraph.nodes` (map-sources.ts): the map
+   * of its inputs and the calculations between, with the line item selected and its details, which list the inputs,
+   * taking the focus. Back and Escape return to the view the map showed. True when they are shown; only a map that is
+   * shown shows them, and only for a line item that is no heading. */
+  sources(node: number): boolean;
 }
