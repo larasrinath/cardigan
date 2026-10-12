@@ -896,10 +896,14 @@ describe("A result whose every text is hostile, through every view of the page",
     // in the file's stead (import-tables.ts); App Usage gathers the tables of the pages built on the model.
     expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Dimensions: 5", "Modules: 5", "Actions: 8", "Source Models", "App Usage: 3"]);
     expect(NAV_GROUPS.find(group => group.label === "Modules")?.files).toEqual(["Modules.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv"]);
-    // The three tables of imports stand in the Imports file's place among the Actions list's other tables, with no heading.
+    // The three tables of imports stand in the Imports file's place among the Actions list's other tables. Actions heads them
+    // as Dimensions heads its own: the file, the three and Import Data Sources under Imports, and each other table under one
+    // of its own name.
     const actions = NAV_GROUPS.find(group => group.label === "Actions");
     expect([actions?.files, actions?.subgroups]).toEqual([["Processes.csv", "Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv",
-      "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"], undefined]);
+      "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"], [{ label: "Processes", files: ["Processes.csv"] },
+      { label: "Imports", files: ["Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv", "Import Data Sources.csv"] },
+      { label: "Exports", files: ["Exports.csv"] }, { label: "Other Actions", files: ["Other Actions.csv"] }]]);
     // Nothing is left out, and nothing moves: the items, opened up, are the order itself.
     expect(items.flatMap(item => ("entries" in item ? item.entries : [item])).map(entry => entry.file)).toEqual([...MODEL_FILE_ORDER]);
     // Every file of a group is one the order names, and none is in two groups. Each group's ID is its menu's, of letters

@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Large models.** A page of a settings grid the model refuses is read again in smaller pages, so Line Items is no longer lost whole; a row it still refuses is left out and named in the notes, the log keeps the model's reason, and the engine is told from the grid's columns. Refresh the Anaplan tab once after updating.
 
+## 0.41.1 (12 October 2026)
+
+- **Actions in sections.** The Actions menu shows Processes, Imports, Exports and Other Actions headings, as Dimensions does, with File Imports, Model-to-Model Imports, In-Model Imports and Data Sources under Imports. (#9)
+
 ## 0.41.0 (12 October 2026)
 
 - **Faint lines through hidden calculations.** In Find source inputs, hiding Calculations in the legend draws a faint line from each input to the line item it feeds through them, and the legend says what a faint line is. (#8)

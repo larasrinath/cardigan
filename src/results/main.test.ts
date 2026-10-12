@@ -4482,7 +4482,8 @@ describe("The navigation bar of the results page", () => {
   /** The menus of the navigation that are open, by their IDs. */
   const openMenus = () => page.all('#topnav [aria-expanded="true"]').map(button => button.getAttribute("aria-controls"));
 
-  it.each(["navGroupDimensions", "navGroupAppUsage", "navMenu"])("moves through only table buttons in %s, skipping every heading", async id => {
+  it.each(["navGroupDimensions", "navGroupActions", "navGroupAppUsage", "navMenu"])("moves through only table buttons in %s, skipping every heading", async id => {
+    // The Imports file here has no Source Type column, so the page shows it unsplit, under the Imports heading.
     await openWith(withFiles(...EXPORTED, "Line Item Subsets", "Module Usage", "Page Filters", "Page Actions"));
     const button = page.find(`#topnav [aria-controls="${id}"]`);
     button.focus();
@@ -4490,7 +4491,8 @@ describe("The navigation bar of the results page", () => {
     expect(openMenus()).toEqual([id]);
     const entries = page.all(`#${id} .nav-item`);
     expect(page.texts(`#${id} .nav-heading`)).toEqual(id === "navGroupDimensions" ? ["Time", "Versions", "Lists"]
-      : id === "navMenu" ? ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "App Usage"] : []);
+      : id === "navGroupActions" ? ["Processes", "Imports", "Exports", "Other Actions"]
+      : id === "navMenu" ? ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "Processes", "Imports", "Exports", "Other Actions", "App Usage"] : []);
     expect(page.document.activeElement).toBe(entries[0]);
     for (const entry of [...entries.slice(1), entries[0]]) {
       page.key("ArrowDown");
@@ -4680,10 +4682,16 @@ describe("The navigation bar of the results page", () => {
     button().press();
     expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Dimensions: Model Calendar, Time Ranges, Versions, General Lists", "Modules: Modules, Line Items, DCA (shown)",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
-    // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
+    // A group's name heads its entries, a heading that a screen reader is told as the name of the group. Under Actions,
+    // as under Dimensions, each sub-group has a heading of its own: the Imports file, unsplit here, under Imports.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
       .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Versions", "true"], ["group", "Lists", "true"],
-        ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+        ["group", "Modules", "true"], ["group", "Actions", "true"], ["group", "Processes", "true"], ["group", "Imports", "true"], ["group", "Exports", "true"],
+        ["group", "Other Actions", "true"]]);
+    // Every Actions table stands in its sub-group's section under the Actions heading: one indent for all of them.
+    const actions = page.find('#navMenu [aria-label="Actions"]');
+    expect(actions.querySelectorAll(".nav-item").map(item => [entryLabel(item), item.parentElement?.parentElement === actions]))
+      .toEqual([["Processes", true], ["Imports", true], ["Data Sources", true], ["Exports", true], ["Other Actions", true]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);
@@ -8008,10 +8016,18 @@ describe("A model's imports in the three tables of their kinds, on the page", ()
   it("lists each import in the table of its kind, the three in the Imports file's place in Actions, each with its tile and its place", async () => {
     await openModel();
     const actions = page.find("#navGroupActions");
-    // No heading: the three stand among Actions' other tables, at their indent, each named by a place of its own.
-    expect([actions.querySelectorAll(".nav-heading").length, actions.querySelectorAll(".nav-item").map(item => [entryLabel(item), item.dataset.nav, item.parentElement === actions])])
-      .toEqual([0, [["Processes", "3", true], ["File Imports", String(FILES), true], ["Model-to-Model Imports", String(MODELS), true],
+    // Under the Imports heading, after Processes under its own: the three stand in the Imports file's place, before Data
+    // Sources, every table at one indent, each named by a place of its own.
+    expect([actions.querySelectorAll(".nav-heading").map(heading => heading.textContent),
+      actions.querySelectorAll(".nav-item").map(item => [entryLabel(item), item.dataset.nav, item.parentElement?.parentElement === actions])])
+      .toEqual([["Processes", "Imports"], [["Processes", "3", true], ["File Imports", String(FILES), true], ["Model-to-Model Imports", String(MODELS), true],
         ["In-Model Imports", String(IN_MODEL), true], ["Data Sources", "5", true]]]);
+    // The narrow window's one menu heads them the same way, under its Actions heading.
+    const compact = page.find('#navMenu [aria-label="Actions"]');
+    expect([compact.querySelectorAll(".nav-heading").map(heading => heading.textContent),
+      compact.querySelectorAll(".nav-item").map(item => [entryLabel(item), item.parentElement?.parentElement === compact])])
+      .toEqual([["Actions", "Processes", "Imports"], [["Processes", true], ["File Imports", true], ["Model-to-Model Imports", true], ["In-Model Imports", true],
+        ["Data Sources", true]]]);
     expect(tiles()).toEqual([["File Imports", "1", "row"], ["Model-to-Model Imports", "2", "rows"], ["In-Model Imports", "2", "rows"]]);
     // A tile opens its table, as an entry does.
     page.all("#view .stat").find(tile => tile.children[0].textContent === "In-Model Imports")!.press();
