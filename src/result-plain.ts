@@ -1,6 +1,6 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, ItemPair, MappedSource, MappedTarget, PageUses, ProcessActions,
-  ProcessStep, ResultTable, TargetKind } from "./result-types.js";
+import type { AnalysisResult, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, PageUses, ProcessActions, ProcessStep,
+  ResultTable, TargetKind } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -68,40 +68,22 @@ const isCount = (value: unknown): value is number => typeof value === "number" &
 /** What a target of an import into a module is, by the result's word for it (result-types.ts `TargetKind`). */
 const KINDS: ReadonlySet<string> = new Set<TargetKind>(["time", "versions", "list", "lineItems", "lineItem", "value", "other"]);
 
-/** An ID of the model's, as a result keeps one: digits alone. */
-const isDigits = (value: unknown): value is string => typeof value === "string" && /^\d{1,19}$/.test(value);
-
-/** A list's items mapped manually (result-types.ts `ItemPair`), every field checked: undefined where there are none, and
- * false where anything else is there. */
-function readPairs(value: unknown): ItemPair[] | undefined | false {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return false;
-  const pairs: ItemPair[] = [];
-  for (const entry of Array.from(value as unknown[])) {
-    const pair = entry as Partial<ItemPair> | null;
-    if (!pair || typeof pair !== "object" || typeof pair.source !== "string" || (pair.item !== undefined && !isDigits(pair.item))) return false;
-    pairs.push({ source: pair.source, ...(pair.item !== undefined ? { item: pair.item } : {}) });
-  }
-  return pairs;
-}
-
-/** One target of an import's mapping, every field checked, or nothing when anything else is there. */
+/** One target of an import's mapping, every field checked, or nothing when anything else is there. What a target of 0.38.0
+ * holds more, a list's items mapped manually and the list's ID (`pairs`, `dimensionId`), is left out, whatever it is: the
+ * page lists no list's items, only how many are mapped manually. */
 function readTarget(value: unknown): MappedTarget | undefined {
   const target = value as Partial<MappedTarget> | null;
-  const pairs = target && typeof target === "object" ? readPairs(target.pairs) : false;
   if (!target || typeof target !== "object" || typeof target.target !== "string" || typeof target.source !== "string" || !SOURCES.has(target.source)
       || (target.column !== undefined && !(Number.isSafeInteger(target.column) && target.column >= 1)) || (target.text !== undefined && typeof target.text !== "string")
       || (target.id !== undefined && typeof target.id !== "string")
       || (target.items !== undefined && !(target.items && typeof target.items === "object" && isCount(target.items.byHand) && isCount(target.items.ignored)))
       || (target.periodFormat !== undefined && target.periodFormat !== null && typeof target.periodFormat !== "string")
       || (target.dateFormat !== undefined && typeof target.dateFormat !== "string")
-      || (target.kind !== undefined && !(typeof target.kind === "string" && KINDS.has(target.kind))) || (target.area !== undefined && typeof target.area !== "string")
-      || pairs === false || (target.dimensionId !== undefined && !isDigits(target.dimensionId))) return undefined;
+      || (target.kind !== undefined && !(typeof target.kind === "string" && KINDS.has(target.kind))) || (target.area !== undefined && typeof target.area !== "string")) return undefined;
   return { target: target.target, source: target.source, ...(target.column !== undefined ? { column: target.column } : {}), ...(target.text !== undefined ? { text: target.text } : {}),
     ...(target.id !== undefined ? { id: target.id } : {}), ...(target.items !== undefined ? { items: { byHand: target.items.byHand, ignored: target.items.ignored } } : {}),
     ...(target.periodFormat !== undefined ? { periodFormat: target.periodFormat } : {}), ...(target.dateFormat !== undefined ? { dateFormat: target.dateFormat } : {}),
-    ...(target.kind !== undefined ? { kind: target.kind } : {}), ...(target.area !== undefined ? { area: target.area } : {}), ...(pairs ? { pairs } : {}),
-    ...(target.dimensionId !== undefined ? { dimensionId: target.dimensionId } : {}) };
+    ...(target.kind !== undefined ? { kind: target.kind } : {}), ...(target.area !== undefined ? { area: target.area } : {}) };
 }
 
 /** The File Options of an import's source, every field checked: undefined where there are none, and false where anything
@@ -149,8 +131,9 @@ function readMatch(value: unknown): ItemMatch | undefined | false {
 /** A model's imports with their mappings (result-types.ts `ImportMapping`), every field checked, or nothing when anything
  * else is there. As for the modules' IDs, a result is not refused for them: the page only shows no mapping. The results
  * page checks a result's mappings so too before it shows one, whoever kept the result. A mapping an earlier version kept,
- * without a Source Type, a clear setting, File Options, the kinds of its targets, or a list's items mapped manually with
- * the module's and the list's IDs, is read as it is. */
+ * without a Source Type, a clear setting, File Options or the kinds of its targets, is read as it is. One that 0.38.0
+ * kept is read without the module's ID it held for a list's items mapped manually (`moduleId`), and without those items
+ * (`readTarget`), whatever they are: they never keep a result's mappings from being read. */
 export function readImportMappings(value: unknown): ImportMapping[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const mappings: ImportMapping[] = [];
@@ -159,8 +142,7 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
     if (!mapping || typeof mapping !== "object" || typeof mapping.id !== "string" || !/^\d{0,19}$/.test(mapping.id) || typeof mapping.name !== "string"
         || typeof mapping.importType !== "string" || !Array.isArray(mapping.targets) || (mapping.note !== undefined && typeof mapping.note !== "string")
         || (mapping.sourceType !== undefined && typeof mapping.sourceType !== "string")
-        || (mapping.clear !== undefined && mapping.clear !== "clear" && mapping.clear !== "update")
-        || (mapping.moduleId !== undefined && !isDigits(mapping.moduleId))) return undefined;
+        || (mapping.clear !== undefined && mapping.clear !== "clear" && mapping.clear !== "update")) return undefined;
     const targets: MappedTarget[] = [];
     for (const item of Array.from(mapping.targets as unknown[])) {
       const target = readTarget(item);
@@ -173,23 +155,9 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
     if (matchedBy === false || headers === false || fileOptions === false) return undefined;
     mappings.push({ id: mapping.id, name: mapping.name, ...(mapping.sourceType !== undefined ? { sourceType: mapping.sourceType } : {}), importType: mapping.importType,
       targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}), ...(mapping.clear !== undefined ? { clear: mapping.clear } : {}),
-      ...(fileOptions ? { fileOptions } : {}), ...(mapping.moduleId !== undefined ? { moduleId: mapping.moduleId } : {}),
-      ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
+      ...(fileOptions ? { fileOptions } : {}), ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
   }
   return mappings;
-}
-
-/** The names of the items the imports map manually (result-types.ts `importItemNames`): pairs of an ID of digits and a
- * name, or nothing when anything else is there. As for the mappings, a result is not refused for them: the page only says
- * those items by their IDs. The results page checks them so too before it shows one, whoever kept the result. */
-export function readImportItemNames(value: unknown): [string, string][] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const names: [string, string][] = [];
-  for (const pair of Array.from(value as unknown[])) {
-    if (!Array.isArray(pair) || pair.length !== 2 || !isDigits(pair[0]) || typeof pair[1] !== "string") return undefined;
-    names.push([pair[0], pair[1]]);
-  }
-  return names;
 }
 
 /** A model's processes with the actions each runs (result-types.ts `ProcessActions`), every field checked, or nothing when
@@ -228,7 +196,9 @@ export function readPageUses(value: unknown): PageUses | undefined {
   return { lineItems, modules, unread: uses.unread, unnamed: uses.unnamed };
 }
 
-/** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it. */
+/** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it.
+ * Only the fields read here are kept: the names of the items its imports map manually that a result of 0.38.0 holds
+ * (`importItemNames`) are left out, whatever they are. */
 function readResult(value: unknown): AnalysisResult | undefined {
   const data = value as Partial<AnalysisResult> | null;
   if (!data || typeof data !== "object" || (data.kind !== "app" && data.kind !== "model") || typeof data.name !== "string" || typeof data.id !== "string"
@@ -246,15 +216,13 @@ function readResult(value: unknown): AnalysisResult | undefined {
   const moduleIds = data.kind === "model" ? readIds(data.moduleIds) : undefined;
   const listIds = data.kind === "model" ? readIds(data.listIds) : undefined;
   const importMappings = data.kind === "model" ? readImportMappings(data.importMappings) : undefined;
-  const importItemNames = data.kind === "model" ? readImportItemNames(data.importItemNames) : undefined;
   const processActions = data.kind === "model" ? readProcessActions(data.processActions) : undefined;
   const site = data.kind === "model" ? readSite(data.site) : undefined;
   const lineItemIds = data.kind === "model" ? readLineItemIds(data.lineItemIds) : undefined;
   const pageUses = data.kind === "model" ? readPageUses(data.pageUses) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}), ...(listIds ? { listIds } : {}),
     ...(data.kind === "model" && data.engine === "polaris" ? { engine: "polaris" } : {}),
-    ...(importMappings ? { importMappings } : {}), ...(importItemNames ? { importItemNames } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}),
-    ...(lineItemIds ? { lineItemIds } : {}),
+    ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}),
     ...(pageUses ? { pageUses } : {}) };
 }
 

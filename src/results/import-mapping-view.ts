@@ -1,7 +1,7 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import { missingIn } from "../page-files.js";
 import { POLARIS_MAPPING_NOTE } from "../polaris.js";
-import { readImportItemNames, readImportMappings } from "../result-plain.js";
+import { readImportMappings } from "../result-plain.js";
 import type { AnalysisResult, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable, TargetKind } from "../result-types.js";
 import { columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
@@ -20,10 +20,10 @@ import { cellText, type Row } from "./table-engine.js";
  * before it loads, the Mapping tab's "Clear target prior to import" or "Only update imported cells", by the heading; a
  * table of the module's dimensions, in the dialog's order (`DIMENSION_ORDER`), each with what feeds it, how its items are
  * matched and which of them it clears first, as the dimension's own tab says it; then its line items, each with its
- * column, or each header mapped manually with its line item; then each list whose items are mapped manually, each source
- * item with the item it is mapped to, as the list's own tab of the dialog shows them under Source Items and Mapped To. A
- * result an earlier version kept says of its targets neither what each is nor what it clears: its mapping into a module
- * stands as an import into a list does.
+ * column, or each header mapped manually with its line item. A list whose items are mapped manually says how many in
+ * that table, and the Mapping stops there: only the line items are listed pair by pair. A result an earlier version kept
+ * says of its targets neither what each is nor what it clears: its mapping into a module stands as an import into a list
+ * does.
  *
  * An import into a list, as such a result's into a module, is a table of Source and Target: each source that feeds a
  * target of the import, with the target it feeds, the columns first and in their order; then a line that names the
@@ -70,23 +70,16 @@ export interface MappingNote { text: string; all?: readonly string[] }
  * header can match. */
 export interface LineItemsView { count?: number; heading?: "Header" | "Column" | "Source"; rows: LineItemRow[]; notes: MappingNote[] }
 
-/** A list whose items an import into a module maps manually, as the list's tab of the dialog shows them under Source Items
- * and Mapped To: the list by its name, and a row for each source item, in the order the definition keeps them, with the
- * item it is mapped to, by its name where the run named it, else by its ID, or Ignored. */
-export interface PairsView { list: string; rows: [source: string, mappedTo: string][] }
-
 /** A mapping as the drawer shows it. Above all, what an import into a module does to it before it loads (`clear`), and how
  * its source is read (`from`): the File Options of uploaded data, or the model's object it reads, each with its label.
  * For an import into a list, how it tells the list's items apart, and a row of Source and Target for each source and a
- * target it feeds. For an import into a module, its dimensions, its line items, and each list whose items it maps
- * manually. Then lines under them. */
+ * target it feeds. For an import into a module, its dimensions and its line items. Then lines under them. */
 export interface MappingView {
   clear?: string;
   from?: { label: "File" | "Source"; text: string };
   match?: string;
   dimensions?: DimensionRow[];
   lineItems?: LineItemsView;
-  pairs?: PairsView[];
   rows: MappingRow[];
   lines: string[];
 }
@@ -486,39 +479,24 @@ function dimensionsOf(mapping: ImportMapping): MappedTarget[] {
     .sort((a, b) => place(a.target) - place(b.target) || a.at - b.at).map(({ target }) => target);
 }
 
-/** Each list of an import into a module whose items are mapped manually, in the order of the dimensions (`PairsView`):
- * each source item with the name of the item it is mapped to, as the run named it (`names`, by the item's ID), else its
- * ID, as the page says one the model gave no name for, or Ignored. */
-function pairsViews(dimensions: readonly MappedTarget[], names: ReadonlyMap<string, string> | undefined): PairsView[] {
-  const mappedTo = (item: string | undefined): string => {
-    if (item === undefined) return "Ignored";
-    const name = names?.get(item);
-    return said(name) ? name : `ID ${item}`;
-  };
-  return dimensions.filter(target => target.kind === "list" && target.pairs?.length).map(target => ({ list: target.target,
-    rows: target.pairs!.map(({ source, item }): [string, string] => [source, mappedTo(item)]) }));
-}
-
-/** An import into a module, laid out as its dialog lays it out (`MappingView`): what it clears, its dimensions, its line
- * items and each list whose items it maps manually, then the lines under them. A dimension's clear choice is said only
- * where the import clears its target first: the dialog hides it otherwise (view/MappedDimensionImportOptions.js
+/** An import into a module, laid out as its dialog lays it out (`MappingView`): what it clears, its dimensions and its
+ * line items, then the lines under them. A list whose items are mapped manually says how many, and how many are ignored,
+ * in its row (`itemsWords`), and no more: the page lists no item of a list. A dimension's clear choice is said only where
+ * the import clears its target first: the dialog hides it otherwise (view/MappedDimensionImportOptions.js
  * `displayTargetItemsOptions`). The lines say where the header row holds Time's periods or a list's items, that items
  * matched on names or codes are matched when the import runs, what the mapping says of the columns it does not use, for
- * uploaded data, and what a missing line item is. `names` are the names the run read of the items mapped manually. */
-function moduleView(mapping: ImportMapping, lineItems: readonly string[] | undefined, model: boolean, names: ReadonlyMap<string, string> | undefined):
-  Pick<MappingView, "clear" | "dimensions" | "lineItems" | "pairs" | "lines"> {
+ * uploaded data, and what a missing line item is. */
+function moduleView(mapping: ImportMapping, lineItems: readonly string[] | undefined, model: boolean): Pick<MappingView, "clear" | "dimensions" | "lineItems" | "lines"> {
   const update = mapping.clear === "update";
   const items = lineItemsView(mapping, lineItems);
-  const ordered = dimensionsOf(mapping);
-  const dimensions = ordered.map((target): DimensionRow => [target.target,
+  const dimensions = dimensionsOf(mapping).map((target): DimensionRow => [target.target,
     moduleSourceWords(target), itemsWords(target, target.kind === "lineItems" && (items?.rows.length ?? 0) > 0),
     update || target.area === undefined ? "" : areaWords(target.area, target.kind === "time")]);
-  const pairs = pairsViews(ordered, names);
   const holds = mapping.targets.filter(target => target.source === "headerRow" && target.kind !== "lineItems" && target.kind !== "other").map(target =>
     (target.kind === "time" ? "The periods are in the header row." : target.kind === "versions" ? "The versions are in the header row." : `The items of ${target.target} are in the header row.`));
   const matched = mapping.targets.some(target => target.kind !== "time" && target.items && !target.items.byHand && !target.items.ignored
     && (target.source === "column" || target.source === "headerRow"));
-  return { ...(mapping.clear ? { clear: update ? ONLY_UPDATE : CLEAR_TARGET } : {}), dimensions, ...(items ? { lineItems: items } : {}), ...(pairs.length ? { pairs } : {}),
+  return { ...(mapping.clear ? { clear: update ? ONLY_UPDATE : CLEAR_TARGET } : {}), dimensions, ...(items ? { lineItems: items } : {}),
     lines: [...holds, ...(matched ? ["Items set to match on names or codes are paired when the import runs, so Anaplan saves no pairs for them."] : []),
       ...(model ? [] : columnLines(mapping.targets)), ...(namesMissingLineItem(mapping) ? [MISSING_LINE_ITEM_NOTE] : [])] };
 }
@@ -533,9 +511,8 @@ const laidOutAsModule = (mapping: ImportMapping): boolean => mapping.importType 
  * that a header can match, where the page knows them (`lineItemsOf`). `source` is the model's object an import of one
  * reads, as its row of Imports names it (`sourceLine`): the line the File Options of uploaded data stand in otherwise. Of
  * a model's object, no column is numbered, and nothing is said of the columns it does not use. The last line says what a
- * missing line item is, where the mapping names one. `names` are the names the run read of the items that imports into
- * modules map manually, by their IDs (result-types.ts `importItemNames`). */
-export function mappingView(mapping: ImportMapping | undefined, lineItems?: readonly string[], source?: string, names?: ReadonlyMap<string, string>): MappingView {
+ * missing line item is, where the mapping names one. */
+export function mappingView(mapping: ImportMapping | undefined, lineItems?: readonly string[], source?: string): MappingView {
   if (!mapping) return { rows: [], lines: [NO_MAPPING] };
   if (mapping.note !== undefined) return { rows: [], lines: [mapping.note] };
   if (!LISTED.has(mapping.importType)) {
@@ -548,7 +525,7 @@ export function mappingView(mapping: ImportMapping | undefined, lineItems?: read
   const match = mapping.matchedBy ? { match: matchWords(mapping.matchedBy) } : {};
   if (!mapping.targets.length) return { ...clear, ...from, ...match, rows: [], lines: ["The import's definition maps no target."] };
   const model = !readsFile(mapping.sourceType ?? "FILE") && mapping.sourceType !== "" && !options;
-  if (laidOutAsModule(mapping)) return { ...from, ...moduleView(mapping, lineItems, model, names), rows: [] };
+  if (laidOutAsModule(mapping)) return { ...from, ...moduleView(mapping, lineItems, model), rows: [] };
   const unfed = unfedLine(mapping.targets);
   const headers = mapping.headers ?? [];
   return { ...clear, ...from, ...match, rows: sourceRows(mapping.targets, headers, lineItems),
@@ -600,8 +577,7 @@ export function sourceLine(table: ResultTable, row: Row): string | undefined {
  * without their Source Type: they are taken for those of FILE (file-imports.ts `readsFile`), and a row of another Source
  * Type has none, which the drawer says, with what to do. `table` is the Imports table as the page shows it, whose rows
  * stand each in the place it has in the file (result-view.ts `fileView`). An import of a model's object has the object as
- * its row names it (`sourceLine`). The items an import into a module maps manually are named as the result names them,
- * checked as the bridge checks them (result-plain.ts `readImportItemNames`). */
+ * its row names it (`sourceLine`). */
 export function mappingOfRow(result: AnalysisResult | undefined, table: ResultTable, row: Row): MappingView | undefined {
   if (result?.kind !== "model" || table.file !== IMPORTS_FILE) return undefined;
   if (result.engine === "polaris") return { rows: [], lines: [POLARIS_MAPPING_NOTE] };
@@ -617,6 +593,5 @@ export function mappingOfRow(result: AnalysisResult | undefined, table: ResultTa
   const mapping = mappings.filter(candidate => candidate.name.trim() === name && typeKey(candidate.sourceType ?? "FILE") === kind)[place];
   // The line items a header can match are said only where the header row of line items is matched on names or codes.
   const matched = mapping?.targets.some(target => target.source === "headerRow" && kindOf(target) === "lineItems") && !mapping.headers?.length;
-  const names = new Map(readImportItemNames(result.importItemNames) ?? []);
-  return mappingView(mapping, matched ? lineItemsOf(result, table, row) : undefined, readsFile(row[type]) ? undefined : sourceLine(table, row), names);
+  return mappingView(mapping, matched ? lineItemsOf(result, table, row) : undefined, readsFile(row[type]) ? undefined : sourceLine(table, row));
 }

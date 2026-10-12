@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { loadCatalog } from "./analyse.js";
+import type { CatalogInputs, loadCatalog } from "./analyse.js";
 import { addActions, addExportedLineItems, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
 import { NOT_PLACED } from "./filtered-line-items.js";
-import { addModelPages, AT_A_TIME, exportedLineItems, mappedItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, readPolarisModel, startModelPages,
-  type PageReads } from "./model-pages.js";
+import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, readPolarisModel, startModelPages, type PageReads }
+  from "./model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
 import { HEADERS, PAGE_TYPE } from "./report.js";
-import type { AnalysisResult } from "./result-types.js";
+import type { AnalysisResult, ImportMapping } from "./result-types.js";
 import { RestError } from "./rest.js";
 import type { Obj } from "./util.js";
 
@@ -556,84 +556,38 @@ describe("The pages built on a model", () => {
   });
 });
 
-describe("The items the imports map manually, named with the model's names", () => {
-  const [NORTH, SOUTH, EAST, WEST, PLAN] = ["201000000011", "201000000012", "201000000013", "201000000014", "202000000021"];
-  const [DIVISION, CHANNEL] = ["101000000041", "101000000042"];
-  /** The model's export with three imports into modules whose lists' items are mapped manually, as the export keeps them
-   * (model/import-mappings.ts): two map Division's items in the same module, North in both; one maps Channel's in another
-   * module; and one import into a list, whose targets hold no list of their own. Every name and ID is made up. */
-  const withImports = (): AnalysisResult => ({ ...exported(), importMappings: [
-    { id: "112000000081", name: "Load costs", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", moduleId: MODULE, targets: [
-      { target: "Division", source: "column", column: 1, kind: "list", items: { byHand: 2, ignored: 1 }, dimensionId: DIVISION,
-        pairs: [{ source: "N", item: NORTH }, { source: "S", item: SOUTH }, { source: "Old" }] }] },
-    { id: "112000000082", name: "Load more costs", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", moduleId: MODULE, targets: [
-      { target: "Division", source: "column", column: 1, kind: "list", items: { byHand: 2, ignored: 0 }, dimensionId: DIVISION,
-        pairs: [{ source: "North", item: NORTH }, { source: "East", item: EAST }] }] },
-    { id: "112000000083", name: "Load plan", sourceType: "FILE", importType: "MODULE_DATA", clear: "update", moduleId: MODULE_2, targets: [
-      { target: "Channel", source: "headerRow", kind: "list", items: { byHand: 1, ignored: 0 }, dimensionId: CHANNEL, pairs: [{ source: "Web", item: PLAN }] }] },
-    { id: "112000000084", name: "Load offices", sourceType: "FILE", importType: "HIERARCHY_DATA", targets: [{ target: "Offices", source: "column", column: 1 }] }] });
-  /** The names the model gives, as `catalog` does, with the names its data service gave of three of those items and of one
-   * no import maps. */
-  const namedItems = () => {
-    const names = catalog();
-    for (const [id, name] of [[NORTH, "North Division"], [SOUTH, "South Division"], [PLAN, "Online"], [WEST, "West Division"]]) names.listItems.set(id, name);
-    return names;
-  };
-  const withNames = (entries: Obj[], pages: Record<string, Obj | string>) => {
-    const use = fake(entries, pages);
-    use.reads.loadCatalog = vi.fn(async () => { use.asked.push("names"); return { catalog: namedItems(), notes: [], failedActionTypes: [] }; }) as unknown as typeof loadCatalog;
-    return use;
-  };
-  const LINE = "import items mapped manually: ";
+describe("The items an import into a module maps manually, beside the names of the pages built on the model", () => {
+  /** An import into a module whose Division items are mapped manually, as 0.38.0's reader kept them, to be named: the
+   * module's ID, the list's ID, and each source value with its item's ID, or none where it is ignored. This version's
+   * types describe none of those. Every name and ID is made up. */
+  const KEPT_BY_0_38: unknown = { id: "112000000081", name: "Load costs", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", moduleId: MODULE, targets: [
+    { target: "Division", source: "column", column: 1, kind: "list", items: { byHand: 2, ignored: 1 }, dimensionId: "101000000041",
+      pairs: [{ source: "N", item: "201000000011" }, { source: "S", item: "201000000012" }, { source: "Old" }] }] };
+  /** The model's export with that import. */
+  const withImports = (): AnalysisResult => ({ ...exported(), importMappings: [structuredClone(KEPT_BY_0_38) as ImportMapping] });
 
-  it("are each module and list once, whichever imports map them, with every item once, and none of an ignored value or an import into a list", () => {
-    expect(mappedItems(withImports())).toEqual([{ moduleId: MODULE, dimensionId: DIVISION, itemIds: [NORTH, SOUTH, EAST] },
-      { moduleId: MODULE_2, dimensionId: CHANNEL, itemIds: [PLAN] }]);
-    // A mapping that says no module, or a list with no ID, has nothing to be asked by; a result without mappings has none.
-    const given = withImports();
-    const [costs, more] = given.importMappings!;
-    const { moduleId, ...noModule } = costs;
-    expect([moduleId, mappedItems({ ...given, importMappings: [noModule, { ...more, targets: more.targets.map(({ dimensionId, ...target }) => target) }] })]).toEqual([MODULE, []]);
-    expect(mappedItems(exported())).toEqual([]);
-  });
-
-  it("are asked for with the names of the pages, after the export, and the result names those it uses alone, as the service named them", async () => {
-    const use = withNames(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
-    const given = withImports();
-    const result = await run(given, CUSTOMER, use);
-    expect(vi.mocked(use.reads.loadCatalog).mock.calls[0][7]).toEqual(mappedItems(given));
-    // West is no import's: it is not kept. East was not named, and is said by its ID on the page.
-    expect(result.importItemNames).toEqual([[NORTH, "North Division"], [SOUTH, "South Division"], [PLAN, "Online"]]);
-    expect(use.log).toContain(`${LINE}3 of 4 items of 2 lists named; 1 keeps its ID`);
-    expect(logOf(result)).toContain(`${LINE}3 of 4 items of 2 lists named; 1 keeps its ID`);
-    // What the export handed over is as it was.
-    expect(given).toEqual(withImports());
-    // Read beside the export, the names are asked for once it has come, with the same items.
-    const beside = withNames(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
-    const started = startModelPages({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL }, { status: () => undefined, log: line => beside.log.push(line) }, undefined, beside.reads);
-    const read = await started.finish(withImports());
-    expect([vi.mocked(beside.reads.loadCatalog).mock.calls[0][7], read.importItemNames]).toEqual([mappedItems(given), result.importItemNames]);
-  });
-
-  it("keep their IDs where the model's names are not read, and the log says why: no page, no customer, or no list of pages", async () => {
-    const none = withNames([], {});
-    const result = await run(withImports(), CUSTOMER, none);
-    // No page is built on the model: its names are not read, and the result names no item.
-    expect(Object.hasOwn(result, "importItemNames")).toBe(false);
+  it("are not named: the names are read for the pages alone, after the export and beside it, and no result or log line holds anything of those items", async () => {
+    // After the export: the names are read once, given the seven things they always were, and no items of an import.
+    const after = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+    const read = await run(withImports(), CUSTOMER, after);
+    expect(vi.mocked(after.reads.loadCatalog).mock.calls.map(call => call.length)).toEqual([7]);
+    // Beside the export: once it has come, the names are given the pages and the pages' names, and nothing else.
+    const beside = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+    const given: CatalogInputs[] = [];
+    beside.reads.loadCatalogWhen = vi.fn(async (_scope: unknown, inputs: Promise<CatalogInputs>) => {
+      given.push(await inputs);
+      return { catalog: catalog(), notes: [], failedActionTypes: [] };
+    }) as unknown as PageReads["loadCatalogWhen"];
+    const readBeside = await startModelPages({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL }, { status: () => undefined, log: line => beside.log.push(line) },
+      undefined, beside.reads).finish(withImports());
+    expect(given.map(inputs => Object.keys(inputs))).toEqual([["pages", "pageNames"]]);
+    // Where no page is built on the model, no name is read at all. No result names an item, and no log line says anything
+    // of an import's items.
+    const none = fake([], {});
+    const unread = await run(withImports(), CUSTOMER, none);
     expect(none.reads.loadCatalog).not.toHaveBeenCalled();
-    expect(none.log.filter(line => line.startsWith(LINE))).toEqual([`${LINE}4 items of 2 lists keep their IDs, as the model's names were not read: no page is built on this model`]);
-    const nobody = withNames(BOTH, { [PAGE_A]: demandBoard() });
-    await run(withImports(), undefined, nobody);
-    expect(nobody.log).toEqual([`${LINE}4 items of 2 lists keep their IDs, as the model's names were not read: ${NO_CUSTOMER}`]);
-    const refused = withNames([], {});
-    refused.reads.getJson = vi.fn(async () => { throw new RestError("HTTP_ERROR", 403); }) as unknown as PageReads["getJson"];
-    await run(withImports(), CUSTOMER, refused);
-    expect(refused.log.filter(line => line.startsWith(LINE))).toEqual([`${LINE}4 items of 2 lists keep their IDs, as the model's names were not read: `
-      + "Anaplan refused the list of the pages built on this model"]);
-    // A model none of whose imports maps a list's items manually has no such line.
-    const plain = withNames([], {});
-    await run(exported(), CUSTOMER, plain);
-    expect(plain.log.filter(line => line.startsWith(LINE))).toEqual([]);
+    expect([read, readBeside, unread].map(result => Object.hasOwn(result, "importItemNames"))).toEqual([false, false, false]);
+    expect([...after.log, ...beside.log, ...none.log, ...[read, readBeside, unread].flatMap(logOf)].filter(line => /import item/i.test(String(line)))).toEqual([]);
   });
 });
 
