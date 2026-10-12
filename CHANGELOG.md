@@ -6,6 +6,11 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Unused line items and modules.** Modules gains two tables after DCA: Unused Line Items lists the line items nothing Cardigan can see uses, by formula, ratio, parent, access driver, page, subset, action or a module used whole, each with why (Read by nothing, Only feeds unused line items, or Imported, never read), and Unused Modules lists the modules that are empty or whose line items are all unused; both are made from what the run already reads, the pages included, and say what they could not see. Refresh the Anaplan tab once after updating.
 
+## 0.36.0 (12 October 2026)
+
+- **Module imports read like Anaplan's dialog.** An import into a module shows whether it clears its target first, then a table of its dimensions with each one's source, item matching and clear choice, then its line items, each header mapped by hand or each line item's own column. A file import's Mapping starts with its file options: header row, first data row, separators, text delimiter, decimal and encoding. (#1)
+- **Mappings for imports from modules, saved views and lists.** Every import's saved definition is read and shown, whatever its source. A model import names the object it reads, and its source columns by this model's names when the source is in this model. The diagnostic log describes every import's definition, and its data sources in one line. (#1)
+
 ## 0.35.2 (11 October 2026)
 
 - **No ResizeObserver warning.** Chrome no longer lists "ResizeObserver loop completed with undelivered notifications" under Cardigan's errors: the results page fits the navigation, the details panel and the map to a new size in the next frame, once for several changes, and not at all for a size it already fits. (#138)

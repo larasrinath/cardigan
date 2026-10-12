@@ -218,7 +218,7 @@ describe("The tables of what nothing in a model uses", () => {
     // An export whose source is not read says so; without the line items' IDs, the actions' line items cannot be matched.
     const unmatched = unused(result);
     expect(unmatched.items).toHaveLength(4);
-    expect(unmatched.notes).toEqual(["What 1 export reads could not be read from its Action, so a module it exports may be used after all.",
+    expect(unmatched.notes).toEqual(["1 export's source couldn't be read, so a module it exports may be used after all.",
       "The line items that actions name by ID could not be matched, so some line items may be used by actions after all."]);
   });
 
@@ -275,13 +275,13 @@ describe("The tables of what nothing in a model uses", () => {
     expect(found.notes).toEqual(["Line Items has no Referenced By column, so formula use is unknown: some line items may be read by formulas after all.",
       "Line Item Subsets was not read, so some line items may be used through a subset after all.",
       "The Actions list was not read, so exports and actions are not known: some line items may be used after all.",
-      "The mapping of 1 import from a file could not be read, so every line item without a formula in the module it loads counts as imported."]);
+      "The mapping of 1 import could not be read, so every line item without a formula in the module it loads counts as imported."]);
     expect(found.items).toEqual(["REV01 Revenue / Units: Imported, never read"]);
     // A mapping that could not be read, and a subset in use whose members were not read.
     const subsets = file("Line Item Subsets", [...SUBSET_HEADERS, "Membership read"], [{ "": "Key", "Referenced By": "Somewhere", "Membership read": "false" }]);
     expect(unused(model([table, imports, subsets], { importMappings: [{ id: "112000000001", name: "Load units", importType: "", targets: [], note: "Not read." }] })).notes).toEqual([
       "The members of 1 line item subset in use were not read, so some line items may be used through it after all.",
-      "The mapping of 1 import from a file could not be read, so every line item without a formula in the module it loads counts as imported."]);
+      "The mapping of 1 import could not be read, so every line item without a formula in the module it loads counts as imported."]);
   });
 
   it("counts what an imported line item uses as used, as the summary parent it is summed into, and still lists the imported line item", () => {
@@ -303,13 +303,25 @@ describe("The tables of what nothing in a model uses", () => {
     expect([items, notes]).toEqual([["SAL01 Sales / Units Sold: Imported, never read", "SAL01 Sales / Returns: Read by nothing"], []]);
   });
 
-  it("counts every line item without a formula of a module an import from a module or a saved view loads as imported: its mapping is not read", () => {
+  it("counts every line item without a formula of a module an import from a model loads as imported where the result has no mapping for it", () => {
     const imports = file("Imports", IMPORT_HEADERS, [{ "": "Load orders from the hub", "Source Type": "SAVED VIEW", "Source Object": "Hub model / 'HUB03 Orders'.'Export to plan'",
       "Target Object": "ORD01 Orders", "Target Type": "MODULE" }, { "": "Load regions", "Source Type": "MODULE", "Source Object": "Hub model / 'HUB09 Regions'", "Target Object": "Regions",
       "Target Type": "LIST" }]);
     const { items } = unused(model([lineItems(own("ORD01 Orders"), item("ORD01 Orders", "Units Ordered", { "Referenced By": "Fill Rate" }),
       item("ORD01 Orders", "Fill Rate", { Formula: "Units Ordered / 2" }), heading("ORD01 Orders", "Orders"), own("REG01 Regions"), item("REG01 Regions", "Region Code")), imports]));
     expect(items).toEqual(["ORD01 Orders / Units Ordered: Imported, never read", "ORD01 Orders / Fill Rate: Read by nothing", "REG01 Regions / Region Code: Read by nothing"]);
+  });
+
+  it("uses the mapping of an import from a module or a saved view, found by its name among the imports of its Source Type", () => {
+    // A file import and a module import of one name: each finds its own mapping by Source Type.
+    const imports = file("Imports", IMPORT_HEADERS, [{ "": "Copy", "Source Type": "FILE", "Source Object": "-", "Target Object": "ORD01 Orders", "Target Type": "MODULE" },
+      { "": "Copy", "Source Type": "MODULE", "Source Object": "Plan model / 'SRC01 Source'", "Target Object": "ORD01 Orders", "Target Type": "MODULE" }]);
+    const { items, notes } = unused(model([lineItems(own("ORD01 Orders"), item("ORD01 Orders", "Units Ordered"), item("ORD01 Orders", "Units Shipped"),
+      item("ORD01 Orders", "Units Returned")), imports], { importMappings: [
+      { id: "112000000001", name: "Copy", sourceType: "FILE", importType: "MODULE_DATA", targets: [{ target: "Units Ordered", source: "column", column: 2 }] },
+      { id: "112000000002", name: "Copy", sourceType: "MODULE", importType: "MODULE_DATA", targets: [{ target: "Units Shipped", source: "column", text: "Shipped" }] }] }));
+    expect([items, notes]).toEqual([["ORD01 Orders / Units Ordered: Imported, never read", "ORD01 Orders / Units Shipped: Imported, never read",
+      "ORD01 Orders / Units Returned: Read by nothing"], []]);
   });
 
   it("adds the tables after the result's others, each with its Files row, its notes among the notes, and its log lines, and changes nothing it was given", () => {

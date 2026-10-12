@@ -1,5 +1,6 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, PageUses, ProcessActions, ProcessStep, ResultTable } from "./result-types.js";
+import type { AnalysisResult, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, PageUses, ProcessActions, ProcessStep,
+  ResultTable, TargetKind } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -64,6 +65,9 @@ const SOURCES: ReadonlySet<string> = new Set<MappedSource>(["column", "constant"
 /** A count of a mapping: a whole number, nought or more. */
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+/** What a target of an import into a module is, by the result's word for it (result-types.ts `TargetKind`). */
+const KINDS: ReadonlySet<string> = new Set<TargetKind>(["time", "versions", "list", "lineItems", "lineItem", "value", "other"]);
+
 /** One target of an import's mapping, every field checked, or nothing when anything else is there. */
 function readTarget(value: unknown): MappedTarget | undefined {
   const target = value as Partial<MappedTarget> | null;
@@ -72,10 +76,26 @@ function readTarget(value: unknown): MappedTarget | undefined {
       || (target.id !== undefined && typeof target.id !== "string")
       || (target.items !== undefined && !(target.items && typeof target.items === "object" && isCount(target.items.byHand) && isCount(target.items.ignored)))
       || (target.periodFormat !== undefined && target.periodFormat !== null && typeof target.periodFormat !== "string")
-      || (target.dateFormat !== undefined && typeof target.dateFormat !== "string")) return undefined;
+      || (target.dateFormat !== undefined && typeof target.dateFormat !== "string")
+      || (target.kind !== undefined && !(typeof target.kind === "string" && KINDS.has(target.kind))) || (target.area !== undefined && typeof target.area !== "string")) return undefined;
   return { target: target.target, source: target.source, ...(target.column !== undefined ? { column: target.column } : {}), ...(target.text !== undefined ? { text: target.text } : {}),
     ...(target.id !== undefined ? { id: target.id } : {}), ...(target.items !== undefined ? { items: { byHand: target.items.byHand, ignored: target.items.ignored } } : {}),
-    ...(target.periodFormat !== undefined ? { periodFormat: target.periodFormat } : {}), ...(target.dateFormat !== undefined ? { dateFormat: target.dateFormat } : {}) };
+    ...(target.periodFormat !== undefined ? { periodFormat: target.periodFormat } : {}), ...(target.dateFormat !== undefined ? { dateFormat: target.dateFormat } : {}),
+    ...(target.kind !== undefined ? { kind: target.kind } : {}), ...(target.area !== undefined ? { area: target.area } : {}) };
+}
+
+/** The File Options of an import's source, every field checked: undefined where there are none, and false where anything
+ * else is there. Text for the encoding and the characters, and whole numbers from nought for the two rows. */
+function readFileOptions(value: unknown): FileOptions | undefined | false {
+  if (value === undefined) return undefined;
+  const options = value as Partial<FileOptions> | null;
+  const text = (field: unknown): boolean => field === undefined || typeof field === "string";
+  if (!options || typeof options !== "object" || Array.isArray(options) || !text(options.encoding) || !text(options.separators) || !text(options.delimiter)
+      || !text(options.decimal) || (options.headerRow !== undefined && !isCount(options.headerRow))
+      || (options.firstDataRow !== undefined && !isCount(options.firstDataRow))) return false;
+  return { ...(options.encoding !== undefined ? { encoding: options.encoding } : {}), ...(options.separators !== undefined ? { separators: options.separators } : {}),
+    ...(options.delimiter !== undefined ? { delimiter: options.delimiter } : {}), ...(options.decimal !== undefined ? { decimal: options.decimal } : {}),
+    ...(options.headerRow !== undefined ? { headerRow: options.headerRow } : {}), ...(options.firstDataRow !== undefined ? { firstDataRow: options.firstDataRow } : {}) };
 }
 
 /** The headers of an import mapped by hand, every field checked: undefined where there are none, and false where anything
@@ -106,16 +126,19 @@ function readMatch(value: unknown): ItemMatch | undefined | false {
   return { by: match.by, ...(match.properties !== undefined ? { properties: Array.from(match.properties) } : {}), ...(match.numbered !== undefined ? { numbered: match.numbered } : {}) };
 }
 
-/** A model's imports from a file with their mappings (result-types.ts `ImportMapping`), every field checked, or nothing when
- * anything else is there. As for the modules' IDs, a result is not refused for them: the page only shows no mapping. The
- * results page checks a result's mappings so too before it shows one, whoever kept the result. */
+/** A model's imports with their mappings (result-types.ts `ImportMapping`), every field checked, or nothing when anything
+ * else is there. As for the modules' IDs, a result is not refused for them: the page only shows no mapping. The results
+ * page checks a result's mappings so too before it shows one, whoever kept the result. A mapping an earlier version kept,
+ * without a Source Type, a clear setting, File Options or the kinds of its targets, is read as it is. */
 export function readImportMappings(value: unknown): ImportMapping[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const mappings: ImportMapping[] = [];
   for (const entry of Array.from(value as unknown[])) {
     const mapping = entry as Partial<ImportMapping> | null;
     if (!mapping || typeof mapping !== "object" || typeof mapping.id !== "string" || !/^\d{0,19}$/.test(mapping.id) || typeof mapping.name !== "string"
-        || typeof mapping.importType !== "string" || !Array.isArray(mapping.targets) || (mapping.note !== undefined && typeof mapping.note !== "string")) return undefined;
+        || typeof mapping.importType !== "string" || !Array.isArray(mapping.targets) || (mapping.note !== undefined && typeof mapping.note !== "string")
+        || (mapping.sourceType !== undefined && typeof mapping.sourceType !== "string")
+        || (mapping.clear !== undefined && mapping.clear !== "clear" && mapping.clear !== "update")) return undefined;
     const targets: MappedTarget[] = [];
     for (const item of Array.from(mapping.targets as unknown[])) {
       const target = readTarget(item);
@@ -124,9 +147,11 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
     }
     const matchedBy = readMatch(mapping.matchedBy);
     const headers = readHeaders(mapping.headers);
-    if (matchedBy === false || headers === false) return undefined;
-    mappings.push({ id: mapping.id, name: mapping.name, importType: mapping.importType, targets, ...(matchedBy ? { matchedBy } : {}),
-      ...(headers ? { headers } : {}), ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
+    const fileOptions = readFileOptions(mapping.fileOptions);
+    if (matchedBy === false || headers === false || fileOptions === false) return undefined;
+    mappings.push({ id: mapping.id, name: mapping.name, ...(mapping.sourceType !== undefined ? { sourceType: mapping.sourceType } : {}), importType: mapping.importType,
+      targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}), ...(mapping.clear !== undefined ? { clear: mapping.clear } : {}),
+      ...(fileOptions ? { fileOptions } : {}), ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
   }
   return mappings;
 }

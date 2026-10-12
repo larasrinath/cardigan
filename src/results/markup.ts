@@ -1008,10 +1008,18 @@ function asReadHtml(columns: readonly Column[], exported?: ReadonlyMap<number, u
 /** A line under a drawer's table, in the small, quiet type of the card drawer's own line for a part it has none of. */
 const drawerLine = (text: string): string => `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">${esc(text)}</p>`;
 
-/** The mapping of an import from a file (import-mapping-view.ts): for an import into a list, how it tells the list's items
- * apart; a row of Source and Target for each source and a target it feeds; then the lines under them, about the targets
- * nothing feeds and the columns it does not use, or about why there is no row to show. */
+/** The mapping of an import (import-mapping-view.ts). Under its heading, beside it, what an import into a module does to
+ * the module before it loads, and under that, how the import's source is read: the File Options of uploaded data, or the
+ * model's object it reads, each after its label. For an import into a list, how it tells the list's items apart, and a
+ * row of Source and Target for each source and a target it feeds. For an import into a module, a table of its dimensions
+ * and one of its line items, each as wide as the details and no wider: a long name wraps in its cell, at any width the
+ * details have. Then the lines under them, about the targets nothing feeds and the columns it does not use, or about why
+ * there is no row to show. */
 export function importMappingHtml(mapping: MappingView): string {
+  const heading = mapping.clear === undefined ? "<h3>Mapping</h3>" : `<div class="m-head"><h3>Mapping</h3><span class="m-clear">${esc(mapping.clear)}</span></div>`;
+  // A space between the label and the line keeps them apart as text, as a screen reader or a copy takes them: the layout
+  // sets them apart by its own gap.
+  const from = mapping.from === undefined ? "" : `<p class="m-from"><span class="m-key">${esc(mapping.from.label)}</span> <span class="m-val">${esc(mapping.from.text)}</span></p>`;
   const match = mapping.match === undefined ? "" : `<p style="font-size:12px;color:var(--text-2);margin:0 0 6px">${esc(mapping.match)}</p>`;
   // What more a row says of how its source is read stands under the source; a line that shows the first of many names
   // opens to all of them.
@@ -1020,8 +1028,15 @@ export function importMappingHtml(mapping: MappingView): string {
     : `<span class="m-note">${esc(text)}</span>`);
   const table = mapping.rows.length ? `<table class="mini"><thead><tr><th>Source</th><th>Target</th></tr></thead>
       <tbody>${mapping.rows.map(([source, target, more, all, headers]) => `<tr><td>${esc(source)}${headers?.length ? `<div class="m-note">${itemsHtml([...headers])}</div>` : more === undefined ? "" : note(more, all)}</td><td>${esc(target)}</td></tr>`).join("")}</tbody></table>` : "";
-  return `<div class="d-sec" id="drawerMapping"><h3>Mapping</h3>
-      ${match}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
+  const dimensions = mapping.dimensions?.length ? `<table class="mini m-fit m-dims"><thead><tr><th>Dimension</th><th>Source</th><th>Items</th><th>Clear</th></tr></thead>
+      <tbody>${mapping.dimensions.map(cells => `<tr>${cells.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>` : "";
+  const items = mapping.lineItems;
+  const lineItems = items === undefined ? "" : `<h4 class="m-sub">Line items${items.count === undefined ? "" : ` (${items.count})`}</h4>`
+    + (items.rows.length ? `<table class="mini m-fit m-items"><thead><tr><th>${esc(items.heading ?? "Source")}</th><th>Line item</th></tr></thead>
+      <tbody>${items.rows.map(([source, lineItem, more]) => `<tr><td>${esc(source)}${more === undefined ? "" : note(more, undefined)}</td><td>${esc(lineItem)}</td></tr>`).join("")}</tbody></table>` : "")
+    + (items.notes.length ? `<div class="m-notes">${items.notes.map(({ text, all }) => note(text, all)).join("")}</div>` : "");
+  return `<div class="d-sec" id="drawerMapping">${heading}
+      ${from}${match}${dimensions}${lineItems}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
 }
 
 /** The actions of a process (process-actions-view.ts), with their number in the order the process runs them where that is

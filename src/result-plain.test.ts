@@ -142,6 +142,33 @@ describe("A result as plain data", () => {
     expect(plainResult({ ...result, importMappings })).toEqual(result);
   });
 
+  it("keeps what a mapping says of its Source Type, what it clears, its File Options and what each target is, and reads one without them as an earlier version kept it", () => {
+    const model = { ...result, kind: "model" as const };
+    const now = { id: "112000000051", name: "Load joiners", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Time", source: "column", text: "Time", kind: "time", area: "MATCHED_ITEMS", periodFormat: "M-Y" }, { target: "Join Band", source: "prompt", kind: "list" },
+      { target: "Line Items", source: "headerRow", kind: "lineItems", area: "MAPPED_ITEMS_IN_SOURCE", items: { byHand: 3, ignored: 0 } }],
+    headers: [{ header: "Bonus Rate", lineItem: "Bonus Rate" }],
+    fileOptions: { encoding: "ISO-8859-1", separators: ",\t", delimiter: "", decimal: ".", headerRow: 0, firstDataRow: 1 } };
+    // Every field as it is, and nothing more: of the File Options, the six the dialog reads.
+    const read = plainResult({ ...model, importMappings: [{ ...now, fileOptions: { ...now.fileOptions, objectId: 102000000008, modelId: "4B7E0C1D9A2F4E3B8C6D5A4F3E2D1C0B" } }] });
+    expect(read).toEqual({ ...model, importMappings: [now] });
+    expect(Object.keys(read!.importMappings![0].fileOptions!)).toEqual(["encoding", "separators", "delimiter", "decimal", "headerRow", "firstDataRow"]);
+    // A mapping of an import into a list, with its Source Type and nothing more, and one an earlier version kept, with none
+    // of these, are read as they are.
+    const list = { id: "112000000002", name: "Regions from the hub", sourceType: "SAVED VIEW", importType: "HIERARCHY_DATA", targets: [{ target: "+ Regions", source: "column", text: "Region" }] };
+    const earlier = { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1 }] };
+    expect(plainResult({ ...model, importMappings: [list, earlier] })).toEqual({ ...model, importMappings: [list, earlier] });
+    // Anything else is no mapping, and none of the result's mappings is kept.
+    const time = now.targets[0];
+    for (const odd of [{ ...now, sourceType: 3 }, { ...now, sourceType: null }, { ...now, clear: "all" }, { ...now, clear: true }, { ...now, fileOptions: "ISO-8859-1" },
+      { ...now, fileOptions: null }, { ...now, fileOptions: [] }, { ...now, fileOptions: { encoding: 8859 } }, { ...now, fileOptions: { separators: [","] } },
+      { ...now, fileOptions: { delimiter: null } }, { ...now, fileOptions: { decimal: 0 } }, { ...now, fileOptions: { headerRow: "1" } },
+      { ...now, fileOptions: { firstDataRow: -1 } }, { ...now, fileOptions: { headerRow: 1.5 } }, { ...now, targets: [{ ...time, kind: "dimension" }] },
+      { ...now, targets: [{ ...time, kind: "toString" }] }, { ...now, targets: [{ ...time, kind: 1 }] }, { ...now, targets: [{ ...time, area: ["MATCHED_ITEMS"] }] }]) {
+      expect(plainResult({ ...model, importMappings: [odd] }), JSON.stringify(odd)).toEqual(model);
+    }
+  });
+
   it("takes a file name only when it is a name: no path, no drive, no line break, and the extension expected", () => {
     const named = (zipName: unknown, file: unknown) => plainResult({ ...result, zipName, tables: [{ ...result.tables[1], file }] }) !== undefined;
     expect(named("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - App Export - 2026-09-28.zip", "Conditional Formatting.csv")).toBe(true);

@@ -338,7 +338,7 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
     if (named !== undefined && moduleRows.has(named.trim())) whole.add(named.trim());
     else if (named === undefined || !lists.has(named.trim())) exportsUnread++;
   }
-  if (exportsUnread) notes.push(`What ${plural(exportsUnread, "export reads", "exports read")} could not be read from ${exportsUnread === 1 ? "its" : "their"} Action, so a module ${exportsUnread === 1 ? "it exports" : "they export"} may be used after all.`);
+  if (exportsUnread) notes.push(`${exportsUnread === 1 ? "1 export's source" : `${exportsUnread} exports' sources`} couldn't be read, so a module ${exportsUnread === 1 ? "it exports" : "they export"} may be used after all.`);
   const others = readOf(result, OTHER_ACTIONS_FILE);
   for (const row of others?.table.rows ?? []) {
     const definition = definitionOf(others!.cell(row, "Action").trim());
@@ -352,20 +352,25 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
   if (!exports && !others) notes.push("The Actions list was not read, so exports and actions are not known: some line items may be used after all.");
   if (counts.ids && !idsFit) notes.push("The line items that actions name by ID could not be matched, so some line items may be used by actions after all.");
 
-  // Imports into line items, each import of the Imports table into a module by its Target Object. An import from a file
-  // loads what its mapping says: its targets, and its headers mapped by hand; where its line items come from a column or
-  // from the header row matched by name when it runs, any of them. Where the mapping is not known, as for an import from
-  // a module or a saved view, whose mapping is not read, any of them too. Any line item is every line item of the module
-  // that holds data and has no formula, which an import can load.
+  // Imports into line items, each import of the Imports table into a module by its Target Object. An import loads what its
+  // mapping says, whatever its source: its targets, and its headers mapped by hand; where its line items come from a column
+  // or from the header row matched by name when it runs, any of them. Where the mapping is not known (it could not be read,
+  // or a result an earlier version kept has none for an import from a model), any of them too. Any line item is every
+  // line item of the module that holds data and has no formula, which an import can load. An import's mapping is found as
+  // the results page finds it (results/import-mapping-view.ts `mappingOfRow`): by its name, in its place among the imports
+  // of that name and Source Type.
   const mappings = result.importMappings;
   const taken = new Map<string, number>();
   for (const row of imports?.table.rows ?? []) {
-    // The mapping of an import from a file of this name, in its place among those of that name, as the results page finds
-    // it: every import from a file is counted, whatever it loads, as the mappings are listed for every one.
+    // The mapping of an import of this name and Source Type, in its place among those, as the results page finds it: every
+    // import is counted, whatever it loads, as the mappings are listed for every one.
+    const kind = cellText(imports!.cell(row, SOURCE_TYPE)).trim().toUpperCase();
     const file = readsFile(imports!.cell(row, SOURCE_TYPE));
     const name = cellText(row[0]).trim();
-    const place = taken.get(name) ?? 0;
-    if (file) taken.set(name, place + 1);
+    const key = `${kind}
+${name}`;
+    const place = taken.get(key) ?? 0;
+    if (kind !== "") taken.set(key, place + 1);
     const module = unquote(imports!.cell(row, "Target Object")).trim();
     const type = imports!.cell(row, "Target Type").toLowerCase().split(/[^a-z]+/);
     if (!(type.includes("module") || (type.every(word => word === "") && moduleRows.has(module)))) continue;
@@ -374,13 +379,11 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
       if (found) imported.add(found);
     };
     const any = (): void => { for (const item of byModule.get(module) ?? []) if (!item.heading && item.formula.trim() === "") imported.add(item); };
-    if (!file) {
-      any();
-      continue;
-    }
-    const mapping = mappings?.filter(each => each.name.trim() === name)[place];
+    const mapping = kind === "" ? undefined
+      : mappings?.filter(each => each.name.trim() === name && (each.sourceType ?? "FILE").trim().toUpperCase() === kind)[place];
     if (!mapping || mapping.note !== undefined) {
-      counts.mappingsUnread++;
+      // An import from a model in a result an earlier version kept has no mapping: that is no mapping that failed.
+      if (file || mappings?.some(each => each.sourceType !== undefined)) counts.mappingsUnread++;
       any();
       continue;
     }
@@ -396,7 +399,7 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
   }
   counts.imported = imported.size;
   if (counts.mappingsUnread) {
-    notes.push(`The ${counts.mappingsUnread === 1 ? "mapping of 1 import from a file" : `mappings of ${counts.mappingsUnread} imports from a file`} could not be read, so every line item `
+    notes.push(`The ${counts.mappingsUnread === 1 ? "mapping of 1 import" : `mappings of ${counts.mappingsUnread} imports`} could not be read, so every line item `
       + `without a formula in the ${counts.mappingsUnread === 1 ? "module it loads" : "modules they load"} counts as imported.`);
   }
 

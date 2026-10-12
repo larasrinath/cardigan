@@ -212,11 +212,14 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // IMPORTS_ROW_REWORDED, MODEL_FILE_ADDED and MODEL_ROW_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
-    // The mapping of the model's import from a file came with it, from the model's frame through the content script to the
-    // page, beside the tables: each target with the column that feeds it, as the import's definition says it.
-    expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "MODULE_DATA", targets: [
-      { target: "Products", source: "column", column: 1, text: "Product" }, { target: "Time", source: "column", column: 2, text: "Month" },
-      { target: "Line Items", source: "column", column: 3, text: "Line item" }, { target: "Value", source: "column", column: 5, text: "Price" }] }]);
+    // The mappings of the model's imports came with it, from the model's frame through the content script to the page,
+    // beside the tables: of the import of a saved view and of the import from a file, each target with the column that
+    // feeds it, as the import's definition says it, and of the import into a module what each target is and what it clears.
+    expect(result.importMappings).toEqual([{ id: "112000000001", name: "1.1 Load regions", sourceType: "SAVED VIEW", importType: "HIERARCHY_DATA", matchedBy: { by: "name" },
+      targets: [{ target: "+ Regions", source: "column", text: "Region" }] },
+    { id: "112000000002", name: "Prices from prices.csv", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product", kind: "list" }, { target: "Time", source: "column", column: 2, text: "Month", kind: "time" },
+      { target: "Line Items", source: "column", column: 3, text: "Line item", kind: "lineItems" }, { target: "Value", source: "column", column: 5, text: "Price", kind: "value" }] }]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
     // template's five rows about the model, of which the export fills in three. The line under the table names the two of
     // those that the overview says too, under About this export.
@@ -368,7 +371,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
     // Import definitions are still read in place; naming finishes after the calendar supplies its period choices.
     const expectedLog = withLinesSaid(steps(ACCESS_ZIP_0_8_1));
-    const finishesMapping = (line: string) => /Import mapping 112000000002:|Import mappings: 1 of 1 read;/.test(line);
+    const finishesMapping = (line: string) => /Import mapping 11200000000[12]:|Import mappings: 2 of 2 read;/.test(line);
     expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual([
       ...expectedLog.filter(line => !finishesMapping(line)), ...expectedLog.filter(finishesMapping),
     ]);

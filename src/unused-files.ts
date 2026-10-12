@@ -29,8 +29,7 @@ export const WHY = {
 } as const;
 
 /** The line under both tables' names: what unused means here, and what Cardigan cannot see. */
-export const UNUSED_CAVEAT = "Unused means no use Cardigan can see. Other models importing from this one, API or integration reads outside this model's exports, "
-  + "line items hidden in saved views and Workflow aren't visible.";
+export const UNUSED_CAVEAT = "Unused means no use Cardigan can see: other models' imports, API reads, line items hidden in saved views and Workflow aren't visible.";
 
 /** The detail of the Details rows under Notes that say what the run could not see for the two tables: the results page shows
  * them on the Overview and under both tables' names. */
