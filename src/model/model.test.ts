@@ -965,9 +965,10 @@ describe("Model export: Model settings grids to tables", () => {
     // Actions.csv every line with that one cell more at its end, of Model Details.csv every line but those five, with the
     // three lines more, and the file in its place with the text it is to have.
     const [written, before] = [unzipText(zip), unzipText(ACCESS_ZIP_0_8_1)];
-    // Names now finish after the existing calendar read supplies its period choices. Only these four log lines move.
+    // Names now finish after the existing calendar read supplies its period choices. Only these seven log lines move: each
+    // import's three, and the count of what was read.
     const afterCalendar = (lines: string[]): string[] => {
-      const finishesMapping = (line: string) => /Import mapping 112000000002:|Import mappings: 1 of 1 read;/.test(line);
+      const finishesMapping = (line: string) => /Import mapping 11200000000[12]:|Import mappings: 2 of 2 read;/.test(line);
       return [...lines.filter(line => !finishesMapping(line)), ...lines.filter(finishesMapping)];
     };
     const calendarCsv = (csv: string): string => afterCalendar(csv.trimEnd().split("\r\n")).join("\r\n") + "\r\n";
@@ -977,7 +978,7 @@ describe("Model export: Model settings grids to tables", () => {
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
     // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file, the row on
-    // Source Models, the Diagnostics row on the modules' IDs, the seven on the imports' definitions, the four on the
+    // Source Models, the Diagnostics row on the modules' IDs, the eleven on the imports' definitions, the four on the
     // processes' definitions, and after each of the eleven grids with rows the one on the time its page took, among them. The rows in other words than 0.8.1's are the five
     // named, in the file's order: on the layout, on Line Items, on the Actions list's files, on Imports and on the calendar.
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
@@ -986,7 +987,7 @@ describe("Model export: Model settings grids to tables", () => {
     const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, MAPPINGS_ADDED.rows,
       PROCESSES_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 34, detailsBefore.length, 34, 11]);
+    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 38, detailsBefore.length, 38, 11]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
@@ -1385,30 +1386,34 @@ describe("The modules' IDs a model's result keeps", () => {
   });
 });
 
-describe("The mappings of a model's imports from a file", () => {
+describe("The mappings of a model's imports", () => {
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
   const IMPORTS_TAB = "IMPORTS × IMPORT PROPERTIES";
   const DEFINITIONS = "IMPORTS × IMPORT DEFINITIONS";
-  /** The golden model's import from a file with its mapping, as the export reads it out of the import's definition. */
-  const PRICES_MAPPING = { id: "112000000002", name: "Prices from prices.csv", importType: "MODULE_DATA", targets: [
-    { target: "Products", source: "column", column: 1, text: "Product" }, { target: "Time", source: "column", column: 2, text: "Month" },
-    { target: "Line Items", source: "column", column: 3, text: "Line item" }, { target: "Value", source: "column", column: 5, text: "Price" }] };
+  /** The golden model's import from a file with its mapping, as the export reads it out of the import's definition: into a
+   * module, each target with what it is, and with what it clears first, as no globalTargetAreaSpecification says. */
+  const PRICES_MAPPING = { id: "112000000002", name: "Prices from prices.csv", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear", targets: [
+    { target: "Products", source: "column", column: 1, text: "Product", kind: "list" }, { target: "Time", source: "column", column: 2, text: "Month", kind: "time" },
+    { target: "Line Items", source: "column", column: 3, text: "Line item", kind: "lineItems" }, { target: "Value", source: "column", column: 5, text: "Price", kind: "value" }] };
+  /** Its import of a saved view of another model into a list, its one column kept by the entity it is and its name. */
+  const REGIONS_MAPPING = { id: "112000000001", name: "1.1 Load regions", sourceType: "SAVED VIEW", importType: "HIERARCHY_DATA", matchedBy: { by: "name" },
+    targets: [{ target: "+ Regions", source: "column", text: "Region" }] };
 
-  it("are read from the imports' definitions as Anaplan's import dialog reads them, one view and nothing else sent, for the imports from a file alone", async () => {
+  it("are read from the imports' definitions as Anaplan's import dialog reads them, one view and nothing else sent, for every import whatever its Source Type", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const posted: any[] = [];
     const result = await exportGoldenModel(GOLDEN_GRIDS, [], undefined, { posted });
-    // The one import from a file has its mapping; the import from another model has none. Products is named as General
-    // Lists names it.
-    expect(result.importMappings).toEqual([PRICES_MAPPING]);
+    // The import from a file and the import of a saved view each have their mapping, in the Imports tab's order. Products
+    // is named as General Lists names it.
+    expect(result.importMappings).toEqual([REGIONS_MAPPING, PRICES_MAPPING]);
     // The definitions are a view of every import against the import properties, IMPORT_ALL against IMPORT_PROPERTY, read
     // after the Imports tab as any other grid is: its first page, which holds every row of a grid this small.
     const views = posted.map(request => `${request.params.viewDefinition.type} ${request.params.viewDefinition.rowAxis} × ${request.params.viewDefinition.columnAxis}`);
     expect(views.filter(view => view.includes("IMPORTS"))).toEqual(["MODEL_DEFINITION IMPORTS × IMPORT PROPERTIES", "MODEL_DEFINITION IMPORTS × IMPORT DEFINITIONS"]);
     // Every request the page's client was given to send is a read of a view: no submission, so no cell of a definition is
-    // saved, and no system action, so not the one that asks for a file's columns.
+    // saved, and no system action, so not the ones that ask for a source's columns or its items.
     expect(posted.every(request => request.requestType === "VIEW_REQUEST_SET" && request.submissions.length === 0 && request.systemActions.length === 0)).toBe(true);
-    expect(JSON.stringify(posted).includes("GET_IMPORT_SOURCE_FIELDS")).toBe(false);
+    expect(JSON.stringify(posted)).not.toMatch(/GET_IMPORT_SOURCE_FIELDS|GET_IMPORT_SOURCE_ITEMS/);
     // The Imports table is as it is without them, and so is every other table: the mappings are carried beside the tables.
     const { [DEFINITIONS]: _definitions, ...without } = GOLDEN_GRIDS;
     const before = await exportGoldenModel(without);
@@ -1424,31 +1429,40 @@ describe("The mappings of a model's imports from a file", () => {
       ? { requestType: "VIEW_REQUEST_SET", submissions: [{ entityLongIds: [4000001300, 112000000002], value: "{}" }], systemActions: [{ type: "GET_IMPORT_SOURCE_FIELDS" }], params } : undefined);
     const result = await exportGoldenModel(GOLDEN_GRIDS, [], said, { posted, request });
     expect(posted.filter(sent => sent.params.viewDefinition.columnAxis === "IMPORT DEFINITIONS")).toEqual([]);
-    expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
-    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read", "Reading Import mappings…",
-      "Import mappings: Refusing to send anything but a read.", "Import mappings: 0 of 1 read; the model gave no grid of definitions"]);
+    expect(result.importMappings).toEqual([{ id: "112000000001", name: "1.1 Load regions", sourceType: "SAVED VIEW", importType: "", targets: [], note: MAPPING_NOTES.notRead },
+      { id: "112000000002", name: "Prices from prices.csv", sourceType: "FILE", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
+    // Without the definitions, the data sources' are not read either.
+    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 2 mappings to read", "Reading Import mappings…",
+      "Import mappings: Refusing to send anything but a read.", "Import mappings: 0 of 2 read; the model gave no grid of definitions"]);
     // The export goes on: every table is there, the Imports table as ever.
     expect(result.tables.map(table => table.file)).toEqual((await exportGoldenModel()).tables.map(table => table.file));
   });
 
-  it("are not read for a model without an import from a file, and the result then has none, which the log says by the tab's Source Types", async () => {
+  it("are read for a model whose imports read no file, are none for a model with no import, and the log says by the tab's Source Types", async () => {
     const [reads, said]: string[][] = [[], []];
     const tab = GOLDEN_GRIDS[IMPORTS_TAB];
     const noFile = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: row.cells.map(cell => (cell === "FILE" ? "MODULE" : cell)) })) };
     const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: noFile }, reads, said);
-    // An empty list, not none: a result without mappings is one an earlier version made.
-    expect([result.importMappings, reads.filter(read => read.startsWith("IMPORTS"))]).toEqual([[], ["IMPORTS 0+1333"]]);
-    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, MODULE ×1; 0 mappings to read"]);
+    // Each is read as one of a model's object: the names the definition writes stand, and no File Options are kept.
+    expect([result.importMappings, reads.filter(read => read.startsWith("IMPORTS"))]).toEqual([[REGIONS_MAPPING, { ...PRICES_MAPPING, sourceType: "MODULE" }],
+      ["IMPORTS 0+1333", "IMPORTS 0+1333"]]);
+    expect(said.map(line => line.slice(9)).find(line => line.includes("Import mappings: 2 imports"))).toBe("Import mappings: 2 imports; Source Types: SAVED VIEW ×1, MODULE ×1; 2 mappings to read");
+    // An empty list, not none, where the tab lists no import: nothing is read for the mappings. A result without mappings
+    // is one an earlier version made.
+    const noneReads: string[] = [];
+    expect((await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: { ...tab, rows: [] } }, noneReads)).importMappings).toEqual([]);
+    expect(noneReads.filter(read => read.startsWith("IMPORTS"))).toEqual(["IMPORTS 0+1333"]);
     // A Source Type that is no word is written as a question mark, and a word in other letters as it is; a tab without
-    // the column says so.
+    // the column says so, and its imports are read all the same.
     const odd = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: row.cells.map(cell => (cell === "FILE" ? " file " : cell === "SAVED VIEW" ? "A <b>" : cell)) })) };
     const oddSaid: string[] = [];
     await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: odd }, [], oddSaid);
-    expect(oddSaid.find(line => line.includes("Import mappings: 2 imports"))?.slice(9)).toBe("Import mappings: 2 imports; Source Types: ? ×1, file ×1; 1 mapping to read");
+    expect(oddSaid.find(line => line.includes("Import mappings: 2 imports"))?.slice(9)).toBe("Import mappings: 2 imports; Source Types: ? ×1, file ×1; 2 mappings to read");
     const columnless = { columns: tab.columns.filter(column => column !== "Source Type"), rows: tab.rows.map(row => ({ ...row, cells: row.cells.filter((_, index) => tab.columns[index] !== "Source Type") })) };
     const columnlessSaid: string[] = [];
-    expect((await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: columnless }, [], columnlessSaid)).importMappings).toEqual([]);
-    expect(columnlessSaid.filter(line => line.includes("Import mapping")).map(line => line.slice(9))).toEqual(["Import mappings: 2 imports; the Imports tab has no Source Type column"]);
+    expect((await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: columnless }, [], columnlessSaid)).importMappings?.map(mapping => [mapping.name, mapping.sourceType]))
+      .toEqual([["1.1 Load regions", ""], ["Prices from prices.csv", ""]]);
+    expect(columnlessSaid.find(line => line.includes("Import mappings: 2 imports"))?.slice(9)).toBe("Import mappings: 2 imports; the Imports tab has no Source Type column; 2 mappings to read");
     // None where the Imports tab could not be read: its imports are not known.
     const { [IMPORTS_TAB]: _tab, ...withoutTab } = GOLDEN_GRIDS;
     expect((await exportGoldenModel(withoutTab)).importMappings).toBeUndefined();
@@ -1460,11 +1474,13 @@ describe("The mappings of a model's imports from a file", () => {
     const { [DEFINITIONS]: _definitions, ...without } = GOLDEN_GRIDS;
     const [reads, said]: string[][] = [[], []];
     const result = await exportGoldenModel(without, reads, said);
-    expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
-    // The read was sent, once, and the next grid read after it: the reason is in the log, and no table says it.
+    expect(result.importMappings).toEqual([{ id: "112000000001", name: "1.1 Load regions", sourceType: "SAVED VIEW", importType: "", targets: [], note: MAPPING_NOTES.notRead },
+      { id: "112000000002", name: "Prices from prices.csv", sourceType: "FILE", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
+    // The read was sent, once, and the next grid read after it: the reason is in the log, and no table says it. The data
+    // sources' definitions are not read without the imports'.
     expect(reads.slice(reads.indexOf("IMPORTS 0+1333") + 1, reads.indexOf("IMPORTS 0+1333") + 3)).toEqual(["IMPORTS 0+1333", "DATA SOURCES 0+1333"]);
-    expect(said.filter(line => line.includes("Import mapping"))).toEqual(["12:30:10 Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read", "12:30:10 Reading Import mappings…",
-      "12:30:10 Import mappings: The model rejected the read.", "12:30:10 Import mappings: 0 of 1 read; the model gave no grid of definitions"]);
+    expect(said.filter(line => line.includes("Import mapping"))).toEqual(["12:30:10 Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 2 mappings to read", "12:30:10 Reading Import mappings…",
+      "12:30:10 Import mappings: The model rejected the read.", "12:30:10 Import mappings: 0 of 2 read; the model gave no grid of definitions"]);
     expect([result.summary.filter(line => /mapping/i.test(line)), result.tables[0].rows.filter(row => row[0] === "Notes")]).toEqual([[], []]);
     expect(result.tables.find(table => table.file === "Imports.csv")).toEqual((await exportGoldenModel()).tables.find(table => table.file === "Imports.csv"));
   });
@@ -1472,7 +1488,7 @@ describe("The mappings of a model's imports from a file", () => {
   it("come through the trip to the results page as plain data, and a result an earlier version kept has none", async () => {
     const result = await exportGoldenModel();
     const received = plainResult(JSON.parse(JSON.stringify(result)));
-    expect(received?.importMappings).toEqual([PRICES_MAPPING]);
+    expect(received?.importMappings).toEqual([REGIONS_MAPPING, PRICES_MAPPING]);
     const { importMappings: _mappings, ...earlier } = result;
     expect(plainResult(JSON.parse(JSON.stringify(earlier)))?.importMappings).toBeUndefined();
   });

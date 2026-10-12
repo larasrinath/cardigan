@@ -2,20 +2,32 @@ import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import { missingIn } from "../page-files.js";
 import { POLARIS_MAPPING_NOTE } from "../polaris.js";
 import { readImportMappings } from "../result-plain.js";
-import type { AnalysisResult, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable } from "../result-types.js";
+import type { AnalysisResult, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable, TargetKind } from "../result-types.js";
 import { columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { formatType } from "./readable-cells.js";
 import { IMPORTS_FILE } from "./result-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
-/** The mapping of an import from a file, as the details of its row of a model's Imports show it, under All columns: each
- * source that feeds a target of the import, with the target it feeds, the columns first and in their order; then a line
- * that names the targets nothing feeds, and what the mapping says of the columns it does not use. The source comes first
- * because the import is read from its source: a target that nothing feeds is no row, with nothing in its Source, but a
- * name in that line. It is the import's own definition, which the export read (model/import-mappings.ts), so an import
- * whose file is no longer available shows it as well. No word here names a file: the page names none
- * (no-file.test-support.ts), and says "column" and "the header row" where the dialog says file's columns.
+/** The mapping of an import, as the details of its row of a model's Imports show it, before All columns. It is the
+ * import's own definition, which the export read (model/import-mappings.ts), so an import whose source is no longer
+ * available shows it as well. Above it stands how the import's source is read: for uploaded data, its File Options, under
+ * the one word of the page that names a file, "File", the word of Anaplan's own dialog for them; for a model's module,
+ * saved view or list, the object, as the row of Imports names it. Otherwise no word here names a file: the page names
+ * none (no-file.test-support.ts), and says "column" and "the header row" where the dialog says file's columns.
+ *
+ * An import into a module is laid out as Anaplan's import dialog lays it out (`moduleView`): what it does to the module
+ * before it loads, the Mapping tab's "Clear target prior to import" or "Only update imported cells", by the heading; a
+ * table of the module's dimensions, in the definition's order, each with what feeds it, how its items are matched and
+ * which of them it clears first, as the dimension's own tab says it; then its line items, each with its column, or each
+ * header mapped by hand with its line item. A result an earlier version kept says of its targets neither what each is nor
+ * what it clears: its mapping into a module stands as an import into a list does.
+ *
+ * An import into a list, as such a result's into a module, is a table of Source and Target: each source that feeds a
+ * target of the import, with the target it feeds, the columns first and in their order; then a line that names the
+ * targets nothing feeds, and what the mapping says of the columns it does not use. The source comes first because the
+ * import is read from its source: a target that nothing feeds is no row, with nothing in its Source, but a name in that
+ * line.
  *
  * Which columns an import does not use can be said up to the last column it maps, and no further. The definition keeps
  * its columns by their places, and some by their headings alone, and nothing of the file: not how many columns it has,
@@ -26,11 +38,12 @@ import { cellText, type Row } from "./table-engine.js";
  * Above the rows of an import into a list stands how it tells the list's items apart, in the dialog's own words: that is
  * why a list's Name, Parent or Code may rightly be fed by nothing.
  *
- * Of an import into a module the definition holds more, and the rows say it under their sources: a dimension's items
- * mapped by hand or ignored, the format of Time's periods, a date line item's format. Where the line items come from the
- * header row, each header the modeller mapped by hand is listed beneath it with its line item, and each ignored header
- * says so. A header the import matches on a line item's name or code when it runs is
- * stored nowhere, and the page says so rather than list what it cannot know: with the line items such a header can be.
+ * Of an import into a module an earlier version's result holds more, and the rows say it under their sources: a
+ * dimension's items mapped by hand or ignored, the format of Time's periods, a date line item's format. Where the line
+ * items come from the header row, each header the modeller mapped by hand is listed beneath it with its line item, and
+ * each ignored header says so. A header the import matches on a line item's name or code when it runs is stored nowhere,
+ * and the page says so rather than list what it cannot know: with the line items such a header can be. The header row
+ * that holds Time's periods, or a list's items, is said so (`headerRowWords`).
  *
  * A line item the import still maps to that the model doesn't have is named Missing, with its ID, as the pages' tables
  * name one (page-files.ts `missingText`), and the last line under the mapping says what that means. */
@@ -39,10 +52,32 @@ import { cellText, type Row } from "./table-engine.js";
  * under the source; with the names that line lists in full, where it shows the first of them. */
 export type MappingRow = [source: string, target: string, note?: string, all?: readonly string[], headers?: readonly string[]];
 
-/** A mapping as the drawer shows it: for an import into a list, how it tells the list's items apart, above; a row of Source
- * and Target for each source and a target it feeds; then lines under them. */
+/** A row of the dimensions of an import into a module: the dimension, what feeds it, how its items or periods are matched,
+ * and which of them the import clears first. Each but the dimension is empty where nothing applies. */
+export type DimensionRow = [dimension: string, source: string, items: string, clear: string];
+/** A row of the line items of an import into a module: what feeds a line item, the line item, and a line under the source
+ * where there is more to say of how it is read. */
+export type LineItemRow = [source: string, lineItem: string, note?: string];
+/** A line the drawer shows in the place of a table or under it, with the names it lists in full where it shows the first
+ * of them. */
+export interface MappingNote { text: string; all?: readonly string[] }
+
+/** The line items of an import into a module, under its dimensions: the rows of their table, under a heading that says
+ * what feeds them, each header mapped by hand ("Header"), each line item's own column ("Column"), or both ("Source"); and
+ * the lines in the table's place or under it. `count` is how many the heading counts: the rows, or the line items a
+ * header can match. */
+export interface LineItemsView { count?: number; heading?: "Header" | "Column" | "Source"; rows: LineItemRow[]; notes: MappingNote[] }
+
+/** A mapping as the drawer shows it. Above all, what an import into a module does to it before it loads (`clear`), and how
+ * its source is read (`from`): the File Options of uploaded data, or the model's object it reads, each with its label.
+ * For an import into a list, how it tells the list's items apart, and a row of Source and Target for each source and a
+ * target it feeds. For an import into a module, its dimensions and its line items. Then lines under them. */
 export interface MappingView {
+  clear?: string;
+  from?: { label: "File" | "Source"; text: string };
   match?: string;
+  dimensions?: DimensionRow[];
+  lineItems?: LineItemsView;
   rows: MappingRow[];
   lines: string[];
 }
@@ -101,7 +136,7 @@ export function sourceWords(target: MappedTarget): string {
     case "ignore":
       return "Ignored";
     case "headerRow":
-      return HEADER_ROW_MATCHED;
+      return headerRowWords(target);
     case "none":
       return "Not mapped";
     case "numbered":
@@ -109,6 +144,19 @@ export function sourceWords(target: MappedTarget): string {
     default:
       return said(target.text) ? `A source Cardigan does not know (${target.text})` : "A source Cardigan does not know";
   }
+}
+
+/** What a target of an import into a module is (result-types.ts `TargetKind`); in a result an earlier version kept, which
+ * says it of none, what its name says of the dimensions the header row can feed: Time, Versions, the line items. */
+const kindOf = (target: MappedTarget): TargetKind | undefined => target.kind
+  ?? (target.target === "Time" ? "time" : target.target === "Versions" ? "versions" : target.target === "Line Items" ? "lineItems" : undefined);
+
+/** The header row as the source of what it feeds, in words for what it holds: the line items, a column for each whose
+ * header is a line item's name or code (`HEADER_ROW_MATCHED`); Time's periods; the versions; or a list's items. */
+function headerRowWords(target: MappedTarget): string {
+  const kind = kindOf(target);
+  return kind === "lineItems" ? HEADER_ROW_MATCHED : kind === "time" ? "Header row: the periods" : kind === "versions" ? "Header row: the versions"
+    : `Header row: the items of ${target.target}`;
 }
 
 /** How an import into a list tells the list's items apart, in the dialog's words for its choice under "Items uniquely
@@ -139,10 +187,20 @@ const headingKey = (text: string): string => text.trim().toLowerCase();
 /** A count with its noun: "1 item", "3 items". */
 const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 
+/** The line items a header can match, where the header row is matched on names or codes: the first five, and how many
+ * more, with all of them where there are more. Nothing where none is known. */
+function canMatch(lineItems: readonly string[] | undefined): [note?: string, all?: readonly string[]] {
+  if (!lineItems?.length) return [];
+  const first = lineItems.slice(0, FIRST_NAMES);
+  const more = lineItems.length - first.length;
+  const note = `Line items a header can match: ${more ? `${first.join(", ")} and ${more} more` : listWords(first)}`;
+  return more ? [note, lineItems] : [note];
+}
+
 /** What more a row says of how its source is read, under the source: a dimension's items mapped by hand or ignored, the
- * line items a header can match where the header row is matched on names or codes, the format of Time's periods, a date
- * line item's format. Nothing where the definition says nothing more, and nothing for items matched on names or codes,
- * which a line under the rows says once for all of them. */
+ * line items a header can match where the header row that holds them is matched on names or codes, the format of Time's
+ * periods, a date line item's format. Nothing where the definition says nothing more, and nothing for items matched on
+ * names or codes, which a line under the rows says once for all of them. */
 function noteOf(target: MappedTarget, lineItems: readonly string[] | undefined): [note?: string, all?: readonly string[]] {
   if (target.dateFormat !== undefined) return [`Date format: ${target.dateFormat}`];
   if (target.periodFormat !== undefined) return [target.periodFormat === null ? "Periods matched by their names" : `Period format: ${target.periodFormat}`];
@@ -151,11 +209,8 @@ function noteOf(target: MappedTarget, lineItems: readonly string[] | undefined):
     if (target.items && handled) {
       return [`Mapped by hand: ${counted(target.items.byHand, "header", "headers")}${target.items.ignored ? `, ${target.items.ignored} ignored` : ""}`];
     }
-    if (!lineItems?.length) return [];
-    const first = lineItems.slice(0, FIRST_NAMES);
-    const more = lineItems.length - first.length;
-    const note = `Line items a header can match: ${more ? `${first.join(", ")} and ${more} more` : listWords(first)}`;
-    return more ? [note, lineItems] : [note];
+    // Only a header row of line items has line items a header can match.
+    return kindOf(target) === "lineItems" ? canMatch(lineItems) : [];
   }
   if (target.items && handled) {
     return [`${counted(target.items.byHand, "item", "items")} mapped by hand${target.items.ignored ? `, ${target.items.ignored} ignored` : ""}`];
@@ -276,23 +331,186 @@ function namesMissingLineItem(mapping: ImportMapping): boolean {
   return names.some(name => missingIn(name).some(({ kind }) => kind === "line item"));
 }
 
+/** What an import into a module does to it before it loads, in its dialog's words (anaplan/nls/importDefinitionModuleMapping
+ * `labelClearItemsRadioButtonLabel`, `labelReplaceItemsRadioButtonLabel`). */
+export const CLEAR_TARGET = "Clear target prior to import";
+export const ONLY_UPDATE = "Only update imported cells";
+
+/** Which of a dimension's items an import clears first, in the words of the dimension's tab of the dialog
+ * (anaplan/nls/mappedDimensionImportOptions, and anaplan/nls/timeDimensionImportOptions for Time's matched items), by the
+ * definition's word for it. A word the dialog has no label for is said as it is. */
+export function areaWords(area: string, time = false): string {
+  switch (area) {
+    case "MATCHED_ITEMS": return time ? "Matched items only" : "Matched items in source";
+    case "MAPPED_ITEMS_IN_SOURCE": return "Mapped items in source";
+    case "ALL_MAPPED_ITEMS": return "All mapped items";
+    case "ALL_ITEMS": return "All items";
+    default: return area;
+  }
+}
+
+/** A character of a source's settings in words: the column separators of Anaplan's dialog by their names, a space by its
+ * name, a character that shows nothing by its code ("U+001F"), and any other as itself. */
+function characterWords(character: string): string {
+  if (character === "\t") return "Tab";
+  if (character === ",") return "Comma";
+  if (character === ";") return "Semicolon";
+  if (character === " ") return "Space";
+  const code = character.codePointAt(0) ?? 0;
+  return code < 32 || (code >= 127 && code < 160) || /^\s$/u.test(character) ? `U+${code.toString(16).toUpperCase().padStart(4, "0")}` : character;
+}
+
+/** The File Options of uploaded data, in a line, as Anaplan's dialog sets them out, each part where the source holds it:
+ * the header row ("Header row 1", or "No header row" for 0) and the first row of data ("data from row 2"); the column
+ * separators, each by its name or as itself, "Comma and Tab", or "No column separator" for none; the text delimiter, '"'
+ * or "'", "no text delimiter" for none (as the dialog takes a nought too), or another character with what it is; the
+ * decimal separator, Dot or Comma, or another with what it is; and the encoding, by Anaplan's name for it. */
+export function fileOptionsWords(options: FileOptions): string {
+  const parts: string[] = [];
+  if (options.headerRow !== undefined) parts.push(options.headerRow === 0 ? "No header row" : `Header row ${options.headerRow}`);
+  if (options.firstDataRow !== undefined) parts.push(`${parts.length ? "data" : "Data"} from row ${options.firstDataRow}`);
+  if (options.separators !== undefined) {
+    const characters = [...new Set(Array.from(options.separators))];
+    parts.push(characters.length ? listWords(characters.map(characterWords)) : "No column separator");
+  }
+  if (options.delimiter !== undefined) {
+    const delimiter = options.delimiter;
+    parts.push(delimiter === "" || delimiter === "\u0000" ? "no text delimiter" : delimiter === '"' || delimiter === "'" ? delimiter
+      : `${Array.from(delimiter).map(characterWords).join("")} as text delimiter`);
+  }
+  if (options.decimal !== undefined) {
+    parts.push(options.decimal === "." ? "Dot" : options.decimal === "," ? "Comma" : `${Array.from(options.decimal).map(characterWords).join("")} as decimal separator`);
+  }
+  if (options.encoding !== undefined && options.encoding.trim() !== "") parts.push(options.encoding.trim());
+  return parts.join(" · ");
+}
+
+/** What feeds a target of an import into a module, in the words of the dialog's choices (anaplan/nls/
+ * importDefinitionModuleMapping): a column by its place and its heading as the definition keeps them, "Column 3: Price",
+ * "Column: Price" or "Column 3"; the header row; a prompt each run; a fixed item, by its value; not applicable to this
+ * import; or not mapped. A column the definition gives only an identifier for is said by it. */
+export function moduleSourceWords(target: MappedTarget): string {
+  switch (target.source) {
+    case "column":
+      if (said(target.text)) return target.column !== undefined ? `Column ${target.column}: ${target.text}` : `Column: ${target.text}`;
+      if (target.column !== undefined) return `Column ${target.column}`;
+      return said(target.id) ? `Column with ID ${target.id}` : "A column the definition neither numbers nor names";
+    case "headerRow":
+      return "Header row";
+    case "prompt":
+      return "Prompt each run";
+    case "constant":
+      return said(target.text) ? `Fixed: ${target.text}` : "Fixed, with no value given";
+    case "ignore":
+      return "Not applicable";
+    default:
+      return sourceWords(target);
+  }
+}
+
+/** The kinds of target of an import into a module that are its dimensions, and so rows of its table of dimensions. A
+ * target of a kind Cardigan does not know stands among them, by its name. */
+const DIMENSIONS: ReadonlySet<TargetKind> = new Set<TargetKind>(["time", "versions", "list", "lineItems", "other"]);
+
+/** How a dimension's items, or Time's periods, are matched to what feeds them, as the dimension's tab says it: Time's
+ * periods by a format, or by their names; a dimension's items on their names or codes, or mapped by hand. Mapped by hand
+ * says how many and how many are ignored, but for line items whose table lists them (`listed`). Nothing for a dimension
+ * fed by anything but a column or the header row, nor where the definition says nothing. */
+function itemsWords(target: MappedTarget, listed: boolean): string {
+  if (target.source !== "column" && target.source !== "headerRow") return "";
+  if (target.kind === "time") return target.periodFormat === null ? "Periods matched by their names" : target.periodFormat !== undefined ? `Periods, ${target.periodFormat}` : "";
+  if (!target.items) return "";
+  const { byHand, ignored } = target.items;
+  if (!byHand && !ignored) return "Matched on names or codes";
+  return listed ? "Mapped by hand" : `Mapped by hand: ${counted(byHand, "item", "items")}${ignored ? `, ${ignored} ignored` : ""}`;
+}
+
+/** The line items of an import into a module (`LineItemsView`), or none where there is nothing to say of them beyond the
+ * row of the line items' dimension:
+ * - each line item's own mapping, with what feeds it, as a column's place and heading say it, and its date format. Where
+ *   a column of values feeds the line items each row names, the dialog keeps no column of a line item's own
+ *   (view/ImportDefinitionModuleMapping.js `_initSingleOrMultipleColumnDataValues`): a line item's that is not mapped is
+ *   then no row. Nor is one that a header mapped by hand feeds.
+ * - each header mapped by hand, with its line item or Ignored, but one that a line item's own column already says.
+ * - with neither, where the header row is matched on names or codes, the line items a header can match, where the page
+ *   knows them: what each header may be, not what it is.
+ * - the line item a constant fixes, in the dialog's words.
+ * - the column of values, where one feeds the line items each row names: the dialog's "Data values from". */
+function lineItemsView(mapping: ImportMapping, lineItems: readonly string[] | undefined): LineItemsView | undefined {
+  const dimension = mapping.targets.find(target => target.kind === "lineItems");
+  const value = mapping.targets.find(target => target.kind === "value" && target.source !== "none");
+  const own = mapping.targets.filter(target => target.kind === "lineItem");
+  const columns = new Set(own.filter(target => target.source === "column" && said(target.text)).map(target => `${headingKey(target.text!)}\n${target.target}`));
+  const pairs = (mapping.headers ?? []).filter(({ header, lineItem }) => lineItem === undefined || !columns.has(`${headingKey(header)}\n${lineItem}`));
+  const paired = new Set(pairs.flatMap(({ lineItem }) => (lineItem === undefined ? [] : [lineItem])));
+  const shown = own.filter(target => target.source !== "none" || (!value && !paired.has(target.target)));
+  const rows: LineItemRow[] = [...shown.map((target): LineItemRow => (target.dateFormat === undefined ? [moduleSourceWords(target), target.target]
+    : [moduleSourceWords(target), target.target, `Date format: ${target.dateFormat}`])), ...pairs.map(({ header, lineItem }): LineItemRow => [header, lineItem ?? "Ignored"])];
+  const notes: MappingNote[] = [];
+  let count = rows.length || undefined;
+  if (!rows.length && dimension?.source === "headerRow") {
+    const [text, all] = canMatch(lineItems);
+    if (text !== undefined) {
+      notes.push(all ? { text, all } : { text });
+      count = lineItems?.length;
+    }
+  }
+  if (dimension?.source === "constant") notes.push({ text: said(dimension.text) ? `Fixed line item: ${dimension.text}. Every value loads into it.` : "Fixed line item, with no line item given." });
+  if (value) notes.push({ text: `Data values from ${moduleSourceWords(value)}` });
+  if (!rows.length && !notes.length) return undefined;
+  const heading = !rows.length ? undefined : !pairs.length ? "Column" : !shown.length ? "Header" : "Source";
+  return { ...(count !== undefined ? { count } : {}), ...(heading ? { heading } : {}), rows, notes };
+}
+
+/** An import into a module, laid out as its dialog lays it out (`MappingView`): what it clears, its dimensions and its
+ * line items, then the lines under them. A dimension's clear choice is said only where the import clears its target
+ * first: the dialog hides it otherwise (view/MappedDimensionImportOptions.js `displayTargetItemsOptions`). The lines say
+ * where the header row holds Time's periods or a list's items, that items matched on names or codes are matched when the
+ * import runs, what the mapping says of the columns it does not use, for uploaded data, and what a missing line item is. */
+function moduleView(mapping: ImportMapping, lineItems: readonly string[] | undefined, model: boolean): Pick<MappingView, "clear" | "dimensions" | "lineItems" | "lines"> {
+  const update = mapping.clear === "update";
+  const items = lineItemsView(mapping, lineItems);
+  const dimensions = mapping.targets.filter(target => target.kind !== undefined && DIMENSIONS.has(target.kind)).map((target): DimensionRow => [target.target,
+    moduleSourceWords(target), itemsWords(target, target.kind === "lineItems" && (items?.rows.length ?? 0) > 0),
+    update || target.area === undefined ? "" : areaWords(target.area, target.kind === "time")]);
+  const holds = mapping.targets.filter(target => target.source === "headerRow" && target.kind !== "lineItems" && target.kind !== "other").map(target =>
+    (target.kind === "time" ? "The periods are in the header row." : target.kind === "versions" ? "The versions are in the header row." : `The items of ${target.target} are in the header row.`));
+  const matched = mapping.targets.some(target => target.kind !== "time" && target.items && !target.items.byHand && !target.items.ignored
+    && (target.source === "column" || target.source === "headerRow"));
+  return { ...(mapping.clear ? { clear: update ? ONLY_UPDATE : CLEAR_TARGET } : {}), dimensions, ...(items ? { lineItems: items } : {}),
+    lines: [...holds, ...(matched ? ["Items set to match on names or codes are paired when the import runs, so Anaplan saves no pairs for them."] : []),
+      ...(model ? [] : columnLines(mapping.targets)), ...(namesMissingLineItem(mapping) ? [MISSING_LINE_ITEM_NOTE] : [])] };
+}
+
+/** Whether a mapping says what each of its targets is, as a result of this version does of an import into a module: one
+ * an earlier version kept is shown as an import into a list is. */
+const laidOutAsModule = (mapping: ImportMapping): boolean => mapping.importType === "MODULE_DATA" && mapping.targets.length > 0
+  && mapping.targets.every(target => target.kind !== undefined);
+
 /** An import's mapping as the drawer shows it, or what stands in its place: why it could not be read, what an import of
  * another kind loads, or that the definition maps nothing. `lineItems` are the line items of the module it loads into
- * that a header can match, where the page knows them (`lineItemsOf`). The last line says what a missing line item is,
- * where the mapping names one. */
-export function mappingView(mapping: ImportMapping | undefined, lineItems?: readonly string[]): MappingView {
+ * that a header can match, where the page knows them (`lineItemsOf`). `source` is the model's object an import of one
+ * reads, as its row of Imports names it (`sourceLine`): the line the File Options of uploaded data stand in otherwise. Of
+ * a model's object, no column is numbered, and nothing is said of the columns it does not use. The last line says what a
+ * missing line item is, where the mapping names one. */
+export function mappingView(mapping: ImportMapping | undefined, lineItems?: readonly string[], source?: string): MappingView {
   if (!mapping) return { rows: [], lines: [NO_MAPPING] };
   if (mapping.note !== undefined) return { rows: [], lines: [mapping.note] };
   if (!LISTED.has(mapping.importType)) {
     const loads = LOADS.get(mapping.importType);
     return { rows: [], lines: [`${loads ? `This import loads ${loads}.` : "This import loads neither a module nor a list."} ${ONLY_LISTED}`] };
   }
+  const options = mapping.fileOptions ? fileOptionsWords(mapping.fileOptions) : "";
+  const from = options ? { from: { label: "File" as const, text: options } } : source ? { from: { label: "Source" as const, text: source } } : {};
+  const clear = mapping.importType === "MODULE_DATA" && mapping.clear ? { clear: mapping.clear === "update" ? ONLY_UPDATE : CLEAR_TARGET } : {};
   const match = mapping.matchedBy ? { match: matchWords(mapping.matchedBy) } : {};
-  if (!mapping.targets.length) return { ...match, rows: [], lines: ["The import's definition maps no target."] };
+  if (!mapping.targets.length) return { ...clear, ...from, ...match, rows: [], lines: ["The import's definition maps no target."] };
+  const model = !readsFile(mapping.sourceType ?? "FILE") && mapping.sourceType !== "" && !options;
+  if (laidOutAsModule(mapping)) return { ...from, ...moduleView(mapping, lineItems, model), rows: [] };
   const unfed = unfedLine(mapping.targets);
   const headers = mapping.headers ?? [];
-  return { ...match, rows: sourceRows(mapping.targets, headers, lineItems),
-    lines: [...(unfed === undefined ? [] : [unfed]), ...matchingLines(mapping.targets), ...columnLines(mapping.targets),
+  return { ...clear, ...from, ...match, rows: sourceRows(mapping.targets, headers, lineItems),
+    lines: [...(unfed === undefined ? [] : [unfed]), ...matchingLines(mapping.targets), ...(model ? [] : columnLines(mapping.targets)),
       ...(namesMissingLineItem(mapping) ? [MISSING_LINE_ITEM_NOTE] : [])] };
 }
 
@@ -311,26 +529,50 @@ export function lineItemsOf(result: AnalysisResult, table: ResultTable, row: Row
   return names.length ? names : undefined;
 }
 
-/** The mapping for a row of a model's Imports, where its Source Type says that it reads a file (file-imports.ts
- * `readsFile`, the export's rule for which imports it reads the mapping of), and where the result has mappings, checked as
- * the bridge checks them (result-plain.ts `readImportMappings`). None for any other row, and for a result without
- * mappings, such as one an earlier version kept: the drawer then has no Mapping. The Imports table has no column of IDs,
- * so the row's mapping is the one of its name, the import's own name; among imports of one name, the one in the row's
- * place among them, as the export lists them in the Imports tab's order, which the table keeps. `table` is the Imports
- * table as the page shows it, whose rows stand each in the place it has in the file (result-view.ts `fileView`). */
+/** A Source Type as the page tells one from another: without the spaces around it, and in any case, as `readsFile` reads
+ * FILE. */
+const typeKey = (cell: unknown): string => cellText(cell).trim().toUpperCase();
+
+/** The model's object an import of one reads, as its row of Imports names it, in a line: the model, the module and the
+ * saved view, each with what it is, where the table shows Source Object as those three (result-view.ts `importsRule`);
+ * the list an import of a list reads, as the cell writes it, under Source Model, or under Source Object where the table
+ * shows that as it stands; any other object as the cell writes it. None where the row says none. */
+export function sourceLine(table: ResultTable, row: Row): string | undefined {
+  const part = (label: string): string => {
+    const at = columnIndex(table, label);
+    return at === undefined ? "" : cellText(row[at]).trim();
+  };
+  const [model, module, view] = [part("Source Model") || part("Source Object"), part("Source Module"), part("Saved View")];
+  const type = columnIndex(table, SOURCE_TYPE);
+  if (module !== "") return [`Model: ${model || "This model"}`, `Module: ${module}`, ...(view ? [`Saved view: ${view}`] : [])].join(" · ");
+  if (model === "" || model === "-") return undefined;
+  return type !== undefined && typeKey(row[type]) === "LIST" ? `List: ${model}` : model;
+}
+
+/** The mapping for a row of a model's Imports, where its Source Type says anything, and where the result has mappings,
+ * checked as the bridge checks them (result-plain.ts `readImportMappings`). None for any other row, such as one of an
+ * import the Actions list has and the Imports tab did not give, and for a result without mappings: the drawer then has no
+ * Mapping. The Imports table has no column of IDs, so the row's mapping is the one of its name, the import's own name, and
+ * of its Source Type; among imports of both alike, the one in the row's place among them, as the export lists them in the
+ * Imports tab's order, which the table keeps. A result an earlier version kept has mappings of imports from a file alone,
+ * without their Source Type: they are taken for those of FILE (file-imports.ts `readsFile`), and a row of another Source
+ * Type has none, which the drawer says, with what to do. `table` is the Imports table as the page shows it, whose rows
+ * stand each in the place it has in the file (result-view.ts `fileView`). An import of a model's object has the object as
+ * its row names it (`sourceLine`). */
 export function mappingOfRow(result: AnalysisResult | undefined, table: ResultTable, row: Row): MappingView | undefined {
   if (result?.kind !== "model" || table.file !== IMPORTS_FILE) return undefined;
   if (result.engine === "polaris") return { rows: [], lines: [POLARIS_MAPPING_NOTE] };
   const type = columnIndex(table, SOURCE_TYPE);
-  if (type === undefined || !readsFile(row[type])) return undefined;
+  const kind = type === undefined ? "" : typeKey(row[type]);
+  if (type === undefined || kind === "") return undefined;
   const mappings = readImportMappings(result.importMappings);
   if (!mappings) return undefined;
   // Names are told apart without the spaces around them, on both sides alike.
   const name = cellText(row[0]).trim();
   const at = table.rows.findIndex(candidate => candidate === row);
-  const place = table.rows.slice(0, Math.max(0, at)).filter(other => cellText(other[0]).trim() === name && readsFile(other[type])).length;
-  const mapping = mappings.filter(candidate => candidate.name.trim() === name)[place];
-  // The line items a header can match are said only where the header row is matched on names or codes.
-  const matched = mapping?.targets.some(target => target.source === "headerRow") && !mapping.headers?.length;
-  return mappingView(mapping, matched ? lineItemsOf(result, table, row) : undefined);
+  const place = table.rows.slice(0, Math.max(0, at)).filter(other => cellText(other[0]).trim() === name && typeKey(other[type]) === kind).length;
+  const mapping = mappings.filter(candidate => candidate.name.trim() === name && typeKey(candidate.sourceType ?? "FILE") === kind)[place];
+  // The line items a header can match are said only where the header row of line items is matched on names or codes.
+  const matched = mapping?.targets.some(target => target.source === "headerRow" && kindOf(target) === "lineItems") && !mapping.headers?.length;
+  return mappingView(mapping, matched ? lineItemsOf(result, table, row) : undefined, readsFile(row[type]) ? undefined : sourceLine(table, row));
 }

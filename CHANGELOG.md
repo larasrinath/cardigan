@@ -2,6 +2,11 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.36.0 (12 October 2026)
+
+- **Module imports read like Anaplan's dialog.** An import into a module shows whether it clears its target first, then a table of its dimensions with each one's source, item matching and clear choice, then its line items, each header mapped by hand or each line item's own column. A file import's Mapping starts with its file options: header row, first data row, separators, text delimiter, decimal and encoding. (#1)
+- **Mappings for imports from modules, saved views and lists.** Every import's saved definition is read and shown, whatever its source. A model import names the object it reads, and its source columns by this model's names when the source is in this model. The diagnostic log describes every import's definition, and its data sources in one line. (#1)
+
 ## 0.35.2 (11 October 2026)
 
 - **No ResizeObserver warning.** Chrome no longer lists "ResizeObserver loop completed with undelivered notifications" under Cardigan's errors: the results page fits the navigation, the details panel and the map to a new size in the next frame, once for several changes, and not at all for a size it already fits. (#138)

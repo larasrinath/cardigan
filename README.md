@@ -62,7 +62,7 @@ The menu bar groups the model's tables:
 
 ![Line Items with Format type open, No Data unticked and the tick-all checkbox inside Find](docs/images/model-line-items.png)
 
-**Imports** shows where data comes from and where it goes. For file imports, the row's **Mapping** shows the saved sources and targets, including constants and prompts, and notes targets that are not mapped. It reads the saved definition, not the uploaded file. If the open page cannot name a property an import maps into, Cardigan reads that list's properties once. Properties it still cannot name keep their IDs, with a note in the diagnostic log.
+**Imports** shows where data comes from and where it goes. Each row's **Mapping** shows the import's saved definition, from a file, a module, a saved view or a list. An import into a module reads like Anaplan's import dialog: its clear setting, its dimensions, then its line items. A file import also shows its file options. Cardigan reads the saved definitions, never the uploaded file.
 
 ![Load promotions file import with its saved Mapping open](docs/images/model-imports.png)
 
@@ -174,7 +174,7 @@ Use Cardigan only on models and apps you are allowed to read. [NOTICE.md](NOTICE
 - Only published page definitions you can access are read. App Usage needs the model open through Model Building; the Overview reports pages or tables that could not be read.
 - Reading page references can cause Anaplan to load the models they use.
 - Saved views' own filters, sorts and hidden items are not listed. Some names may remain as IDs when they cannot be read.
-- File-import mappings name targets and constants, Time periods included, from the model itself. A line item an import still maps to that the model doesn't have shows as Missing line item; other unknown names stay as IDs. Headers matched by name or code when the import runs, and columns not in the saved definition, aren't listed. Other import types have no Mapping panel.
+- Import mappings name targets and constants, Time periods included, from the model itself, and a model import's source columns when its source is in this model. A line item an import still maps to that the model doesn't have shows as Missing line item; other unknown names stay as IDs. Headers matched by name or code when the import runs, and columns not in the saved definition, aren't listed. Imports of users, versions or line items say what they load instead of a mapping.
 - The map does not evaluate formulas or draw processes and actions. **About** explains what it could not place.
 - Very large tables may not be read, and large results may not fit in session storage; the page says so. Map zoom, position, search and full screen may reset on refresh.
 - Anaplan's internal services can change without notice, so results may become incomplete or stop working.

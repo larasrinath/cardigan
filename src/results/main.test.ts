@@ -6796,9 +6796,10 @@ describe("The mapping of an import from a file, in its row's details", () => {
     expect(mapping()).toEqual([[["Product", "Products"], ["Price", "Price"], ["Constant: Actual", "Versions"], ["Header row: each column whose header is a line item's name or code", "Line Items"]],
       ["Column 1 is used."]]);
     page.key("Escape");
-    // An import from another model has no mapping: its details are All columns alone.
+    // An import from another model has no mapping in a result whose mappings are of imports from a file alone, as an
+    // earlier version kept them: its details say to run again, which reads it.
     openImport("Regions from the hub");
-    expect(sections()).toEqual(["All columns"]);
+    expect([sections(), mapping()]).toEqual([["Mapping", "All columns"], [[], ["Cardigan has no mapping for this import: choose Run again to read it."]]]);
     page.key("Escape");
     // Nor has a row of another table, though it names an import from a file.
     goTo(4);
@@ -6929,6 +6930,40 @@ describe("The mapping of an import from a file, in its row's details", () => {
       more.press();
       expect(rest.getAttribute("hidden")).toBe("until-found");
     }
+  });
+
+  it("lays an import into a module out as its dialog does, under what it clears and its File line, and names the object an import of a saved view reads", async () => {
+    // As this version reads them: every import's mapping with its Source Type; the import into a module with what each
+    // target is, what it and each dimension clear, and its File Options. Its names are made up.
+    const PRICES: ImportMapping = { id: "112000000003", name: "Prices from prices.csv", sourceType: "FILE", importType: "MODULE_DATA", clear: "clear",
+      fileOptions: { encoding: "ISO-8859-1", separators: ",", delimiter: "\"", decimal: ".", headerRow: 1, firstDataRow: 2 }, targets: [
+        { target: "Time", source: "column", text: "Time", kind: "time", area: "MATCHED_ITEMS", periodFormat: "M-Y" },
+        { target: "Join Band", source: "prompt", kind: "list" },
+        { target: "Line Items", source: "headerRow", kind: "lineItems", area: "MAPPED_ITEMS_IN_SOURCE", items: { byHand: 3, ignored: 0 } }],
+      headers: [{ header: "Bonus Rate", lineItem: "Bonus Rate" }, { header: "Band start", lineItem: "Band start" }, { header: `Band end ${TAG}`, lineItem: "Band end" }] };
+    const HUB: ImportMapping = { id: "112000000002", name: "Regions from the hub", sourceType: "SAVED VIEW", importType: "HIERARCHY_DATA",
+      targets: [{ target: "+ Regions", source: "column", text: "Region" }] };
+    // The File line's label is Anaplan's own word for an import's File Options, as the page shows it, and the model's.
+    theirs = /\bFILE\b|^File$|HQ Network\.csv|prices\.csv|The uploaded file is no longer available; please upload the file again/g;
+    await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], sourceType: "FILE" }, HUB, PRICES] });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    const table = (kind: string) => [page.texts(`#drawerMapping table.${kind} th`), page.all(`#drawerMapping table.${kind} tbody tr`).map(row => row.children.map(cell => cell.textContent))];
+    expect([sections(), page.texts("#drawerMapping .m-clear"), page.texts("#drawerMapping p")]).toEqual([["Mapping", "All columns"], ["Clear target prior to import"],
+      ['File Header row 1 · data from row 2 · Comma · " · Dot · ISO-8859-1', "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."]]);
+    expect(table("m-dims")).toEqual([["Dimension", "Source", "Items", "Clear"], [["Time", "Column: Time", "Periods, M-Y", "Matched items only"],
+      ["Join Band", "Prompt each run", "", ""], ["Line Items", "Header row", "Mapped by hand", "Mapped items in source"]]]);
+    expect([page.texts("#drawerMapping h4"), table("m-items")]).toEqual([["Line items (3)"],
+      [["Header", "Line item"], [["Bonus Rate", "Bonus Rate"], ["Band start", "Band start"], [`Band end ${TAG}`, "Band end"]]]]);
+    // In the dialog's order: what it clears and how its file is read, then the dimensions, the line items and the lines.
+    const html = page.id("drawerMapping").innerHTML;
+    const order = ["Clear target prior to import", "Header row 1", "<table", "Line items (3)", "Each column mapped"].map(words => html.indexOf(words));
+    expect([order.every(at => at >= 0), order.every((at, index) => index === 0 || at > order[index - 1]), strayImg()]).toEqual([true, true, false]);
+    page.key("Escape");
+    // The import of a saved view names the object it reads in the File line's place, as its row names it.
+    openImport("Regions from the hub");
+    expect(mapping()).toEqual([[["Region", "+ Regions"]], ["Source Model: Hub · Module: LIST - Regions · Saved view: Export"]]);
+    expect(page.has("#drawerMapping .m-clear")).toBe(false);
   });
 
   it("writes every name, heading and value of a mapping as text", async () => {
