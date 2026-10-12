@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **No ResizeObserver warning.** Chrome no longer lists "ResizeObserver loop completed with undelivered notifications" under Cardigan's errors: the results page fits the navigation, the details panel and the map to a new size in the next frame, once for several changes, and not at all for a size it already fits.
+
 ## 0.35.0 (11 October 2026)
 
 - **Map headings from any divider style.** Empty modules and lists whose names are set off by symbols, in any style a model uses, now head the Headings groups; the group name keeps the words' own brackets, and dividers are left out of Module Usage. (#136)
