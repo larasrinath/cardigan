@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { parseMarkup } from "../results/dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "../results/markup.test-support.js";
-import type { PageFilterCheck } from "./graph-types.js";
+import type { ModelGraph, PageFilterCheck, ViewFilterCheck } from "./graph-types.js";
 import type { InspectLink, Inspection, SourceRow, SourcesSection, TraceWords } from "./map-inspect.js";
 import { LIST_SHOWN, LIST_WHOLE } from "../results/markup.js";
 import {
   ACCESS_LINK_SAYS, ACCESS_MARK_MODULE_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
   groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, MODULES_ONLY_SAYS, NO_LINKS_SAYS, notesHtml, type LegendLinks,
-  pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, SOURCES_SAYS, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
+  pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, SOURCES_SAYS, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds, VIEW_FILTERS_NONE,
   FIND_SOURCES, FIND_SOURCES_TITLE, INPUT_MARK_SAYS, SOURCES_ICON, SOURCES_SHOWN, SOURCES_WHOLE, sourcesHtml, FAINT_SAYS,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
@@ -233,7 +233,7 @@ describe("The map's own markup", () => {
     }
     // In the bar's order: where the map is, how it is built, and its tools. Each list and box is named as its label reads.
     expect(names).toEqual([
-      "Group by", "How this grouping works", "Choose a group", "Choose a module", "Find a module", "Back", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
+      "Group by", "How this grouping works", "Choose a group", "Choose a module", "Find a module", "Back", "Links", "Formulas", "Access drivers", "Filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
       "Zoom out", "Zoom in", "Fit to screen", "Legend", "Minimap", "About this map",
     ]);
     expect(shell.querySelector(".map-grouping-name")?.textContent).toBe("Group by");
@@ -246,7 +246,7 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll("[data-map-act]").filter(element => element.localName !== "button")).toEqual([]);
   });
 
-  it("says which links the map draws in a panel behind the Links button: formulas unless unticked, access drivers and page filters where ticked, each in words", () => {
+  it("says which links the map draws in a panel behind the Links button: formulas unless unticked, access drivers and filters where ticked, each in words", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const button = shell.querySelector('[data-map-act="links"]')!;
     const panel = shell.querySelector(".map-links-pop")!;
@@ -260,8 +260,8 @@ describe("The map's own markup", () => {
     const formulas = panel.querySelector(".map-formulas")!;
     expect([formulas.getAttribute("type"), formulas.getAttribute("checked"), formulas.getAttribute("aria-describedby"), formulas.closest("label")?.textContent])
       .toEqual(["checkbox", "", "map-formulas-1", "Formulas"]);
-    expect(shell.querySelector("#map-formulas-1")?.textContent).toBe("Untick to see only access drivers and page filters.");
-    expect(FORMULAS_SAY).toBe("Untick to see only access drivers and page filters.");
+    expect(shell.querySelector("#map-formulas-1")?.textContent).toBe("Untick to see only access drivers and filters.");
+    expect(FORMULAS_SAY).toBe("Untick to see only access drivers and filters.");
     expect(panel.textContent).not.toContain(LINK_SAYS);
     expect([panel.querySelector(".map-links-tick"), panel.querySelectorAll("svg").length, panel.textContent.includes("✓")]).toEqual([null, 0, false]);
     // Access drivers are a box, which a screen reader hears described by what they are.
@@ -269,12 +269,12 @@ describe("The map's own markup", () => {
     expect([box.getAttribute("type"), box.getAttribute("aria-describedby"), box.closest("label")?.textContent]).toEqual(["checkbox", "map-access-1", "Access drivers"]);
     expect(shell.querySelector("#map-access-1")?.textContent).toBe(ACCESS_SAYS);
     expect(ACCESS_SAYS).toBe("Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to mark drivers with a key and draw an arrow from each driver to what it controls.");
-    // Page filters are a box after them, described the same way. The view turns the note into why there are none where
-    // the model has none to draw.
+    // Filters, on page cards and in saved views, are a box after them, named plainly and described the same way. The view
+    // turns the note into why there are none where the model has none to draw.
     const filters = panel.querySelector(".map-filters")!;
-    expect([filters.getAttribute("type"), filters.getAttribute("aria-describedby"), filters.closest("label")?.textContent]).toEqual(["checkbox", "map-filters-1", "Page filters"]);
+    expect([filters.getAttribute("type"), filters.getAttribute("aria-describedby"), filters.closest("label")?.textContent]).toEqual(["checkbox", "map-filters-1", "Filters"]);
     expect(shell.querySelector("#map-filters-1")?.textContent).toBe(FILTERS_SAY);
-    expect(FILTERS_SAY).toBe("Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, "
+    expect(FILTERS_SAY).toBe("Line items used as filters on page cards or in saved views. Tick to draw an arrow from each filter line item to what it filters, "
       + "and between their modules.");
     expect(Object.keys(FILTERS_NONE)).toEqual(["table", "links", "empty", "unfound", "nowhere"]);
     // Other modules' line items come last, ticked as the map opens: inside a module they stand one by one unless unticked.
@@ -284,22 +284,22 @@ describe("The map's own markup", () => {
       .toEqual(["checkbox", "", "Other modules' line items", true]);
   });
 
-  it("says under the switch of the pages' filters what ticking it shows, by what the model has, or why it has nothing", () => {
+  it("says under the switch of filters what ticking it shows, by what the model has, or why it has nothing", () => {
     const check = (rows: number, found: number): PageFilterCheck => ({ rows, found, own: found, other: 0, nowhere: 0, unnamed: 0, notFound: rows - found, missing: [], said: true,
       shown: found, unmatched: 0 });
     // What there is to show: links between modules, modules their own line items filter, or both.
     expect([filtersNote({ pageFilterTable: true }, true, false), filtersNote({ pageFilterTable: true }, false, true), filtersNote({ pageFilterTable: true }, true, true)])
       .toEqual([FILTERS_SAY, FILTERS_OWN_SAY, FILTERS_BOTH_SAY]);
-    expect(FILTERS_OWN_SAY).toBe("Every filter on the pages built on this model is a line item of the module it filters. Tick to mark each such module with a funnel, and inside it to "
-      + "draw an arrow from each filter line item to the line items it filters.");
-    expect(FILTERS_BOTH_SAY).toBe("Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, "
+    expect(FILTERS_OWN_SAY).toBe("Every filter of this model, on a page card or in a saved view, is a line item of the module it filters. Tick to mark each such module with a "
+      + "funnel, and inside it to draw an arrow from each filter line item to the line items it filters.");
+    expect(FILTERS_BOTH_SAY).toBe("Line items used as filters on page cards or in saved views. Tick to draw an arrow from each filter line item to what it filters, "
       + "and between their modules. A module that its own line items filter gets a funnel.");
     // A result whose table does not say which line items its filters filter, as one read before it said so, says that
     // running the model again shows them; one that says it, for none of its filters, says nothing more.
     const unsaid = { pageFilterTable: true, pageFilterCheck: { ...check(3, 3), said: false, shown: 0 } };
     expect([filtersNote(unsaid, false, true), filtersNote(unsaid, true, true), filtersNote({ pageFilterTable: true, pageFilterCheck: { ...check(3, 3), shown: 0 } }, false, true)])
       .toEqual([`${FILTERS_OWN_SAY} ${FILTERS_UNSAID}`, `${FILTERS_BOTH_SAY} ${FILTERS_UNSAID}`, FILTERS_OWN_SAY]);
-    expect(FILTERS_UNSAID).toBe("This result does not say which line items each filter filters: run the model again to see them.");
+    expect(FILTERS_UNSAID).toBe("This result does not say which line items each filter on a page card filters: run the model again to see them.");
     // Nothing to show: no table; a table with no row; rows whose line items the map does not have, one or many; rows
     // whose line items it has that filter no module of it; and a graph that does not say how the table met it.
     expect([filtersNote({}, false, false), filtersNote({ pageFilterTable: true, pageFilterCheck: check(0, 0) }, false, false),
@@ -307,8 +307,33 @@ describe("The map's own markup", () => {
       filtersNote({ pageFilterTable: true, pageFilterCheck: { ...check(3, 3), own: 0, nowhere: 3 } }, false, false), filtersNote({ pageFilterTable: true }, false, false)])
       .toEqual([FILTERS_NONE.table, FILTERS_NONE.empty, FILTERS_NONE.unfound(1), FILTERS_NONE.unfound(32), FILTERS_NONE.nowhere, FILTERS_NONE.links]);
     expect([FILTERS_NONE.unfound(1), FILTERS_NONE.unfound(1234)]).toEqual([
-      "The Page Filters table has 1 filter, but its condition line item is no line item of the map, so the map has nothing to show for it. The run's diagnostic log names it.",
-      "The Page Filters table has 1,234 filters, but none of their condition line items is a line item of the map, so the map has nothing to show for them. The run's diagnostic log names them."]);
+      "The pages built on this model have 1 filter, but its condition line item is no line item of the map, so the map has nothing to show for it. The run's diagnostic log names it.",
+      "The pages built on this model have 1,234 filters, but none of their condition line items is a line item of the map, so the map has nothing to show for them. The run's diagnostic log names them."]);
+    expect([FILTERS_NONE.table, FILTERS_NONE.links]).toEqual([
+      "This result has no filters of the pages built on the model, so the map has no filter links from page cards. Run the model again to read the pages built on it.",
+      "None of the filters on the pages built on this model has one of its line items as its condition, so the map has no filter links from page cards."]);
+    // No sentence names a table of the results page, which says it in its own words, nor says "page filter".
+    for (const said of [...Object.values(FILTERS_NONE).map(each => (typeof each === "string" ? each : each(2))), FILTERS_SAY, FILTERS_OWN_SAY, FILTERS_BOTH_SAY, FILTERS_UNSAID]) {
+      expect(said).not.toMatch(/Page Filters|page filter|table/i);
+    }
+  });
+
+  it("says after why the filters on page cards cannot be shown why those of saved views cannot either, where the page gave them", () => {
+    const views = (conditions: number, found = 0): ViewFilterCheck => ({ conditions, found, own: found, other: 0, off: 0, invalid: 0, noLineItem: conditions - found, noModule: 0,
+      missingLineItems: [], missingModules: [] });
+    const page: Pick<ModelGraph, "pageFilterTable" | "pageFilterCheck"> = { pageFilterTable: true, pageFilterCheck: { rows: 0, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 0, missing: [], said: true, shown: 0, unmatched: 0 } };
+    // Saved views that have filters the map can show: the note says what ticking shows, as for page cards' alone.
+    expect([filtersNote({ ...page, viewFilterCheck: views(2, 2) }, true, false), filtersNote({ ...page, viewFilterCheck: views(1, 1) }, false, true)]).toEqual([FILTERS_SAY, FILTERS_OWN_SAY]);
+    // None to show: why for the pages' cards, then for the saved views: they have none, or none the map has.
+    expect([filtersNote({ ...page, viewFilterCheck: views(0) }, false, false), filtersNote({ viewFilterCheck: views(1) }, false, false),
+      filtersNote({ ...page, viewFilterCheck: views(12) }, false, false)]).toEqual([`${FILTERS_NONE.empty} ${VIEW_FILTERS_NONE.empty}`,
+      `${FILTERS_NONE.table} ${VIEW_FILTERS_NONE.unfound(1)}`, `${FILTERS_NONE.empty} ${VIEW_FILTERS_NONE.unfound(12)}`]);
+    expect([VIEW_FILTERS_NONE.empty, VIEW_FILTERS_NONE.unfound(1), VIEW_FILTERS_NONE.unfound(1234)]).toEqual(["The model's saved views have no filters.",
+      "The model's saved views have 1 filter, but the map does not have its line item or the saved view's module, so it has nothing to show for it. The run's diagnostic log names it.",
+      "The model's saved views have 1,234 filters, but for none of them does the map have both the line item and the saved view's module, so it has nothing to show for them. "
+        + "The run's diagnostic log names them."]);
+    // Without saved views' filters from the page, as for a result read before they were, nothing is said of them.
+    expect(filtersNote(page, false, false)).toBe(FILTERS_NONE.empty);
   });
 
   it("gives full screen a button at the end of the bar that says what it does, and a face for each way", () => {
@@ -603,8 +628,8 @@ describe("The map's panels", () => {
     expect(notes({ access: false, none: false })).toEqual([]);
     expect(notes({ access: true, none: false })).toEqual([["map-legend-note map-legend-access", ACCESS_LINK_SAYS]]);
     expect(notes({ access: false, none: true })).toEqual([["map-legend-note map-legend-none", NO_LINKS_SAYS]]);
-    expect([ACCESS_LINK_SAYS, NO_LINKS_SAYS]).toEqual(["An arrow from an access driver to what it controls.", "No links are drawn. Tick Formulas, Access drivers or Page filters under Links."]);
-    // Page filters' links are said only while some are drawn, beside a piece of their dashed line, in words for the
+    expect([ACCESS_LINK_SAYS, NO_LINKS_SAYS]).toEqual(["An arrow from an access driver to what it controls.", "No links are drawn. Tick Formulas, Access drivers or Filters under Links."]);
+    // Filters' links are said only while some are drawn, beside a piece of their dashed line, in words for the
     // picture's kind: among a module's line items they end at line items, between modules and groups at those.
     expect(legend.querySelector(".map-legend-filter")).toBeNull();
     for (const kind of ["sections", "modules", "drill"] as const) {
@@ -614,9 +639,9 @@ describe("The map's panels", () => {
         .toEqual([FILTER_LINK_SAYS[kind], "true", null]);
     }
     expect(FILTER_LINK_SAYS).toEqual({
-      sections: "Dashed: a page filter, from the group of its line item to the group of a module it filters.",
-      modules: "Dashed: a page filter, from the module of its line item to a module it filters.",
-      drill: "Dashed: a page filter, from its line item to a line item it filters, or to the module of those.",
+      sections: "Dashed: a filter, from the group of its line item to the group of a module it filters.",
+      modules: "Dashed: a filter, from the module of its line item to a module it filters.",
+      drill: "Dashed: a filter, from its line item to a line item or a module it filters.",
     });
     // A filter mark is said only where a box has one, beside the pill the canvas draws, in words for the picture's kind.
     for (const kind of ["sections", "modules", "drill"] as const) {
@@ -626,13 +651,13 @@ describe("The map's panels", () => {
         .toEqual([FILTER_MARK_SAYS[kind], "true", "svg", null]);
     }
     expect(FILTER_MARK_SAYS).toEqual({
-      sections: "Filter mark: how many of the group's modules their own line items filter on pages.",
-      modules: "Filter mark: how many of the module's own line items filter it on pages.",
-      drill: "Filter mark: the line item filters itself on a page: the grid it filters shows it too, or does not say which line items it shows.",
+      sections: "Filter mark: how many of the group's modules their own line items filter.",
+      modules: "Filter mark: how many of the module's own line items filter it.",
+      drill: "Filter mark: the line item filters itself: the page card or saved view of its own module that it filters shows it too, or does not say which line items it shows.",
     });
     // No mark is a text glyph: the funnel is drawn, and a link's way is said in words.
     expect(/[\u2190-\u21ff\u25b2-\u25bc\u25b6\u2b9e\u00bb\u203a]/.test([...Object.values(FILTER_MARK_SAYS), ...Object.values(FILTER_LINK_SAYS), FILTERS_SAY, FILTERS_OWN_SAY,
-      FILTERS_BOTH_SAY, FILTERS_UNSAID].join(" "))).toBe(false);
+      FILTERS_BOTH_SAY, FILTERS_UNSAID, VIEW_FILTERS_NONE.empty, VIEW_FILTERS_NONE.unfound(1), VIEW_FILTERS_NONE.unfound(2)].join(" "))).toBe(false);
   });
 
   it("has no line for formulas' arrows whatever the picture draws, and each other line of the legend only while its link or mark is drawn", () => {

@@ -50,62 +50,81 @@ export function accessNote(graph: ModelGraph, links: boolean): string {
   if (graph.unresolved.some(entry => entry.field === "Read Access Driver" || entry.field === "Write Access Driver")) return ACCESS_UNMATCHED;
   return ACCESS_NONE;
 }
-/** What page filters are, said where their links are switched, in the same words: for a model whose filters are all
- * on modules other than their line items' own, which links show between modules, and among line items from each filter
- * line item to the line items it filters. */
-export const FILTERS_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, and between their modules.";
+/** What filters are, said where their links are switched, in the same words: a filter on a page card or in a saved view.
+ * This is for a model whose filters are all on modules other than their line items' own, which links show between
+ * modules, and among line items from each filter line item to the line items it filters. */
+export const FILTERS_SAY = "Line items used as filters on page cards or in saved views. Tick to draw an arrow from each filter line item to what it filters, and between their modules.";
 /** The same, for a model whose filters are all on their line items' own modules: no link between modules can show
  * those, so the switch marks the modules, and among a module's line items draws the links. */
-export const FILTERS_OWN_SAY = "Every filter on the pages built on this model is a line item of the module it filters. Tick to mark each such module with a funnel, and inside it to draw an arrow from each filter line item to the line items it filters.";
+export const FILTERS_OWN_SAY = "Every filter of this model, on a page card or in a saved view, is a line item of the module it filters. Tick to mark each such module with a funnel, and inside it to draw an arrow from each filter line item to the line items it filters.";
 /** The same, for a model with filters of both kinds. */
-export const FILTERS_BOTH_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, and between their modules. A module that its own line items filter gets a funnel.";
-/** Said after what the switch shows, for a result whose Page Filters table does not say which line items a filter
- * filters, as one read before the table said so: its filters are drawn as before, to their modules. */
-export const FILTERS_UNSAID = "This result does not say which line items each filter filters: run the model again to see them.";
-/** Why the pages' filters cannot be shown, said in the switch's place, which is then off and not to be ticked: the result
- * has no Page Filters table; the table has no row; none of its rows has a line item of the map as its condition; or
- * those that have one name no module of the map as what they filter. `links` is said for a graph that does not say how
- * the table met the map (`ModelGraph.pageFilterCheck`). */
+export const FILTERS_BOTH_SAY = "Line items used as filters on page cards or in saved views. Tick to draw an arrow from each filter line item to what it filters, and between their modules. A module that its own line items filter gets a funnel.";
+/** Said after what the switch shows, for a result whose Page Filters table does not say which line items a filter on a
+ * page card filters, as one read before the table said so: its filters are drawn as before, to their modules. */
+export const FILTERS_UNSAID = "This result does not say which line items each filter on a page card filters: run the model again to see them.";
+/** Why the filters on page cards cannot be shown, said in the switch's place, which is then off and not to be ticked:
+ * the result has no Page Filters table; the table has no row; none of its rows has a line item of the map as its
+ * condition; or those that have one name no module of the map as what they filter. `links` is said for a graph that does
+ * not say how the table met the map (`ModelGraph.pageFilterCheck`). None names the table: the results page names it in
+ * its own words. */
 export const FILTERS_NONE = {
-  table: "This result has no Page Filters table, so the map has no page filter links. Run the model again to read the pages built on it.",
-  links: "None of the filters on the pages built on this model has one of its line items as its condition, so the map has no page filter links.",
+  table: "This result has no filters of the pages built on the model, so the map has no filter links from page cards. Run the model again to read the pages built on it.",
+  links: "None of the filters on the pages built on this model has one of its line items as its condition, so the map has no filter links from page cards.",
   empty: "The pages built on this model have no filters, so the map has none to show.",
   unfound: (rows: number): string => (rows === 1
-    ? "The Page Filters table has 1 filter, but its condition line item is no line item of the map, so the map has nothing to show for it. The run's diagnostic log names it."
-    : `The Page Filters table has ${formatCount(rows)} filters, but none of their condition line items is a line item of the map, so the map has nothing to show for them. The run's diagnostic log names them.`),
+    ? "The pages built on this model have 1 filter, but its condition line item is no line item of the map, so the map has nothing to show for it. The run's diagnostic log names it."
+    : `The pages built on this model have ${formatCount(rows)} filters, but none of their condition line items is a line item of the map, so the map has nothing to show for them. The run's diagnostic log names them.`),
   nowhere: "The filters on the pages built on this model name no module of the map as what they filter, so the map has nothing to show for them.",
 } as const;
+/** Why the filters of saved views cannot be shown either, said after why those on page cards cannot, where the page gave
+ * the map the saved views' filters (graph-types.ts `ModelMapOptions.savedViewFilters`): the saved views have none; or
+ * the map has neither the line item nor the saved view's module of any of them (`ModelGraph.viewFilterCheck`). */
+export const VIEW_FILTERS_NONE = {
+  empty: "The model's saved views have no filters.",
+  unfound: (conditions: number): string => (conditions === 1
+    ? "The model's saved views have 1 filter, but the map does not have its line item or the saved view's module, so it has nothing to show for it. The run's diagnostic log names it."
+    : `The model's saved views have ${formatCount(conditions)} filters, but for none of them does the map have both the line item and the saved view's module, so it has nothing to show for them. The run's diagnostic log names them.`),
+} as const;
 
-/** What the switch of the pages' filters says under it: what ticking it shows, by what the model has to show (its links
- * between modules, `links`, and its modules filtered by their own line items, `marks`), and for a result that does not
- * say which line items its filters filter, that running the model again shows them; or, where it has nothing, why. */
-export function filtersNote(graph: Pick<ModelGraph, "pageFilterTable" | "pageFilterCheck">, links: boolean, marks: boolean): string {
+/** What the switch of filters says under it: what ticking it shows, by what the model has to show (its links between
+ * modules, `links`, and its modules filtered by their own line items, `marks`), and for a result that does not say which
+ * line items its filters on page cards filter, that running the model again shows them; or, where it has nothing, why:
+ * why for the filters on page cards, and then for those of saved views, where the page gave the map those. */
+export function filtersNote(graph: Pick<ModelGraph, "pageFilterTable" | "pageFilterCheck" | "viewFilterCheck">, links: boolean, marks: boolean): string {
   const check = graph.pageFilterCheck;
   const shows = links && marks ? FILTERS_BOTH_SAY : links ? FILTERS_SAY : marks ? FILTERS_OWN_SAY : undefined;
   if (shows) return check && !check.said ? `${shows} ${FILTERS_UNSAID}` : shows;
+  const views = graph.viewFilterCheck;
+  const saved = views === undefined ? "" : ` ${views.conditions === 0 ? VIEW_FILTERS_NONE.empty : VIEW_FILTERS_NONE.unfound(views.conditions)}`;
+  return `${pageFiltersNone(graph)}${saved}`;
+}
+
+/** Why the filters on page cards cannot be shown (`FILTERS_NONE`). */
+function pageFiltersNone(graph: Pick<ModelGraph, "pageFilterTable" | "pageFilterCheck">): string {
+  const check = graph.pageFilterCheck;
   if (!graph.pageFilterTable) return FILTERS_NONE.table;
   if (!check) return FILTERS_NONE.links;
   if (check.rows === 0) return FILTERS_NONE.empty;
   if (check.found === 0) return FILTERS_NONE.unfound(check.rows);
   return FILTERS_NONE.nowhere;
 }
-/** What a page filter's link looks like and means, by the kind of picture, said in the legend while those links are
- * drawn: among a module's line items it ends at a line item it filters, or at the module of others, as one link stands
- * for those; between modules and groups it stands for the filter of one module's grid. */
-/** The kinds of picture that draw the pages' filters and the marks of filters and access drivers: a line item's source
- * inputs draw none of them. */
+/** The kinds of picture that draw the filters and the marks of filters and access drivers: a line item's source inputs
+ * draw none of them. */
 export type MarkedKind = Exclude<ViewGraph["kind"], "sources">;
+/** What a filter's link looks like and means, by the kind of picture, said in the legend while those links are drawn:
+ * among a module's line items it ends at a line item it filters, or at a module, which stands for others' line items or
+ * is what a saved view of it filters whole; between modules and groups it stands for the filters of one module. */
 export const FILTER_LINK_SAYS: Readonly<Record<MarkedKind, string>> = {
-  sections: "Dashed: a page filter, from the group of its line item to the group of a module it filters.",
-  modules: "Dashed: a page filter, from the module of its line item to a module it filters.",
-  drill: "Dashed: a page filter, from its line item to a line item it filters, or to the module of those.",
+  sections: "Dashed: a filter, from the group of its line item to the group of a module it filters.",
+  modules: "Dashed: a filter, from the module of its line item to a module it filters.",
+  drill: "Dashed: a filter, from its line item to a line item or a module it filters.",
 };
 /** What a filter mark on a box means (map-canvas.ts `drawMarks`), by the kind of picture, said in the legend while
  * one is drawn. */
 export const FILTER_MARK_SAYS: Readonly<Record<MarkedKind, string>> = {
-  sections: "Filter mark: how many of the group's modules their own line items filter on pages.",
-  modules: "Filter mark: how many of the module's own line items filter it on pages.",
-  drill: "Filter mark: the line item filters itself on a page: the grid it filters shows it too, or does not say which line items it shows.",
+  sections: "Filter mark: how many of the group's modules their own line items filter.",
+  modules: "Filter mark: how many of the module's own line items filter it.",
+  drill: "Filter mark: the line item filters itself: the page card or saved view of its own module that it filters shows it too, or does not say which line items it shows.",
 };
 /** A filter mark's funnel, as the canvas draws it (map-canvas.ts `funnel`). */
 const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 .8h10L6.2 5.2v3.4L3.8 10V5.2Z"/></svg>';
@@ -119,13 +138,13 @@ export const ACCESS_MARK_SAYS: Readonly<Record<MarkedKind, string>> = {
 export const ACCESS_MARK_MODULE_SAYS = "On another module, how many of its line items are drivers.";
 const KEY = `<svg width="14" height="8" viewBox="0 0 14 8" fill="currentColor" aria-hidden="true"><path d="${KEY_PATH}" fill-rule="evenodd"/></svg>`;
 /** What unticking the switch of formulas' links leaves, said under the switch, which is ticked unless the viewer unticks it. */
-export const FORMULAS_SAY = "Untick to see only access drivers and page filters.";
+export const FORMULAS_SAY = "Untick to see only access drivers and filters.";
 /** What a line on the map means, said in the notes about the map, where the map is explained. */
 export const LINK_SAYS = "An arrow from A to B: B reads A.";
 /** What an access driver's link means, said in the legend while the picture draws some. */
 export const ACCESS_LINK_SAYS = "An arrow from an access driver to what it controls.";
 /** What the legend says where the Links panel has no kind of link ticked. */
-export const NO_LINKS_SAYS = "No links are drawn. Tick Formulas, Access drivers or Page filters under Links.";
+export const NO_LINKS_SAYS = "No links are drawn. Tick Formulas, Access drivers or Filters under Links.";
 /** Why a box beside a module's line items can be marked as part of a trace with no coloured link leading to it: there
  * the trace follows the model from line item to line item (map-trace.ts), and the map draws only the links of the
  * module's own line items. The way can run through line items that are not on the map, or from one box beside them to
@@ -223,7 +242,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
           <p class="map-links-note" id="${esc(ids.formulas)}">${esc(FORMULAS_SAY)}</p>
           <label class="map-check map-links-row"><input type="checkbox" class="map-access" aria-describedby="${esc(ids.access)}"><b>Access drivers</b></label>
           <p class="map-links-note map-access-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
-          <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
+          <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Filters</b></label>
           <p class="map-links-note map-filters-note" id="${esc(ids.filters)}">${esc(FILTERS_SAY)}</p>
           <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external" checked>Other modules' line items</label>
         </div>
@@ -308,7 +327,7 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
   return `<h2 class="map-title-name"><button type="button" class="map-crumb${whole ? " map-here" : ""}" data-map-act="crumb" data-map-crumb="root"${whole ? ' aria-current="location"' : ""} title="${esc(said)}">${esc(model)}</button></h2>`;
 }
 
-/** Which links the legend speaks of, besides those of page filters: access drivers' where the picture draws some, and,
+/** Which links the legend speaks of, besides those of filters: access drivers' where the picture draws some, and,
  * where the Links panel has no kind of link ticked, that none is drawn. Formulas' links it leaves unsaid: what an arrow
  * means is said in the notes about the map. */
 export interface LegendLinks { access: boolean; none: boolean }
@@ -326,7 +345,7 @@ export const FAINT_SAYS = "Faint: through calculations that are hidden.";
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
  * shows it again, and under them what the links and marks that look like no other mean, each only while the picture
- * has one: an access driver's link (`links`); while the links of page filters are drawn, what theirs means on that kind
+ * has one: an access driver's link (`links`); while the links of filters are drawn, what theirs means on that kind
  * of picture (`filters`), beside a piece of the line they are drawn in; and while a box of the picture has a filter mark,
  * what the mark means on that kind of picture (`marks`), beside one. What a formula's arrow means is said in the notes
  * about the map, not here. Where no kind of link is ticked, it says so plainly. A hidden layer says so in more than its

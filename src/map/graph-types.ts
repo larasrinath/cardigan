@@ -78,6 +78,11 @@ export interface GraphNode {
    * itself by a `page_filter` link, and to a module whose line items it filters are not known, but its own. The map marks
    * a module that its own line items filter, and among its line items one that filters itself (map-model.ts). */
   pageFilters?: PageFilter[];
+  /** For a line item: the saved views whose filters have it as their condition, as the page gave them to the map
+   * (`ModelMapOptions.savedViewFilters`, map-view-filters.ts), each once, in the order given. The line item is linked to
+   * each saved view's module but its own by a `view_filter` link; a saved view of its own module, which no link can show,
+   * marks the module as the pages' filters of its own line items do (map-model.ts). */
+  viewFilters?: ViewFilter[];
   /** A module's Functional Area, as the Modules file has it: Anaplan's own grouping of modules, which a model's builders
    * set. None where the module has none. */
   functionalArea?: string;
@@ -98,6 +103,27 @@ export interface GraphNode {
  * as a table made before it said so: the filter filters that module, line items unknown. */
 export interface PageFilter { app: string; page: string; card: string; modules?: number[]; dimension?: string; lineItems?: number[] }
 
+/** A filter condition of a saved view, as the page gives it to the map (`ModelMapOptions.savedViewFilters`): the saved
+ * view by its name and its module's, the axis it filters, its condition's line item by its name and its module's, and
+ * whether the condition is on (`active`) and valid. Every name is as Modules and Line Items give it. One for each
+ * condition: a saved view with conditions on two line items has two. */
+export interface SavedViewFilter {
+  view: string;
+  module: string;
+  axis: "Rows" | "Columns" | "Pages";
+  lineItem: string;
+  lineItemModule: string;
+  active: boolean;
+  valid: boolean;
+}
+
+/** A saved view whose filter has a line item of the map as its condition (`GraphNode.viewFilters`), with the view's module
+ * on the map too: the view by its name and its module by its place in `ModelGraph.nodes`, once however many of its
+ * conditions name the line item; and whether its filter by the line item is on, which it is where one of those conditions
+ * is, and valid, which it is where all of them are. A saved view narrows its whole module, so no line item of it stands
+ * for what it filters. */
+export interface ViewFilter { view: string; module: number; active: boolean; valid: boolean }
+
 /** What a link says, read from its first node to its second:
  * - `reference`: the second's formula refers to the first (the first's Referenced By names the second).
  * - `list_formula`: the second's formula names the list or subset (the list's Referenced in Formula names the second,
@@ -109,6 +135,9 @@ export interface PageFilter { app: string; page: string; card: string; modules?:
  *   narrows a grid that shows the second, a line item (the Page Filters table's Filtered line items); or, where the grid
  *   does not say which line items it shows, the second is the module it filters (Filtered module). Not what a formula
  *   reads: the map draws it only where asked to, as it does the links of access drivers.
+ * - `view_filter`: the first, a line item, is the condition of a filter of a saved view of the second, a module of
+ *   another line item's: the saved view's own filter, which narrows the whole module (map-view-filters.ts). The map draws and
+ *   treats it as it does a `page_filter` link: the two are its filters.
  * - `subset`: the list has the subset. `parent`: the first is the parent of the second (list hierarchy).
  * - `process_action`: the process runs the action.
  * - `import_target`: the import loads into the module or list. `export_source`: the module or list is what the export
@@ -118,7 +147,7 @@ export interface PageFilter { app: string; page: string; card: string; modules?:
  * Where a line item's Referenced By names something whose access driver it is, the link is the access link alone: the
  * export has one entry for the two, and a formula link is not drawn from it. */
 export type EdgeKind = "reference" | "list_formula" | "applies" | "format" | "read_access" | "write_access" | "subset" | "parent"
-  | "process_action" | "import_target" | "export_source" | "action_target" | "page_filter";
+  | "process_action" | "import_target" | "export_source" | "action_target" | "page_filter" | "view_filter";
 
 export type GraphEdge = readonly [from: number, to: number, kind: EdgeKind];
 
@@ -153,6 +182,9 @@ export interface ModelGraph {
   /** How that table's rows met the map's line items, where the result has it (results/main.ts puts it in the run's log,
    * and the map says from it why it has nothing to draw). */
   pageFilterCheck?: PageFilterCheck;
+  /** How the saved views' filters the page gave the map met its line items and modules (map-view-filters.ts), where it gave
+   * some, none included (`ModelMapOptions.savedViewFilters`): the map says from it why it has nothing to draw. */
+  viewFilterCheck?: ViewFilterCheck;
   /** Whether the result includes Read or Write Access Driver columns. Absent on older graphs. */
   accessDriversRead?: boolean;
   /** How the Modules file's Functional Area met the map's modules, where the file has that column (results/main.ts puts
@@ -181,6 +213,24 @@ export interface PageFilterCheck {
   said: boolean;
   shown: number;
   unmatched: number;
+}
+
+/** What the map made of the saved views' filters the page gave it (`ModelGraph.viewFilterCheck`): their conditions;
+ * those whose line item and saved view's module are both on the map (`found`), and of them those on the line item's own
+ * module and those on another, those that are off and those that are not valid; those whose line item the map does not
+ * have (`noLineItem`), each named once by its module and its own name ("Module · Line item"); and those whose line item it
+ * has and whose saved view's module it does not (`noModule`), each module named once; the names in the order given. */
+export interface ViewFilterCheck {
+  conditions: number;
+  found: number;
+  own: number;
+  other: number;
+  off: number;
+  invalid: number;
+  noLineItem: number;
+  noModule: number;
+  missingLineItems: string[];
+  missingModules: string[];
 }
 
 /** What the map made of the Modules file's Functional Area (`ModelGraph.areaCheck`). */
@@ -231,6 +281,11 @@ export interface ModelMapOptions {
   /** What each of the model's imports loads into a module's line items (model/import-loads.ts): the map's source inputs
    * say from it which imports load an input. None where the result has no import into a module. */
   imports?: readonly ImportLoad[];
+  /** The filter conditions of the model's saved views, one for each condition, by the names Modules and Line Items give:
+   * the map draws them as filters, beside those of the pages built on the model (map-view-filters.ts). An empty list says the
+   * model's saved views have none; none at all (a result read before saved views' filters were, or an app's) leaves the
+   * map as it is without them. */
+  savedViewFilters?: readonly SavedViewFilter[];
   /** Only actions the page can carry out. Groups have no source object and no page actions. */
   opens?: (node: GraphNode) => readonly MapOpen[];
   /** Called once, with the reason as text, when a map that was drawn stops because it can no longer be drawn. The map
@@ -267,7 +322,7 @@ export interface MapView {
   noFormulas?: boolean;
   /** Whether the links of access drivers are drawn too. */
   access?: boolean;
-  /** Whether the links of page filters are drawn too. */
+  /** Whether the links of filters, on page cards and in saved views, are drawn too. */
   filters?: boolean;
   /** Whether the floating minimap is open. Missing means open. */
   minimap?: boolean;

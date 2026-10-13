@@ -1,4 +1,5 @@
 import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "../map/build-graph.js";
+import { viewFilterCheckLine, withSavedViewFilters } from "../map/map-view-filters.js";
 import { hasModelMap } from "../polaris.js";
 import { buildPolarisGraph } from "../polaris-map.js";
 import type { GraphNode, MapOpen, MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
@@ -1974,6 +1975,9 @@ function graphFor(model: AnalysisResult): ModelGraph {
     modelGraph = model.engine === "polaris" ? buildPolarisGraph(model) : buildModelGraph(model.tables);
     if (modelGraph.areaCheck) client.note(areaCheckLine(modelGraph.areaCheck));
     if (modelGraph.pageFilterCheck) client.note(pageFilterCheckLine(modelGraph.pageFilterCheck));
+    // How the saved views' filters met the map's line items and modules, said once, as the page filters' are.
+    const viewed = withSavedViewFilters(modelGraph, model.savedViewFilters).viewFilterCheck;
+    if (viewed) client.note(viewFilterCheckLine(viewed));
   }
   return modelGraph;
 }
@@ -2095,6 +2099,8 @@ function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void):
   return {
     modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure, ...(grouping ? { grouping } : {}),
     ...(imports.length ? { imports } : {}),
+    // The saved views' own filters, which the map draws among its filter links.
+    ...(model.savedViewFilters?.length ? { savedViewFilters: model.savedViewFilters } : {}),
     opens: node => result === model ? mapOpens(node) : [],
     // The map's own pick is kept as no choice: the next map picks for itself again.
     onGrouping: kind => {

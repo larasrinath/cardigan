@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.44.0 (12 October 2026)
+
+- **Filters on the map.** The map's **Page filters** option under **Links** is now **Filters**, and it draws saved views' own filters too, from the filter's line item to the module whose saved view it filters, with the funnel mark where a module's own line item filters its view; a line item's details list the saved views it filters, and a module's the saved views whose filters filter it. (#13)
+
 ## 0.43.0 (12 October 2026)
 
 - **Saved View Filters.** App Usage gains a Page Filters section: Saved View Filters lists each saved view with a filter, on or off, in the filter dialog's words, with the line items it uses and the pages, imports and exports that use the view, beside the cards' own filters, Page Filters until now, shown as Custom View Filters; Line Items counts Saved View Filters beside Custom View Filters, and a line item a view's filter uses is no longer unused. In a window under 1,024 pixels wide, where it was under 1,000, the one menu stands in the menu bar's place, so the bar never takes a second line. Refresh the Anaplan tab once after updating. (#12)

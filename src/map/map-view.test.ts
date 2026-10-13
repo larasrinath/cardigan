@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeElement, FakePage } from "../results/dom.test-support.js";
-import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
+import type { MapView, ModelGraph, ModelMap, ModelMapOptions, SavedViewFilter } from "./graph-types.js";
 import type { Pen } from "./map-canvas.js";
 import * as drawing from "./map-canvas.js";
 import * as cameraMath from "./map-camera.js";
@@ -9,9 +9,9 @@ import { FALLBACK } from "./map-palette.js";
 import { accessMarkedModel, twinBoxesModel } from "./map-fakes.test-support.js";
 import { ACCESS_MARK_MODULE_SAYS, ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
 import { browserEnvironment, mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
-import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
+import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall, viewFilter, viewFilteredModel } from "./map-fakes.test-support.js";
 import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, MODULES_ONLY_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
-import { FAINT_SAYS } from "./map-markup.js";
+import { FAINT_SAYS, VIEW_FILTERS_NONE } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -481,7 +481,7 @@ describe("Access marks in the view", () => {
       expect(text(".map-tip-meta")).toContain(words);
     }
     expect(text(".map-tip-meta")).toContain("Read access driver for 1 line item and 1 module");
-    expect(text(".map-tip-meta")).toContain("Page filter on");
+    expect(text(".map-tip-meta")).toContain("Filter on Invented planning · Access review · Card 1");
     clickNode("Open and visible");
     expect(parts(".map-details summary").map(summary => summary.textContent)).toContain("Controls · 2");
     part(`[data-map-raw="${data.local}"]`).press();
@@ -4348,8 +4348,8 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
   });
 });
 
-describe("The links of the pages' filters on the map", () => {
-  /** Ticks Page filters in the panel of links, which is opened for it where it is closed. */
+describe("The links of filters on page cards on the map", () => {
+  /** Ticks Filters in the panel of links, which is opened for it where it is closed. */
   function tickFilters(): void {
     if (part(".map-links-pop").hidden) act("links").press();
     part(".map-filters").tick();
@@ -4372,7 +4372,7 @@ describe("The links of the pages' filters on the map", () => {
     expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("1 link"), 0]);
     tickFilters();
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([true, true, { view: "modules", filters: true }]);
-    expect(text(".map-live")).toMatch(/^Page filters are drawn\. /);
+    expect(text(".map-live")).toMatch(/^Filters are drawn\. /);
     expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("3 links"), 1]);
     // Formulas' links are drawn too, and have no line in the legend: the dashed line's is its only one.
     expect([parts(".map-legend-note").map(line => line.getAttribute("class")), text(".map-legend").includes(LINK_SAYS)]).toEqual([["map-legend-note map-legend-filter"], false]);
@@ -4380,7 +4380,7 @@ describe("The links of the pages' filters on the map", () => {
     expect(linksDrawn().filter(call => call.dash.join(",") === "5,3.5").length).toBe(2);
     tickFilters();
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1), status()]).toEqual([false, false, { view: "modules" }, expect.stringContaining("1 link")]);
-    expect(text(".map-live")).toMatch(/^Page filters are not drawn\. /);
+    expect(text(".map-live")).toMatch(/^Filters are not drawn\. /);
   });
 
   it("opens with them drawn where the page kept the tick", () => {
@@ -4397,7 +4397,7 @@ describe("The links of the pages' filters on the map", () => {
     expect(parts(".map-legend-mark").length).toBe(0);
     tickFilters();
     expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([true, true, { view: "modules", filters: true }]);
-    expect(text(".map-live")).toMatch(/^Page filters are drawn\. /);
+    expect(text(".map-live")).toMatch(/^Filters are drawn\. /);
     // The legend says what the mark on a box of this picture means, and has no line for links: there are none.
     expect([parts(".map-legend-mark").map(line => line.textContent), parts(".map-legend-filter").length]).toEqual([[FILTER_MARK_SAYS.sections], 0]);
     tickFilters();
@@ -4428,11 +4428,11 @@ describe("The links of the pages' filters on the map", () => {
       pointer("pointermove", ...at(name));
       return part(".map-tip-meta").textContent;
     };
-    expect([tip("Incomplete Records"), tip("Name")]).toEqual([expect.stringContaining("Page filter on Data Hub · Admin · Card 1 · by Customers"),
-      expect.stringContaining("Filtered on pages by Incomplete Records, and 1 more")]);
+    expect([tip("Incomplete Records"), tip("Name")]).toEqual([expect.stringContaining("Filter on Data Hub · Admin · Card 1 · by Customers"),
+      expect.stringContaining("Filtered by Incomplete Records, and 1 more")]);
     // Where the filters are not drawn, the hover card does not say them.
     tickFilters();
-    expect([part(".map-filters").checked, tip("Incomplete Records").includes("Page filter"), tip("Name").includes("Filtered on pages")]).toEqual([false, false, false]);
+    expect([part(".map-filters").checked, tip("Incomplete Records").includes("Filter on"), tip("Name").includes("Filtered by")]).toEqual([false, false, false]);
   });
 
   it("says why it cannot be ticked where the table's filters name no line item of the map", () => {
@@ -4453,6 +4453,120 @@ describe("The links of the pages' filters on the map", () => {
     openWith(sample().graph, heard, { view: "modules", filters: true });
     expect([part(".map-filters").checked, heard[0]]).toEqual([false, { view: "modules" }]);
   });
+});
+
+describe("Filters on page cards and in saved views on the map", () => {
+  /** Ticks Filters in the panel of links, which is opened for it where it is closed. */
+  function tickFilters(): void {
+    if (part(".map-links-pop").hidden) act("links").press();
+    part(".map-filters").tick();
+  }
+  /** Mounts a graph with the saved views' filters the page gives the map, where it gives any, at a view the page kept or
+   * at none, telling `heard` each view the map shows. */
+  function openWith(graph: ModelGraph, savedViewFilters: readonly SavedViewFilter[] | undefined, heard: MapView[] = [], view?: MapView): void {
+    mount(graph, { modelName: "Demand Plan", ...(savedViewFilters ? { savedViewFilters } : {}), ...(view ? { view } : {}), onView: told => { heard.push(told); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+  }
+  const note = (): string => text(`#${part(".map-filters").getAttribute("aria-describedby")}`);
+  /** How many links of the last picture are drawn in a filter's dashes. */
+  const dashed = (): number => {
+    env.settle();
+    return linksDrawn().filter(call => call.dash.join(",") === "5,3.5").length;
+  };
+  const summaries = (): string[] => parts(".map-details summary").map(summary => summary.textContent);
+
+  it("draws both kinds as one under Filters, marks a module that a saved view of its own filters, says so in the legend and aloud, and moves no box", () => {
+    const data = viewFilteredModel();
+    const heard: MapView[] = [];
+    const spy = vi.spyOn(drawing, "drawScene");
+    openWith(data.graph, data.savedViewFilters, heard, { view: "modules", all: true });
+    expect([part(".map-filters").disabled, part(".map-filters").checked, part(".map-filters").closest("label")?.textContent, note()]).toEqual([false, false, "Filters", FILTERS_BOTH_SAY]);
+    expect(dashed()).toBe(0);
+    // Where the boxes are, and the camera, as the picture draws them: the funnel's pill is no box.
+    const places = () => {
+      env.settle();
+      const scene = spy.mock.calls.at(-1)![1];
+      return { camera: { ...scene.camera }, boxes: scene.graph.nodes.map(node => [node.id, node.x, node.y, node.w, node.h]) };
+    };
+    const before = places();
+    tickFilters();
+    expect([heard.at(-1), text(".map-live")]).toEqual([{ view: "modules", all: true, filters: true }, expect.stringMatching(/^Filters are drawn\. /)]);
+    // FLT01's line items filter REP01 on a page card and in saved views, and ORD01 in a saved view: a dashed link to each.
+    expect(dashed()).toBe(2);
+    const drawnGraph = spy.mock.calls.at(-1)![1].graph;
+    expect(drawnGraph.edges.filter(edge => edge.filter).map(edge => `${drawnGraph.nodes[edge.s].fullName} > ${drawnGraph.nodes[edge.t].fullName}`).sort())
+      .toEqual(["FLT01 - Filters > ORD01 - Orders", "FLT01 - Filters > REP01 - Report"]);
+    expect(drawnGraph.nodes.filter(node => node.filterMark).map(node => [node.fullName, node.filterMark])).toEqual([["REP01 - Report", 1]]);
+    expect([parts(".map-legend-filter").map(line => line.textContent), parts(".map-legend-mark").map(line => line.textContent)]).toEqual([[FILTER_LINK_SAYS.modules], [FILTER_MARK_SAYS.modules]]);
+    expect(places()).toEqual(before);
+    tickFilters();
+    expect([dashed(), text(".map-live"), heard.at(-1)]).toEqual([0, expect.stringMatching(/^Filters are not drawn\. /), { view: "modules", all: true }]);
+    expect(places()).toEqual(before);
+    spy.mockRestore();
+  });
+
+  it("lists a saved view's filter in its line item's details and hover card, and in its module's details, and traces through it", () => {
+    const data = viewFilteredModel();
+    openWith(data.graph, data.savedViewFilters, [], { view: "drill", module: "FLT01 - Filters", filters: true });
+    pointer("pointermove", ...at("Late?"));
+    expect(part(".map-tip-meta").textContent).toContain("Filter in saved view Late (ORD01 - Orders)");
+    clickNode("Late?");
+    expect(summaries()).toEqual(expect.arrayContaining(["Modules it filters · 1", "Filters · 1"]));
+    expect(parts(".map-insp-body .map-lines li").map(line => line.textContent)).toEqual(["Saved view: Late (ORD01 - Orders) · not valid"]);
+    // The trace follows its link to the module it filters, as the details' counts say.
+    expect(text(".map-trace-down")).toBe("Feeds 1 box");
+    clickNode("Show?");
+    expect(parts(".map-insp-body .map-lines li").map(line => line.textContent)).toEqual(["REP01 - Report · Sales · Review · Card 2 · line items not known",
+      "Saved view: Open lines (REP01 - Report)", "Saved view: Closed lines (REP01 - Report) · off"]);
+    // The module's details name the saved views of it whose filters filter it, under the line items that filter them.
+    part(`[data-map-raw="${data.rep}"]`).press();
+    expect([text(".map-insp-name"), summaries()]).toEqual(["REP01 - Report", expect.arrayContaining(["Filtered by · 2"])]);
+    expect([data.show, data.mine].map(id => parts(`[data-map-list="filteredBy"] [data-map-raw="${id}"] small`).map(small => small.textContent).at(-1)))
+      .toEqual(["Sales · Review · Card 2 · 2 saved views: Open lines, Closed lines (off)", "Saved view: Mine"]);
+  });
+
+  it("marks the line item that filters a saved view of its own module among its module's line items", () => {
+    const data = viewFilteredModel();
+    const spy = vi.spyOn(drawing, "drawScene");
+    openWith(data.graph, data.savedViewFilters, [], { view: "drill", module: "REP01 - Report", filters: true });
+    expect(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.filterMark).map(node => node.fullName)).toEqual(["Is Mine"]);
+    expect(parts(".map-legend-mark").map(line => line.textContent)).toEqual([FILTER_MARK_SAYS.drill]);
+    spy.mockRestore();
+  });
+
+  it("opens with Filters ticked where the page kept it, for a model whose only filters are its saved views'; without them, as it did", () => {
+    const { graph } = sample();
+    const heard: MapView[] = [];
+    openWith(graph, [viewFilter("Editable", "CAL01 - Revenue", "INP01 - Volumes", "Can Edit")], heard, { view: "modules", filters: true });
+    expect([part(".map-filters").disabled, part(".map-filters").checked, heard[0], note()]).toEqual([false, true, { view: "modules", filters: true }, FILTERS_SAY]);
+    map.destroy();
+    // Without them, as for a result read before saved views' filters were, or an app's: the tick is let go, and the note
+    // says why as it did.
+    const before: MapView[] = [];
+    openWith(graph, undefined, before, { view: "modules", filters: true });
+    expect([part(".map-filters").disabled, part(".map-filters").checked, before[0], note()]).toEqual([true, false, { view: "modules" }, FILTERS_NONE.table]);
+    map.destroy();
+    // With saved views' filters of which the map has nothing: why for both kinds.
+    openWith(graph, [viewFilter("Gone", "Nowhere", "INP01 - Volumes", "Can Edit")]);
+    expect([part(".map-filters").disabled, note()]).toEqual([true, `${FILTERS_NONE.table} ${VIEW_FILTERS_NONE.unfound(1)}`]);
+    map.destroy();
+    openWith(withTable(graph), []);
+    expect(note()).toBe(`${FILTERS_NONE.links} ${VIEW_FILTERS_NONE.empty}`);
+  });
+
+  it("draws, lists and marks what it did without saved views' filters, the words apart", () => {
+    const data = viewFilteredModel();
+    openWith(data.graph, undefined, [], { view: "modules", all: true, filters: true });
+    expect([part(".map-filters").checked, note(), dashed(), parts(".map-legend-mark").length]).toEqual([true, FILTERS_SAY, 1, 0]);
+    clickNode("REP01 - Report");
+    expect(summaries()).toEqual(expect.arrayContaining(["Filtered by · 1"]));
+    expect(parts(`[data-map-list="filteredBy"] [data-map-raw="${data.show}"] small`).map(small => small.textContent).at(-1)).toBe("Sales · Review · Card 2");
+  });
+
+  /** The graph of a result with a Page Filters table. */
+  const withTable = (graph: ModelGraph): ModelGraph => ({ ...graph, pageFilterTable: true });
 });
 
 describe("A module from Modules alone on the map", () => {

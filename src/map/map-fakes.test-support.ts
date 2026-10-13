@@ -1,4 +1,4 @@
-import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilter, Unresolved } from "./graph-types.js";
+import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilter, SavedViewFilter, Unresolved } from "./graph-types.js";
 import type { TextMeasure } from "./map-text.js";
 
 /** Graphs made by hand for the map's tests, as build-graph.ts gives them: every node's id is its place, and the links
@@ -233,6 +233,40 @@ export function lineFilteredModel() {
   for (const target of [total, count]) make.link(show, target, "page_filter");
   const graph: ModelGraph = { ...make.graph(), pageFilterTable: true };
   return { graph, flt, cust, rep, heading, name, code, missingName, incomplete, missing, total, count, show };
+}
+
+/** A saved view's filter condition, on its rows, on and valid unless it says otherwise. Tests only. */
+export const viewFilter = (view: string, module: string, lineItemModule: string, lineItem: string, more: Partial<SavedViewFilter> = {}): SavedViewFilter =>
+  ({ view, module, axis: "Rows", lineItem, lineItemModule, active: true, valid: true, ...more });
+
+/** A model with filters of both kinds: on page cards, and in saved views, which the page gives the map apart from the
+ * graph (`savedViewFilters`). FLT01 - Filters, in 00: Inputs, has Show?, which filters a card of REP01 - Report, in 02:
+ * Reporting, on a page, with no word of which line items; Show? also filters REP01's saved views Open lines and Closed
+ * lines, the second of them with its filter off. Late?, of FLT01 too, filters ORD01 - Orders' saved view Late, in 01: Data,
+ * by a condition that is not valid. REP01's Is Mine filters its own module's saved view Mine. REP01's Total reads ORD01's
+ * Units. Two conditions say nothing on the map: one names a line item FLT01 does not have, the other a module the model
+ * does not have. The result has the Page Filters table. Tests only. */
+export function viewFilteredModel() {
+  const make = new GraphMaker();
+  const flt = make.module("FLT01 - Filters", "00: Inputs");
+  const ord = make.module("ORD01 - Orders", "01: Data");
+  const rep = make.module("REP01 - Report", "02: Reporting");
+  const show = make.item(flt, "Show?", { format: "BOOLEAN", pageFilters: [{ app: "Sales", page: "Review", card: "2", modules: [rep] }] });
+  const late = make.item(flt, "Late?", { format: "BOOLEAN" });
+  const units = make.item(ord, "Units");
+  const mine = make.item(rep, "Is Mine", { format: "BOOLEAN" });
+  const total = make.item(rep, "Total", { formula: "'ORD01 - Orders'.Units" });
+  make.link(units, total).link(show, rep, "page_filter");
+  const graph: ModelGraph = { ...make.graph(), pageFilterTable: true };
+  const savedViewFilters: SavedViewFilter[] = [
+    viewFilter("Open lines", "REP01 - Report", "FLT01 - Filters", "Show?"),
+    viewFilter("Closed lines", "REP01 - Report", "FLT01 - Filters", "Show?", { active: false }),
+    viewFilter("Mine", "REP01 - Report", "REP01 - Report", "Is Mine"),
+    viewFilter("Late", "ORD01 - Orders", "FLT01 - Filters", "Late?", { axis: "Columns", valid: false }),
+    viewFilter("Old", "ORD01 - Orders", "FLT01 - Filters", "Gone?"),
+    viewFilter("Archive", "ARC01 - Archive", "FLT01 - Filters", "Late?"),
+  ];
+  return { graph, savedViewFilters, flt, ord, rep, show, late, units, mine, total };
 }
 
 /** A model whose filter line item, Show?, is the condition of filters on the pages built on it: on two cards of REV01 -

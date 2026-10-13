@@ -12,10 +12,10 @@ import type { SourceTrace } from "./map-sources.js";
  * - and the source inputs of one line item (map-sources.ts): the line item, its inputs and the calculations between,
  *   each box with its module, linked as their values flow.
  * A link from a thing to itself is no link between two modules or sections; between line items it stays, as the loop a
- * formula that reads its own line item makes. The links of the pages' filters, where they are drawn, are counted apart
- * from the others between the same two boxes: they are drawn in a style of their own (`ViewEdge.filter`). Among a
- * module's line items they run from a filter's line item to each line item it filters, and between modules and groups
- * one stands for each filter line item and module it filters. */
+ * formula that reads its own line item makes. The links of filters, on page cards and in saved views, where they are
+ * drawn, are counted apart from the others between the same two boxes: they are drawn in a style of their own
+ * (`ViewEdge.filter`). Among a module's line items they run from a filter's line item to each line item it filters, or to
+ * a module it filters whole, and between modules and groups one stands for each filter line item and module it filters. */
 
 /** A `sourceItem` is a line item among a line item's source inputs: a box with its module above its name. */
 export type ViewNodeKind = "section" | "module" | "lineItem" | "externalModule" | "externalItem" | "list" | "property" | "sourceItem";
@@ -54,11 +54,11 @@ export interface ViewNode {
   readonly external: boolean;
   /** For an external node of a module's graph: whether formulas read it ("in"), feed it ("out") or both. */
   readonly side?: "in" | "out" | "both";
-  /** Where the pages' filters are drawn, what no link can show: a module's own line items that filter it. On a module's
+  /** Where filters are drawn, what no link can show: a module's own line items that filter it. On a module's
    * box, how many of its own line items filter it; on a section's, how many of its modules their own line items filter;
    * on a line item's, 1 where it filters itself (map-model.ts `filtersItself`): among a module's line items, a filter
    * on the module's grid is a link from its line item to each line item the grid shows, but to itself. The canvas draws
-   * it as a mark on the box. None where there is nothing to mark, or the pages' filters are not drawn. */
+   * it as a mark on the box. None where there is nothing to mark, or filters are not drawn. */
   readonly filterMark?: number;
   /** While access drivers are drawn: one for a driver line item, its module's distinct drivers, or the group's
    * modules that hold drivers. Read and write together still count as one driver. */
@@ -79,7 +79,7 @@ export interface ViewEdge {
   readonly w: number;
   /** Those links, in a module's graph: the trace follows them one by one. */
   readonly refs?: readonly GraphEdge[];
-  /** Whether it counts the links of the pages' filters (map-model.ts `isFilter`), which are never counted together with
+  /** Whether it counts the links of filters (map-model.ts `isFilter`), which are never counted together with
    * the others: it is drawn in a style of its own. */
   readonly filter?: boolean;
   /** Whether it counts formulas' links alone: none of who may read or write. Where the map leaves formulas undrawn
@@ -145,7 +145,7 @@ interface Draft {
 }
 interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: boolean; formula?: number }
 
-/** The key a link is counted under: its two ends, and apart for a page filter's link. */
+/** The key a link is counted under: its two ends, and apart for a filter's link. */
 const linkKey = (s: string, t: string, filter: boolean): string => `${s}>${t}${filter ? ">filter" : ""}`;
 
 const LAYER_LABELS: Record<string, string> = { [LAYER.lineItem]: "Line items", [LAYER.heading]: "No Data line items (headings)", [LAYER.list]: "Lists and subsets", [LAYER.property]: "List properties",
@@ -192,7 +192,7 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
   return { kind, name, nodes, edges, byId, out, in: into, layers, local, bounds: { x: 0, y: 0, w: 1, h: 1 } };
 }
 
-/** The model's formula links, with those of who may read and write when `access` is on, and those of the pages' filters
+/** The model's formula links, with those of who may read and write when `access` is on, and those of filters
  * when `filters` is, in that order. */
 function activeEdges(model: MapModel, access: boolean, filters: boolean): readonly GraphEdge[] {
   if (!access && !filters) return model.formulaEdges;
@@ -200,7 +200,7 @@ function activeEdges(model: MapModel, access: boolean, filters: boolean): readon
 }
 
 /** Links counted together by what each end belongs to. An end that belongs to nothing drops its link, and so does a
- * link whose two ends belong to the same thing. A page filter's links to the line items of one module count once, as the
+ * link whose two ends belong to the same thing. A filter's links to the line items of one module count once, as the
  * one link from its line item to that module: the boxes here stand for modules and their groups, and a filter on a grid
  * that shows a hundred line items is one filter of that module. */
 function aggregate(model: MapModel, edges: readonly GraphEdge[], endpoint: (node: GraphNode | undefined) => string | undefined): Link[] {
@@ -259,7 +259,7 @@ export function sectionsGraph(model: MapModel, access: boolean, filters = false)
   const drafts: Draft[] = model.sections.map((section, index) => {
     const members = model.modules.filter(module => model.sectionOf(module) === section);
     const lineItems = members.reduce((count, module) => count + model.itemsOf(module.id).length, 0);
-    // Where the pages' filters are drawn: how many of its modules their own line items filter.
+    // Where filters are drawn: how many of its modules their own line items filter.
     const marked = filters ? members.filter(module => model.ownFiltersOf(module.id) > 0).length : 0;
     const drivers = access ? members.filter(module => model.accessDriversOf(module.id) > 0).length : 0;
     return {
@@ -293,7 +293,7 @@ export function modulesGraph(model: MapModel, section: string | undefined, acces
 
 /** The line items of one module and what they read and feed outside it. `expanded` shows the line items of other
  * modules one by one; otherwise one node stands for the module and all its linked line items, including links to the
- * whole module from access drivers or page filters whose line items were not read. */
+ * whole module from access drivers, from filters on page cards whose line items were not read, and from saved views' filters. */
 export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean, access: boolean, filters = false): ViewGraph {
   const module = model.node(moduleId);
   const owned = model.itemsOf(moduleId);
@@ -303,7 +303,7 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     drafts.set(String(item.id), {
       id: String(item.id), kind: "lineItem", layer: item.format?.toUpperCase() === "NONE" ? LAYER.heading : LAYER.lineItem,
       code: "", label: item.name, fullName: item.name, meta: "", raw: item, external: false,
-      // Where the pages' filters are drawn, a line item that filters itself is marked: no link can show it.
+      // Where filters are drawn, a line item that filters itself is marked: no link can show it.
       ...(filters && model.filtersItself(item.id) ? { filterMark: 1 } : {}),
       ...(access && model.isAccessDriver(item.id) ? { accessMark: 1 } : {}),
     });

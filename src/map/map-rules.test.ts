@@ -42,7 +42,7 @@ describe("The map's sources", () => {
 
   it("are the map's own files, and take nothing from the rest of the extension but the contract and the page's words for a cell", () => {
     expect(SOURCES).toEqual(["map-bridges.ts", "map-camera.ts", "map-canvas.ts", "map-formula.ts", "map-graphs.ts", "map-groups.ts", "map-inspect.ts", "map-layout.ts", "map-marks.ts", "map-markup.ts", "map-model.ts", "map-palette.ts",
-      "map-search.ts", "map-selection.ts", "map-sources.ts", "map-text.ts", "map-trace.ts", "map-view.ts"]);
+      "map-search.ts", "map-selection.ts", "map-sources.ts", "map-text.ts", "map-trace.ts", "map-view-filters.ts", "map-view.ts"]);
     const outside: string[] = [];
     for (const name of SOURCES) {
       const imports = [...source(name).matchAll(/from "([^"]+)"/g)].map(match => match[1]);

@@ -1,9 +1,9 @@
-import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilter, Unresolved } from "./graph-types.js";
+import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilter, Unresolved, ViewFilter } from "./graph-types.js";
 import type { Grouping } from "./map-groups.js";
 
 /** A model's graph, looked up the ways the map asks for it: its modules and their line items, its sections, the links
- * that make a dependency (a formula's, and who may read or write), the links of the pages' filters, and each node's links
- * in and out. It reads the graph
+ * that make a dependency (a formula's, and who may read or write), the links of filters, on page cards and in saved views,
+ * and each node's links in and out. It reads the graph
  * and changes nothing in it. A link that names a node the graph does not hold, and a line item without a module of the
  * graph, are left out rather than trusted. */
 
@@ -16,14 +16,17 @@ const ACCESS: ReadonlySet<EdgeKind> = new Set<EdgeKind>(["read_access", "write_a
 export const isFormula = (kind: EdgeKind): boolean => FORMULA.has(kind);
 /** Whether a link says who may read or write, and not what a formula reads. */
 export const isAccess = (kind: EdgeKind): boolean => ACCESS.has(kind);
-/** Whether a link is a page's filter, from its condition line item to a line item it filters, or to the module it
- * filters where which line items is not known (graph-types.ts `page_filter`): no formula reads it, and the map draws it
- * only where asked to, as it does the links of access. */
-export const isFilter = (kind: EdgeKind): boolean => kind === "page_filter";
+/** Whether a link is a filter's: one on a page card, from its condition line item to a line item it filters, or to the
+ * module it filters where which line items is not known (graph-types.ts `page_filter`); or one of a saved view, from its
+ * condition line item to the saved view's module (`view_filter`). No formula reads it, and the map draws it only where
+ * asked to, as it does the links of access. */
+export const isFilter = (kind: EdgeKind): boolean => kind === "page_filter" || kind === "view_filter";
 
 /** A line item that filters cards of a module on the pages built on the model, or a line item they show, with those
- * filters (graph-types.ts `PageFilter`), in the Page Filters table's order. */
-export interface ModuleFilter { item: GraphNode; uses: readonly PageFilter[] }
+ * filters (graph-types.ts `PageFilter`), in the Page Filters table's order; and, for a module, the saved views of it whose
+ * filters have the line item as their condition (`views`, graph-types.ts `ViewFilter`), where there are any, in the order
+ * the page gave them. */
+export interface ModuleFilter { item: GraphNode; uses: readonly PageFilter[]; views?: readonly ViewFilter[] }
 
 /** An action that loads into a module, works on it or takes it, and which of the three. */
 export interface ModuleAction { action: GraphNode; kind: EdgeKind }
@@ -41,7 +44,7 @@ export interface MapModel {
   /** Whether this line item drives read or write access, and how many distinct drivers its module holds. */
   isAccessDriver(lineItem: number): boolean;
   accessDriversOf(module: number): number;
-  /** The links of the pages' filters (`isFilter`), in the graph's order. */
+  /** The links of filters, on page cards and in saved views (`isFilter`), in the graph's order. */
   readonly filterEdges: readonly GraphEdge[];
   node(id: number | undefined): GraphNode | undefined;
   itemsOf(module: number): readonly GraphNode[];
@@ -51,27 +54,29 @@ export interface MapModel {
   sectionIndex(section: string): number;
   /** The module a node belongs to: a module itself, a line item's module. Nothing else has one. */
   moduleOf(node: GraphNode | undefined): number | undefined;
-  /** The formula, access and page filter links into a node, and out of it, in the graph's order. */
+  /** The formula, access and filter links into a node, and out of it, in the graph's order. */
   incoming(id: number): readonly GraphEdge[];
   outgoing(id: number): readonly GraphEdge[];
   actionsOf(module: number): readonly ModuleAction[];
-  /** The line items whose page filters filter a module, each with those of its filters, in the order of the line items:
-   * its own line items among them, which have no link to it. */
+  /** The line items whose filters, on page cards or in saved views of it, filter a module, each once with those of its
+   * filters, in the order of the line items: its own line items among them, which have no link to it. */
   filtersOf(module: number): readonly ModuleFilter[];
   /** The line items whose page filters filter a line item, as the grid they narrow shows it, each with those of its
-   * filters, in the order of the line items. A line item that filters itself is not among its own. */
+   * filters, in the order of the line items. A line item that filters itself is not among its own. A saved view filters
+   * its whole module, and no line item of it: none is among these. */
   filtersOfItem(lineItem: number): readonly ModuleFilter[];
-  /** How many of a module's own line items filter it on the pages: a filter that no link between modules can show, for
-   * its line item and the module it filters are one module. The map marks the module with it where it draws the pages'
-   * filters. */
+  /** How many of a module's own line items filter it, on page cards or in saved views of it: a filter that no link between
+   * modules can show, for its line item and the module it filters are one module. The map marks the module with it where
+   * it draws the filters. */
   ownFiltersOf(module: number): number;
-  /** Whether a line item filters itself on the pages, which no link shows: a grid of its own module that it filters
-   * shows it too, or does not say which line items it shows. The map marks the line item for it among its module's. */
+  /** Whether a line item filters itself, which no link shows: a grid of its own module on a page card that it filters
+   * shows it too, or does not say which line items it shows; or it filters a saved view of its own module, which narrows
+   * the whole module. The map marks the line item for it among its module's. */
   filtersItself(lineItem: number): boolean;
-  /** How many modules their own line items filter on the pages. */
+  /** How many modules their own line items filter. */
   readonly ownFiltered: number;
-  /** How many of the pages' filters' links join line items, or a line item and a module, of two modules: those the map
-   * draws between modules. */
+  /** How many of the filters' links join line items, or a line item and a module, of two modules: those the map draws
+   * between modules. */
   readonly filtersBetween: number;
   unresolvedOf(id: number): readonly Unresolved[];
   /** How the modules are filed into the sections, where the map chose a grouping (`withGrouping`); none where the
@@ -150,20 +155,24 @@ export function indexModel(graph: ModelGraph): MapModel {
   const driversOf = new Map<number, number>();
   for (const item of lineItems) if (accessDrivers.has(item.id)) driversOf.set(item.module!, (driversOf.get(item.module!) ?? 0) + 1);
 
-  // Each module's filters on the pages: the line items whose filters name it, its own included.
+  // Each module's filters, on page cards and in saved views of it: the line items whose filters name it, its own
+  // included, each once with both kinds of its filters.
   const filters = new Map<number, ModuleFilter[]>();
   for (const item of lineItems) {
-    const byModule = new Map<number, PageFilter[]>();
+    const byModule = new Map<number, { uses: PageFilter[]; views: ViewFilter[] }>();
+    const of = (module: number): { uses: PageFilter[]; views: ViewFilter[] } => {
+      let found = byModule.get(module);
+      if (!found) byModule.set(module, found = { uses: [], views: [] });
+      return found;
+    };
     for (const use of item.pageFilters ?? []) {
-      for (const module of use.modules ?? []) {
-        if (!items.has(module)) continue;
-        const uses = byModule.get(module);
-        if (uses) uses.push(use); else byModule.set(module, [use]);
-      }
+      for (const module of use.modules ?? []) if (items.has(module)) of(module).uses.push(use);
     }
-    for (const [module, uses] of byModule) {
+    for (const view of item.viewFilters ?? []) if (items.has(view.module)) of(view.module).views.push(view);
+    for (const [module, { uses, views }] of byModule) {
+      const filter: ModuleFilter = { item, uses, ...(views.length ? { views } : {}) };
       const listed = filters.get(module);
-      if (listed) listed.push({ item, uses }); else filters.set(module, [{ item, uses }]);
+      if (listed) listed.push(filter); else filters.set(module, [filter]);
     }
   }
 
@@ -175,10 +184,12 @@ export function indexModel(graph: ModelGraph): MapModel {
   }
 
   // Each line item's filters by the line items they filter, and the line items that filter themselves: those that a grid
-  // of their own module shows as well, and those that filter their own module where it is not known which line items.
+  // of their own module shows as well, those that filter their own module where it is not known which line items, and
+  // those that filter a saved view of their own module, which narrows it whole.
   const itemFilters = new Map<number, ModuleFilter[]>();
   const itself = new Set<number>();
   for (const item of lineItems) {
+    if (item.viewFilters?.some(view => view.module === item.module)) itself.add(item.id);
     const byItem = new Map<number, PageFilter[]>();
     for (const use of item.pageFilters ?? []) {
       const shown = use.lineItems ?? [];
