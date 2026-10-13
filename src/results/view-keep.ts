@@ -3,7 +3,7 @@ import type { ResultTable } from "../result-types.js";
 import type { Column } from "./columns.js";
 import { readRange, type RangeState } from "./range-filter.js";
 import { cellText, type Row, type Sort } from "./table-engine.js";
-import { fileLabel } from "./times.js";
+import { fileLabel, START_COLUMN, START_DATE } from "./times.js";
 
 /** What a results page keeps of how its result is looked at, so that a refresh of the page shows the result as it was
  * left and not only the result: each table's search, filters, ranges, columns shown or hidden, order and page; the
@@ -185,13 +185,25 @@ export interface TakenTable {
   page: number;
 }
 
+/** The columns earlier versions showed that the page now shows as others, by their keys, each with the column its
+ * settings carry over to: an action's start, one column until the page showed it as Start Date and Start Time (times.ts
+ * `splitTimes`), whose hidden or shown, range and sort are Start Date's now. Start Time starts as the page starts it. A
+ * filter of the one column's values is let go: they were days with their times, which no column holds now, and a filter
+ * that ticked some of them would keep no row. */
+const CARRIED: ReadonlyMap<string, string> = new Map([[START_COLUMN, START_DATE]]);
+
 /** A table's settings taken back onto the table as it is now: by its columns' keys, so that what fits another table of
  * the same file is taken and the rest let go. A filter keeps only the values the column still has; one that would keep
  * every value is no filter. A range whose ends cannot be read for the column is let go, and so is one on a column that
- * is no longer one of numbers or of dates. */
+ * is no longer one of numbers or of dates. A setting of a column an earlier version showed in the place of one the table
+ * has now (`CARRIED`) is that column's, where the table does not have the earlier one. */
 export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index" | "label" | "range" | "hidden">[], valuesOf: (column: number) => readonly string[], zone = "UTC"): TakenTable {
   const keys = columnKeys(columns, zone);
   const byKey = new Map(keys.map((key, at) => [key, columns[at]]));
+  const carried = (key: string): Pick<Column, "index" | "label" | "range" | "hidden"> | undefined => {
+    const now = CARRIED.get(key);
+    return byKey.get(key) ?? (now === undefined ? undefined : byKey.get(now));
+  };
   const filters = new Map<number, Set<string>>();
   for (const [key, filter] of Object.entries(kept.filters ?? {})) {
     const column = byKey.get(key);
@@ -203,7 +215,7 @@ export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index
   }
   const ranges = new Map<number, RangeState>();
   for (const [key, range] of Object.entries(kept.ranges ?? {})) {
-    const column = byKey.get(key);
+    const column = carried(key);
     if (!column?.range) continue;
     const read = readRange(column.range, range.from, range.to);
     if ("problem" in read) continue;
@@ -212,14 +224,14 @@ export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index
   }
   const hidden = new Set(columns.filter(column => column.hidden).map(column => column.index));
   for (const key of kept.shown ?? []) {
-    const column = byKey.get(key);
+    const column = carried(key);
     if (column) hidden.delete(column.index);
   }
   for (const key of kept.hidden ?? []) {
-    const column = byKey.get(key);
+    const column = carried(key);
     if (column) hidden.add(column.index);
   }
-  const sortColumn = kept.sort && byKey.get(kept.sort.column);
+  const sortColumn = kept.sort && carried(kept.sort.column);
   const sort: Sort | undefined = kept.sort && sortColumn ? { column: sortColumn.index, dir: kept.sort.dir } : undefined;
   return { filters, ranges, hidden, sort, page: kept.page ?? 0, search: kept.search ?? "" };
 }

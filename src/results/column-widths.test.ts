@@ -56,6 +56,17 @@ describe("The widths of a table's columns", () => {
     expect(headerWidth(column(0, ""))).toBe(7);
   });
 
+  it("gives a column of times the room of the longer of its names in the two zones, so that it is as wide in either", () => {
+    // Start Date by the viewer's clock, and by UTC, each with the other zone's name beside its own (columns.ts `twin`).
+    const local = column(1, "Start Date (America/Buenos_Aires)", "text", { filter: true, twin: "Start Date (UTC)" });
+    const utc = { ...local, label: "Start Date (UTC)", twin: local.label };
+    expect([headerWidth(local) === headerWidth(utc), headerWidth(utc) > headerWidth({ ...utc, twin: undefined })]).toEqual([true, true]);
+    // A day and a time of day are as wide in one zone as in the other: the widths are the same from either zone's rows.
+    const time = column(2, "Start Time (America/Buenos_Aires)", "text", { twin: "Start Time (UTC)" });
+    expect(columnWidths([local, time], [["Load", "2026-03-12", "20:19:56"], ["Copy", "", ""]]))
+      .toEqual(columnWidths([utc, { ...time, label: "Start Time (UTC)", twin: time.label }], [["Load", "2026-03-12", "23:19:56"], ["Copy", "", ""]]));
+  });
+
   it("keeps a column to the widest a column gets, about the 340px the design gives one, and a text far longer than that measured only as far", () => {
     const formula = "IF ".repeat(7000);
     const widths = columnWidths([column(0, "Formula"), column(1, "A header far, far longer than any column of the table could ever be given")], [[formula, "x"]]);

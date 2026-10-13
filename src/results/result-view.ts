@@ -13,6 +13,7 @@ import { actionNamesByRow } from "./process-actions-view.js";
 import { mappingWords, READABLE_HEADERS, readableCell, type CellNames } from "./readable-cells.js";
 import { sourceObjectOf } from "./source-object.js";
 import { cellText, NONE, tableText, type Row } from "./table-engine.js";
+import { splitTimes } from "./times.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import { unusedRule } from "./unused-view.js";
 
@@ -532,10 +533,12 @@ function inWords(view: FileView): FileView {
 /** One of the result's files as the page shows it: by its rule, or as it stands, and for a model's result with its
  * definitions said in words, which comes after the rule (a rule moves columns and rows, and keeps the names of the columns
  * said in words; a rule that says a cell in words itself, as the Imports and the Source Models rules do, keeps what it
- * read, and that stays kept). An app's tables are never put into words: its columns of those names hold other things. */
+ * read, and that stays kept). An app's tables are never put into words: its columns of those names hold other things.
+ * Last, a model's actions' start is shown as two columns, Start Date and Start Time, in UTC (times.ts `splitTimes`), which
+ * the page says again in the zone the viewer chooses. */
 export function fileView(result: AnalysisResult, file: ResultTable): FileView {
   const view = ruledView(result, file);
-  return blankDashes(result.kind === "model" ? inReadingOrder(inWords(view), result) : view);
+  return result.kind === "model" ? splitTimes(blankDashes(inReadingOrder(inWords(view), result))) : blankDashes(view);
 }
 
 /** Blank lone dashes after resolving the file's settings and definitions. Searches, filters, sorts and details all

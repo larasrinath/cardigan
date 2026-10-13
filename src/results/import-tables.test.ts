@@ -119,14 +119,16 @@ describe("The three tables of a model's imports", () => {
       return { shown: all.filter(column => !column.hidden).map(column => column.label), hidden: all.filter(column => column.hidden).map(column => column.label), count: [all.length, table.headers.length] };
     };
     // Uploaded data: its file, under Source Label, and Production Data; no model's object, and FILE in every row.
-    expect(columns(FILE_IMPORTS_FILE)).toEqual({ shown: ["Name", "Source Label", "Target Type", "Target Object", "Used in Processes", "Start Date and Time (UTC)",
-      "Most recent duration (ms)", "Notes", "Production Data"], hidden: ["Source Type", "Source Model", "Source Module", "Saved View", "Source List", "Used in Dashboards"], count: [15, 15] });
+    expect(columns(FILE_IMPORTS_FILE)).toEqual({ shown: ["Name", "Source Label", "Target Type", "Target Object", "Used in Processes", "Start Date (UTC)",
+      "Start Time (UTC)", "Most recent duration (ms)", "Notes", "Production Data"], hidden: ["Source Type", "Source Model", "Source Module", "Saved View", "Source List", "Used in Dashboards"],
+      count: [16, 16] });
     // Another model's object: the four parts of Source Object and the Source Type, which says module, saved view or list.
     expect(columns(MODEL_IMPORTS_FILE)).toEqual({ shown: ["Name", "Source Model", "Source Module", "Saved View", "Source List", "Source Type", "Target Type", "Target Object",
-      "Used in Processes", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes"], hidden: ["Source Label", "Production Data", "Used in Dashboards"], count: [15, 15] });
+      "Used in Processes", "Start Date (UTC)", "Start Time (UTC)", "Most recent duration (ms)", "Notes"], hidden: ["Source Label", "Production Data", "Used in Dashboards"], count: [16, 16] });
     // This model's own: as another model's, but Source Model, this model in every row, starts hidden.
     expect(columns(IN_MODEL_IMPORTS_FILE)).toEqual({ shown: ["Name", "Source Module", "Saved View", "Source List", "Source Type", "Target Type", "Target Object",
-      "Used in Processes", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes"], hidden: ["Source Model", "Source Label", "Production Data", "Used in Dashboards"], count: [15, 15] });
+      "Used in Processes", "Start Date (UTC)", "Start Time (UTC)", "Most recent duration (ms)", "Notes"], hidden: ["Source Model", "Source Label", "Production Data", "Used in Dashboards"],
+      count: [16, 16] });
     // A list's name stands in a column shown in both tables of models' objects.
     const lists = (file: string) => {
       const table = fileView(RESULT, listedTables(RESULT).find(listed => listed.table.file === file)!.table).table;

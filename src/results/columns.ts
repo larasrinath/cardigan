@@ -5,7 +5,7 @@ import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js"
 import { FILE_IMPORTS_FILE, IMPORTS_FILE, IN_MODEL_IMPORTS_FILE, MODEL_IMPORTS_FILE } from "./import-files.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, dayOf, filterItems, groupedCount, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
-import { fileLabel } from "./times.js";
+import { fileLabel, START_COLUMN, START_DATE, START_TIME } from "./times.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
  * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
@@ -57,6 +57,10 @@ export interface Column {
   hidden: boolean;
   /** Whether a lone dash is blank in this column. False only for Line Items' inherited settings (`blanksDash`). */
   none: boolean;
+  /** For a column of times, which names the zone it is in (times.ts): its name in the other zone. The column is as wide as
+   * the longer of the two needs, and its header and its row in a row's details keep the room the other takes, unseen
+   * (markup.ts `labelHtml`), so that a switch of the zone moves nothing. Nothing for a viewer whose own zone is UTC. */
+  twin?: string;
 }
 
 interface Choice { kind?: ColumnKind; num?: true; filter?: true; hidden?: true }
@@ -136,7 +140,8 @@ export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
 ]);
 interface ModelLayout { shown: readonly string[]; hidden: readonly string[] }
 
-const RUN = ["Start Date and Time (UTC)", "Most recent duration (ms)"];
+/** When an action last started, as the two columns the page shows it as (times.ts `splitTimes`), and how long it took. */
+const RUN = [START_DATE, START_TIME, "Most recent duration (ms)"];
 const DASHBOARDS = ["Used in Dashboards"];
 /** The four columns the page shows an import's Source Object as (result-view.ts `importsRule`). */
 const SOURCE_PARTS = ["Source Model", "Source Module", "Saved View", "Source List"];
@@ -185,9 +190,11 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
     hidden: ["Card #", "Name source", ...PAGE_HIDDEN, "Card ID", "Action ID"] }],
 ]);
 
+/** Other names a model's grids give a column of a layout. An action's start that is one column, as the file has it, and
+ * one whose header names no zone, which the page shows as it stands, take Start Date's place. */
 const HEADER_VARIANTS: ReadonlyMap<string, string> = new Map([
   ["Top Level Item", "Top Level"], ["Numbered List", "Numbered"], ["Populated Cell Count", "Cell Count"], ["Type", "Source Type"], ["Used in Imports", "Imports"],
-  ["Start Date and Time", "Start Date and Time (UTC)"],
+  [START_COLUMN, START_DATE], ["Start Date and Time", START_DATE],
 ]);
 const layoutName = (label: string, zone: string): string => {
   const header = fileLabel(label, zone);
@@ -226,10 +233,10 @@ export const FREE_TEXT: readonly string[] = ["Formula", "Notes", "Text content",
 /** The columns of a model's grids and of an app's files that hold a measure, a time or a running number, whatever the
  * cells look like: a module's or a line item's cells and memory, the work a line item takes, a list's items and its next
  * index, how long an action last took and when it started, and when a page was last published. A column of times is known
- * by the file's name for it, in whichever zone the page shows its times (times.ts `fileLabel`). Such a column never offers a list to tick past thirty texts: a list of thousands of numbers
+ * by its name in UTC, in whichever zone the page shows its times (times.ts `fileLabel`). Such a column never offers a list to tick past thirty texts: a list of thousands of numbers
  * helps nobody. Where its cells are numbers or dates, it is filtered by a range (`rangeOf`), as any such column is. */
 export const MEASURES: readonly string[] = ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort", "Item Count", "Next item index",
-  "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"];
+  "Most recent duration (ms)", START_COLUMN, START_DATE, START_TIME, "Last published"];
 
 /** A text that is a number or a date, however it is written: digits with their signs, separators and a percent sign, or
  * a date that starts with its year or its day. A column of nothing else, past thirty texts, is a measure as well. */
@@ -316,8 +323,10 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
     const subsetCount = table.file === "Line Item Subsets.csv" && header === "Line Items";
     const range = subsetCount ? "number" : rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
-    const filter = layout ? !["Name", "Formula", "Notes"].includes(label) && !/(?:^| )IDs?$/.test(label)
-      : range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone));
+    // An action's time of day offers no filter: Start Date's range of whole days is the filter of when it started, and a
+    // list of times to tick would list other times in the other zone.
+    const filter = fileLabel(label, zone) !== START_TIME && (layout ? !["Name", "Formula", "Notes"].includes(label) && !/(?:^| )IDs?$/.test(label)
+      : range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone)));
     const hidden = (table.file === "Line Item Subsets.csv" && /(?:^| )IDs?$/.test(label))
       || (layout ? layout.hidden.includes(layoutName(label, zone)) : choice.hidden === true);
     return { index, label, kind: subsetCount ? "count" : choice.kind ?? "text", num: subsetCount || choice.num === true, filter,

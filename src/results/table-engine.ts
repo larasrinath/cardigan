@@ -170,8 +170,9 @@ export interface TableQuery {
   /** Column -> the range its rows are kept by, for a column of numbers or of dates. A column without one keeps every row. */
   ranges?: ReadonlyMap<number, RangeQuery>;
   sort?: Sort;
-  /** Column -> the text a row is sorted by in it, where that is not the cell's own: a time shown in the viewer's zone is
-   * sorted by the UTC text that was read, which runs as the moments do (times.ts `readText`). */
+  /** Column -> the text a row is sorted by in it, where that is not the cell's own: an action's Start Date and its Start
+   * Time are each sorted by the whole moment, the UTC text that was read, which runs as the moments do (times.ts
+   * `startText`). */
   sortKeys?: ReadonlyMap<number, (row: Row) => string>;
   /** A jump from another table: keeps the rows whose cell in `column` is exactly `value`. */
   context?: { column: number; value: string };

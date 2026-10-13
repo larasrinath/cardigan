@@ -74,10 +74,14 @@ export function textWidth(text: string, most = Infinity): number {
 }
 
 /** The room a column's header needs: its name as the header shows it, the sort arrow's room, and the filter button where
- * the column has one. Nothing of it depends on whether or how the column is sorted. */
+ * the column has one. Nothing of it depends on whether or how the column is sorted. A column of times has the room of the
+ * longer of its names in the two zones (columns.ts `Column.twin`), so that it is as wide in either. */
 export function headerWidth(column: Column): number {
-  const name = column.label.toUpperCase();
-  const width = textWidth(name) * HEAD_TYPE + name.length * HEAD_SPACING + HEAD_ROOM + (column.filter ? FILTER_ROOM : 0) + SPARE;
+  const room = (label: string): number => {
+    const name = label.toUpperCase();
+    return textWidth(name) * HEAD_TYPE + name.length * HEAD_SPACING;
+  };
+  const width = Math.max(room(column.label), column.twin === undefined ? 0 : room(column.twin)) + HEAD_ROOM + (column.filter ? FILTER_ROOM : 0) + SPARE;
   return Math.min(WIDEST, Math.ceil(width));
 }
 
