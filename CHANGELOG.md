@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Start Date and Start Time.** An action's start shows as two columns, Start Date and Start Time, in the zone the Timezone control picks, and a row's details say that zone only, with the time Anaplan wrote under As read; switching the zone no longer moves the tables or the details.
 
+## 0.41.2 (12 October 2026)
+
+- **Large models.** A page of a settings grid the model refuses is read again in smaller pages, so Line Items is no longer lost whole; a row it still refuses is left out and named in the notes, the log keeps the model's reason, and the engine is told from the grid's columns. Refresh the Anaplan tab once after updating. (#10)
+
 ## 0.41.1 (12 October 2026)
 
 - **Actions in sections.** The Actions menu shows Processes, Imports, Exports and Other Actions headings, as Dimensions does, with File Imports, Model-to-Model Imports, In-Model Imports and Data Sources under Imports. (#9)

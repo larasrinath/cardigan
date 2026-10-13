@@ -6,11 +6,11 @@ import { fileSafe, message, text } from "../util.js";
 import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
-import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
+import { gridTable, refusedNote, refusedRemark, type Grid, type GridRow, type Table } from "./grid.js";
 import { IMPORT_DEFINITION, importNames, importsLine, readImportMappings, SOURCE_DEFINITION } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { LINE_ITEM_SUBSETS, readLineItemSubsets } from "./line-item-subsets.js";
-import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
+import { axis, GridFailure, loadNative, readGrid, typeIndex, type Native } from "./native.js";
 import { PROCESS_DEFINITION, processActions, processesLine } from "./process-actions.js";
 
 /** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
@@ -104,7 +104,9 @@ export function lineItemIdsOf(grid: Grid): [string, string][] {
  * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
  * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
  * ends it. The result carries the modules' IDs and the lists', none found or not: a result without them is one an earlier
- * version made. */
+ * version made. A grid the model refused some rows of is kept without them (native.ts `readGrid`): where its rows make a
+ * table, a note says so, and the Files row of the file made from it alone says so beside its count. Of Line Items, the
+ * result carries the grid's columns, wherever its first page was read, and how many rows the model refused. */
 
 export async function exportModel(progress: Progress, diagnostics: () => string, stop?: Stop): Promise<AnalysisResult> {
   const log: Log = progress.log;
@@ -122,11 +124,15 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   /** Where the next file goes: among the tables, the summary's lines, the notes and the Details file's Files rows. A file
    * whose table is made after later grids were read is put at the place that was taken when its own grid was read. */
   const place = () => ({ table: tables.length, line: summary.length, note: notes.length, row: fileRows.length });
+  /** What a file's Files row says beside its count where the model refused rows of the one grid the file is made from, by
+   * the file's name: "the model refused 2 of 7100". A file whose count comes with words of its own keeps those. */
+  const remarks = new Map<string, string>();
   const add = (file: string, table: Table, detail?: string, at = place()) => {
     // No guard: a grid's values are kept exactly as Anaplan's own export writes them. (The mark is read by the tests'
     // writer of a CSV, zip.test-support.ts `toCsv`: the page writes none.)
     tables.splice(at.table, 0, { file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
-    const rows = `${table.rows.length} rows${detail ? ` (${detail})` : ""}`;
+    const said = detail ?? remarks.get(file);
+    const rows = `${table.rows.length} rows${said ? ` (${said})` : ""}`;
     summary.splice(at.line, 0, `${file}: ${rows}`);
     fileRows.splice(at.row, 0, ["Files", `${file}.csv`, rows]);
   };
@@ -154,16 +160,41 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     }
   };
   const grid = (file: string, rows: string, columns: string) => readGrid(native, rows, columns, file, log, undefined, false, stop);
-  const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await grid(file, rows(), columns()))));
+  /** A grid whose rows make a table, as it was read. Where the model refused some of its rows, a note under the grid's name
+   * says how many rows were read and which were not; where the table is the grid's rows alone (`own`), its file's Files row
+   * says so beside its count too. A grid read for no table, as the definitions of imports and processes are, says so in
+   * the log alone. */
+  const kept = (name: string, read: Grid, own = true): Grid => {
+    const said = refusedNote(read);
+    if (said) {
+      note(name, said);
+      if (own) remarks.set(name, refusedRemark(read)!);
+    }
+    return read;
+  };
+  const tableGrid = async (file: string, rows: string, columns: string) => kept(file, await grid(file, rows, columns));
+  const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await tableGrid(file, rows(), columns()))));
 
   // Line Items is read first, as ever, and its file keeps the first place. Its table is made only once General Lists has
   // been read or has failed: that grid's rows name the lists of its Format List column (lineitems.ts), and no grid is read
   // for the names. Nothing else moves: the reads, the steps and the lines of the log are in the order they had.
   const lineItemsAt = place();
-  const lineItems = await step("Line Items", () => grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")));
+  /** The Line Items grid's columns, wherever its first page was read: the run tells the model's engine by them where there
+   * is no Line Items table (content.ts), as when the model refused the grid's later pages. */
+  let lineItemColumns: string[] | undefined;
+  const lineItems = await step("Line Items", async () => {
+    try {
+      const read = await tableGrid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY"));
+      lineItemColumns = read.columns.map(column => column.labels[0] ?? "");
+      return read;
+    } catch (error) {
+      if (error instanceof GridFailure) lineItemColumns = [...error.columns];
+      throw error;
+    }
+  });
   // Its grid is kept for the modules' IDs, which no table holds.
   const modules = await step("Modules", async () => {
-    const read = await grid("Modules", axis(native, "MODULE_ALL"), native.axisHelper.getModuleSystemAxisIdentifier());
+    const read = await tableGrid("Modules", axis(native, "MODULE_ALL"), native.axisHelper.getModuleSystemAxisIdentifier());
     add("Modules", gridTable(read));
     return read;
   });
@@ -171,7 +202,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   const moduleIds = moduleIdsOf(native, [modules, lineItems]);
   log(moduleIdsLine(native, [modules, lineItems], moduleIds.length));
   const lists = await step("General Lists", async () => {
-    const read = await grid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
+    const read = await tableGrid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
     add("General Lists", gridTable(read));
     return read;
   });
@@ -180,6 +211,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   log(listIdsLine(native, [lists], listIds.length));
   await step(LINE_ITEM_SUBSETS, async () => {
     const read = await readLineItemSubsets(native, log, stop, moduleIds);
+    if (read.refused) kept(LINE_ITEM_SUBSETS, read.refused);
     add(LINE_ITEM_SUBSETS, read.table);
     if (read.note) note(LINE_ITEM_SUBSETS, read.note);
   });
@@ -199,7 +231,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   let actions: Grid | undefined;
   const kinds = new Map<GridRow, ActionKind>();
   try {
-    actions = await grid("Actions", axis(native, "ACTION_WITH_HEADING"), native.axisHelper.getActionSystemAxisIdentifier());
+    // A note on rows the model refused is under the list's own name: they could be of any of the tables split from it.
+    actions = kept("Actions", await grid("Actions", axis(native, "ACTION_WITH_HEADING"), native.axisHelper.getActionSystemAxisIdentifier()), false);
     const counts = new Map<string, number>();
     for (const row of actions.rows) {
       let info: Any = null;
@@ -239,7 +272,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   }
   // The Imports tab is kept for the mappings of the imports from a file, which it names.
   const imports = await step("Imports", async () => {
-    const tab = await grid("Imports", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_DEFINITION_PROPERTY"));
+    const tab = await tableGrid("Imports", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_DEFINITION_PROPERTY"));
     const merged = mergeImports(tab, actions && { columns: actions.columns, rows: actions.rows.filter(ofKind("import")) });
     add("Imports", merged.table, actions ? `${merged.matched} matched in the Actions list` : "Imports tab only: the Actions list could not be read");
     return tab;
@@ -293,7 +326,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   await plain("Source Models", () => axis(native, "REMOTE_MODEL"), () => axis(native, "REMOTE_MODEL_PROPERTY"));
   const selectorNames = new Map<number, string>();
   await step("Model Calendar", async () => {
-    const calendar = await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true, stop, [], selectorNames);
+    // The file's rows are the calendar template's, not the grid's: a note alone says what the model refused of the grid.
+    const calendar = kept("Model Calendar", await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true, stop, [], selectorNames), false);
     const values = new Map(calendar.rows.map(row => [row.ids[0], row.cells.find(cell => cell !== "") ?? ""] as [number, string]));
     // Year to date and year to go show only when the time summary setting is on (TimeRangeEditor).
     const flag = native.constants.FEATURE_FLAGS?.TIME_SUMMARY;
@@ -347,7 +381,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   ];
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
+  const lineItemsRefused = lineItems?.refused?.places.length;
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
     summary: [...summary, ...notes], moduleIds, listIds, ...(mappings ? { importMappings: mappings } : {}), ...(processes ? { processActions: processes } : {}),
-    ...(lineItemIds ? { lineItemIds } : {}) };
+    ...(lineItemIds ? { lineItemIds } : {}), ...(lineItemColumns ? { lineItemColumns } : {}), ...(lineItemsRefused ? { lineItemsRefused } : {}) };
 }

@@ -45,7 +45,12 @@ import { message } from "../util.js";
  * of its line items, headings aside, is listed (No line item used). Divider modules, named as headings, are left out.
  *
  * Where the run could not see what it would take to know (the pages, Line Items, the imports' mappings, an export's source,
- * a subset's members), the tables are made all the same, and a note says what may be used after all. */
+ * a subset's members), the tables are made all the same, and a note says what may be used after all. So it is where the
+ * model refused some rows of Line Items, which the export kept without them (native.ts `readGrid`). What their formulas
+ * read is used all the same: a Referenced By that names a line item the table does not have counts as a use. But their
+ * other uses are not seen: a line item that only one of them uses otherwise, as an operand of its Ratio summary, as the
+ * Parent it is summed into or as its access driver, may be listed, and so may a module whose rows were all refused, as
+ * Empty, or whose refused line items were its used ones, as No line item used. */
 
 type Row = readonly Cell[];
 type Log = (line: string) => void;
@@ -99,8 +104,9 @@ interface Item { row: Row; index: number; name: string; module: string; heading:
 /** What the two tables are made of, and what the run could not see. */
 interface Found { lineItems: Cell[][]; modules: Cell[][]; notes: string[]; log: string[] }
 
-/** The two tables, with what may be used after all and the log's lines. */
-function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [string, string])[] | undefined): Found {
+/** The two tables, with what may be used after all and the log's lines. `refusedRows`: how many rows of Line Items the
+ * model refused. */
+function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [string, string])[] | undefined, refusedRows: number): Found {
   const notes: string[] = [];
   const lineItems = readOf(result, LINE_ITEMS_FILE);
   const modules = readOf(result, MODULES_FILE);
@@ -116,6 +122,10 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
   const read = lineItems !== undefined && moduleAt !== undefined;
   if (!read) notes.push("Line Items was not read, so no line item or module could be checked.");
   else {
+    if (refusedRows > 0) {
+      const one = refusedRows === 1;
+      notes.push(`${plural(refusedRows, "row", "rows")} of Line Items could not be read, so line items used only by ${one ? "it" : "them"} may be listed, and so may ${one ? "its module" : "their modules"}.`);
+    }
     lineItems.table.rows.forEach((row, index) => {
       const module = cellText(row[moduleAt]);
       const name = cellText(row[0]);
@@ -433,8 +443,10 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
 /** The result with the two tables after its others, each with its Files row, the notes on what may be used after all, and
  * the log's lines, which go to the run's log too. It never throws: a failure leaves both tables out, with why. The result
  * given is not changed: its tables and its Details file are copied where they gain rows. `lineItemIds` are the IDs the
- * export gave for the rows of its Line Items table (content.ts takes them off its result). */
-export function addUnused(given: AnalysisResult, lineItemIds: readonly (readonly [string, string])[] | undefined, log: Log = () => undefined): AnalysisResult {
+ * export gave for the rows of its Line Items table, and `lineItemsRefused` how many rows of the Line Items grid the model
+ * refused (content.ts takes both off its result). */
+export function addUnused(given: AnalysisResult, lineItemIds: readonly (readonly [string, string])[] | undefined, log: Log = () => undefined,
+  lineItemsRefused = 0): AnalysisResult {
   const result: AnalysisResult = { ...given, summary: [...given.summary], tables: given.tables.map(table => (table.details ? { ...table, rows: [...table.rows] } : table)) };
   const details = result.tables.find(table => table.details === true);
   const lastOf = (sections: readonly string[]): number => (details?.rows ?? []).reduce((at, row, index) => (sections.includes(cellText(row[0])) ? index : at), -1);
@@ -451,7 +463,7 @@ export function addUnused(given: AnalysisResult, lineItemIds: readonly (readonly
     [UNUSED_MODULES_FILE, UNUSED_MODULES, UNUSED_MODULES_HEADERS]];
   let found: Found;
   try {
-    found = findUnused(result, lineItemIds);
+    found = findUnused(result, lineItemIds, lineItemsRefused);
   } catch (error) {
     const why = `Cardigan could not make it: ${message(error)}`;
     result.summary.push(...tables.map(([, label]) => `${label}: not exported (${why}).`));

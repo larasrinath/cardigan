@@ -136,7 +136,7 @@ describe("Line Item Subsets through Model Building", () => {
       failed === 1 ? ["", "false"] : ["'Demand'.'Rate, net'", "true"],
     ]);
     expect(requests).toHaveLength(3);
-    expect(log).toContain(`Line Item Subsets membership: subset ${definitions.rows[failed].ids[0]} not read (The model rejected the read.)`);
+    expect(log).toContain(`Line Item Subsets membership: subset ${definitions.rows[failed].ids[0]} not read (The model rejected the read: not available.)`);
     expect(log.at(-1)).toBe("Line Item Subsets membership: 1 subset read; 1 subset not read in 0.00 s");
   });
 
@@ -236,8 +236,8 @@ describe("Line Item Subsets through Model Building", () => {
     expect(result.table.headers).toEqual(["", "Modules", "Notes", "Line Items", "Membership read"]);
     expect(result.table.rows.map(row => row.slice(-2))).toEqual([["", "false"], ["", "false"]]);
     expect(log.slice(-3)).toEqual([
-      "Line Item Subsets membership: subset 114000000001 not read (The model rejected the read.)",
-      "Line Item Subsets membership: subset 114000000002 not read (The model rejected the read.)",
+      "Line Item Subsets membership: subset 114000000001 not read (The model rejected the read: not available.)",
+      "Line Item Subsets membership: subset 114000000002 not read (The model rejected the read: not available.)",
       "Line Item Subsets membership: 0 subsets read; 2 subsets not read in 0.00 s",
     ]);
   });
