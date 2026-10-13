@@ -60,7 +60,7 @@ const WORDS_KEPT = 60000;
  * without their colours. */
 const DASH_UP = [7, 5];
 const DASH_DOWN = [2, 4];
-/** A page filter's link, where no trace marks it: in its own colour, in dashes that stand still, so it is told from a
+/** A filter's link, where no trace marks it: in its own colour, in dashes that stand still, so it is told from a
  * formula's link by more than its colour, and from a trace's by standing still. */
 const DASH_FILTER = [5, 3.5];
 const DASH_SPEED = 24;
@@ -279,7 +279,7 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
       pen.moveTo(fromRight, y1);
       pen.bezierCurveTo(fromRight + bend, y1, toLeft - bend, y2, toLeft - head + 1, y2);
     }
-    // A faint line is solid on a trace too: dashes are a page filter's, and moving ones a trace's links'.
+    // A faint line is solid on a trace too: dashes are a filter's, and moving ones a trace's links'.
     if (link && way) {
       traced = true;
       const dash = way === 1 ? DASH_UP : DASH_DOWN;

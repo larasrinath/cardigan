@@ -88,7 +88,7 @@ The map shows how a model's groups, modules and line items connect. It is built 
 - **Headings** groups modules under empty divider modules whose names are set off by symbols, such as "-- Inputs --" or "## Data ##", learnt from each model.
 - Modules in **Modules** with no row in **Line Items** show with a dotted outline.
 - Choose a **Group** or **Module** to explore it, or search for a group, module or line item.
-- **Links** lets you show formula, access-driver and page-filter connections.
+- **Links** lets you show formula, access-driver and filter connections. **Filters** draws the filters on page cards and in saved views.
 - Click a box for details and its connections. **Hide the other boxes** keeps its chain in view; **Show all boxes** brings the others back. **Table** and **Model** open the matching row or place in Anaplan where available.
 - **Find source inputs**, in a line item's details or its row of **Line Items**, lists the line items without a formula that feed it, entered or imported, and maps them with the calculations in between; **Back** or Esc returns.
 - The details' name, kind and opening buttons stay in place while the content below scrolls, as in the tables' details. Selecting another box starts its details at the top. Very long names wrap and scroll within the header so the content keeps room.
@@ -98,7 +98,7 @@ The map shows how a model's groups, modules and line items connect. It is built 
 
 ![Light Model map grouped by Functional area, with the Legend, the minimap and the bottom-left controls row](docs/images/map-groups.png)
 
-![Dark map of INP01 Sales Overrides line items with page-filter and access-driver links and Legend open](docs/images/map-line-items.png)
+![Dark map of INP01 Sales Overrides line items with filter and access-driver links and Legend open](docs/images/map-line-items.png)
 
 ![CON01 Consensus Forecast map details showing Fed by, Feeds and Hide the other boxes](docs/images/map-details.png)
 

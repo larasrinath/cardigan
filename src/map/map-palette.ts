@@ -62,7 +62,7 @@ export interface MapPalette {
   nodeText: string;
   nodeTextMuted: string;
   edge: string;
-  /** A page filter's link (map-graphs.ts `ViewEdge.filter`), where no trace marks it. */
+  /** A filter's link (map-graphs.ts `ViewEdge.filter`), where no trace marks it. */
   filter: string;
   /** The key mark of an access driver. */
   access: string;

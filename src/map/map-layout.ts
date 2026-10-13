@@ -134,7 +134,7 @@ export function components(out: readonly (readonly number[])[]): { of: Int32Arra
   return { of, count };
 }
 
-/** Only formulas place boxes, at every level. Access drivers and page filters are drawn over those places. */
+/** Only formulas place boxes, at every level. Access drivers and filters are drawn over those places. */
 interface Flow { out: readonly (readonly number[])[]; in: readonly (readonly number[])[]; edges: ViewGraph["edges"] }
 function flowOf(graph: ViewGraph): Flow {
   const edges = graph.edges.filter(edge => !edge.filter && (edge.formulas ?? 1) > 0);

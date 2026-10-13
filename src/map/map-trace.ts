@@ -37,7 +37,7 @@ function reach(start: number, neighbours: readonly (readonly number[])[]): Set<n
 }
 
 /** Every object of the model reached from the seeds against the links (`upstream`) or along them, without the seeds. The
- * links of formulas, of access drivers and of the pages' filters count only where they are drawn (`formulas`, `access`,
+ * links of formulas, of access drivers and of filters count only where they are drawn (`formulas`, `access`,
  * `filters`). */
 function reachInModel(model: MapModel, seeds: readonly number[], upstream: boolean, access: boolean, filters: boolean, formulas: boolean): Set<number> {
   const seen = new Set(seeds);
@@ -76,7 +76,7 @@ function drawnNeighbours(graph: ViewGraph, formulas: boolean): { into: number[][
 }
 
 /** The trace of the node at `selected`. `access` says whether the links of who may read and write count, `filters`
- * whether those of the pages' filters do, and `formulas` whether those of formulas do: each only where the map draws
+ * whether those of filters do, on page cards and in saved views, and `formulas` whether those of formulas do: each only where the map draws
  * them. A link the map does not draw is never marked. */
 export function traceNode(graph: ViewGraph, model: MapModel, selected: number, access: boolean, filters = false, formulas = true): Trace {
   const node = graph.nodes[selected];
@@ -93,7 +93,7 @@ export function traceNode(graph: ViewGraph, model: MapModel, selected: number, a
     return { selected, up, down, edges };
   }
 
-  // A grouped outside box also holds the module itself: access and older page filters can point straight at it.
+  // A grouped outside box also holds the module itself: access, older page filters and saved views' filters can point straight at it.
   const seeds = [node.raw.id, ...(node.kind === "externalModule" ? node.members ?? [] : [])];
   const seedSet = new Set(seeds);
   const rawUp = reachInModel(model, seeds, true, access, filters, formulas);

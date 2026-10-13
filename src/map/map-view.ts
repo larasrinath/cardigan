@@ -20,6 +20,7 @@ import { inTrace, traceNode, type Trace } from "./map-trace.js";
 import { keptSelection, keptSources, selectionKey, sourcesKey } from "./map-selection.js";
 import { importedBy, traceable, traceSources, type SourceTrace, type ImportedBy } from "./map-sources.js";
 import { bridgesOver, mayBridge, type Bridge } from "./map-bridges.js";
+import { withSavedViewFilters } from "./map-view-filters.js";
 
 /** What the map asks of the browser around it. The page gives it none of this: `mountModelMap` takes it from the browser,
  * and a test hands in its own. */
@@ -272,7 +273,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Whether formulas' links are drawn. Leaving them out moves no box: only the drawing, the trace and the words follow. */
   let formulas = true;
   let access = false;
-  /** Whether the links of the pages' filters are drawn: only where the model has some (`filtersDrawable`). */
+  /** Whether the links of filters, on page cards and in saved views, are drawn: only where the model has some
+   * (`filtersDrawable`). */
   let filters = false;
   let minimapOpen = true;
   let minimapRight = 0;
@@ -775,7 +777,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // Of links it says only the kinds drawn, and nothing of formulas': a link that is neither a filter's nor formulas'
     // alone has an access driver. What a dotted box means is said while the picture has one, whichever of its layers
     // are hidden.
-    // Among a line item's source inputs, which draw no page filter and no mark, it says what a tinted box is while one is
+    // Among a line item's source inputs, which draw no filter and no mark, it says what a tinted box is while one is
     // on the map, and, where hiding a layer can draw a faint line, what one is, whether or not one is drawn now. Among a
     // module's line items, what a key mark on another module's box counts is said while one has a mark.
     const kind = onScreen.kind === "sources" ? undefined : onScreen.kind;
@@ -851,9 +853,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     accessToggle.checked = access;
     accessToggle.disabled = model.accessEdges.length === 0;
     accessNote.textContent = accessSay(model.graph, model.accessEdges.length > 0);
-    // The pages' filters can be shown only where the model has some to show, as links or as marks on modules their own
-    // line items filter: otherwise the switch is off, and the note under it says why in its explanation's place. What it
-    // shows is said by whether some of the links join two modules, and some modules are marked.
+    // Filters, on page cards and in saved views, can be shown only where the model has some to show, as links or as marks
+    // on modules their own line items filter: otherwise the switch is off, and the note under it says why in its
+    // explanation's place. What it shows is said by whether some of the links join two modules, and some modules are marked.
     filtersToggle.checked = filters;
     filtersToggle.disabled = !filtersDrawable();
     filtersNote.textContent = filtersSay(model.graph, model.filtersBetween > 0, model.ownFiltered > 0);
@@ -923,7 +925,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       hovered = node;
       const raw = node.raw;
       const module = raw && raw.kind !== "module" ? model.node(model.moduleOf(raw)) : undefined;
-      // While the pages' filters are drawn, a line item says where it filters, and what filters it.
+      // While filters are drawn, a line item says where it filters, and what filters it.
       const filtered = filters && raw?.kind === "lineItem" ? filterTipLines(model, raw) : [];
       const driven = !access ? [] : raw?.kind === "lineItem" ? accessTipLines(model, raw) : node.accessMark
         ? [node.kind === "section" ? `${plural(node.accessMark, "module")} with access drivers` : `${plural(node.accessMark, "access driver")}`] : [];
@@ -1246,8 +1248,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return formulas ? "all" : access || filters ? "noFormulas" : "none";
   }
 
-  /** Whether the model has its pages' filters to show: links of them, between modules or among a module's line items, or
-   * modules that their own line items filter, which are marked. */
+  /** Whether the model has filters to show, on page cards or in saved views: links of them, between modules or among a
+   * module's line items, or modules that their own line items filter, which are marked. */
   function filtersDrawable(): boolean {
     return (model?.filterEdges.length ?? 0) > 0 || (model?.ownFiltered ?? 0) > 0;
   }
@@ -1402,7 +1404,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   /** The module a list, a subset or a list's property stands beside on the map: the module of the first line item it is
-   * linked with, in the order of its links. A link of an access driver, or of a page's filter, counts only while those
+   * linked with, in the order of its links. A link of an access driver, or of a filter, counts only while those
    * links are drawn. Nothing for one that is linked with no line item. */
   function besideModule(raw: GraphNode): number | undefined {
     if (!model) return undefined;
@@ -1799,7 +1801,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       filters = filtersToggle.checked && filtersDrawable();
       onlyTrace = false;
       build(true);
-      if (onScreen) announce(`${filters ? "Page filters are drawn." : "Page filters are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
+      if (onScreen) announce(`${filters ? "Filters are drawn." : "Filters are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     }
   }));
 
@@ -2134,12 +2136,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     orderedModules = [...buckets.values()].flat().map(node => ({ node, name: searchText(node.name) }));
   }
 
-  /** What is done once, at the first showing: the model is looked up, its modules grouped, and the first view built.
-   * The grouping is the one the viewer chose last where this model has it, and otherwise the map's own pick. The view is
-   * where the viewer left this model's map in this tab, where the page kept that (`takeView`). */
+  /** What is done once, at the first showing: the model is looked up, with the saved views' filters the page gave it
+   * among its filters (map-view-filters.ts), its modules grouped, and the first view built. The grouping is the one the viewer
+   * chose last where this model has it, and otherwise the map's own pick. The view is where the viewer left this model's
+   * map in this tab, where the page kept that (`takeView`): the filters are among the model's before it is taken up, so a
+   * tick kept for filters that only saved views have is kept. */
   function start(): void {
     if (model) return;
-    base = indexModel(graph);
+    base = indexModel(withSavedViewFilters(graph, options.savedViewFilters));
     groupings = groupingsOf(base);
     automatic = automaticGrouping(groupings);
     bestReason = bestGroupingReason(groupings);
