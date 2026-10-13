@@ -315,12 +315,14 @@ describe("What the results page reads out of a result", () => {
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
     // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it,
     // followed by the run's two tables of what nothing uses (model/unused.ts). After the settings, the tables of the pages
-    // built on the model, which a model's run adds (model-pages.ts): last before the map. The three tables the page shows
-    // the Imports file as stand in its place (import-files.ts).
+    // built on the model, which a model's run adds (model-pages.ts), with the saved views' filters, which the export reads,
+    // before the custom view filters of the pages' cards: last before the map. The three tables the page shows the Imports
+    // file as stand in its place (import-files.ts).
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
       "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv", "Processes.csv", "Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv",
-      "In-Model Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]);
-    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 22, ACCESS_FILE]);
+      "In-Model Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv", "Module Usage.csv", "Saved View Filters.csv", "Page Filters.csv",
+      "Page Actions.csv"]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 23, ACCESS_FILE]);
     const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
     /** The files of a result as the page lists them: each one's name and its place in the result. */
     const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);
@@ -347,12 +349,13 @@ describe("What the results page reads out of a result", () => {
     // An app's files are listed as the result has them, even ones with a model's names.
     expect(listed("app", "Pages.csv", "Cards.csv", "Line Items.csv", "Model Calendar.csv", "Where Used.csv"))
       .toEqual(["1 Pages.csv", "2 Cards.csv", "3 Line Items.csv", "4 Model Calendar.csv", "5 Where Used.csv"]);
-    // The overview's tiles follow the same order. Two of them have the page's own names for their tables, by their files:
-    // Data Sources for Import Data Sources, and DCA for Dynamic Cell Access, which says what it stands for in full.
+    // The overview's tiles follow the same order. Three of them have the page's own names for their tables, by their files:
+    // Data Sources for Import Data Sources, DCA for Dynamic Cell Access, which says what it stands for in full, and Custom
+    // View Filters for Page Filters.
     const tiles = overviewOf(result("model", [modelDetails, ...written.map(name => ({ ...file(name), rows: [["A row", "A value"]] }))])).tiles;
     expect(tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
       "Line Items", "DCA", "Unused Line Items", "Unused Modules", "Processes", "Imports", "Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage",
-      "Page Filters", "Page Actions"]);
+      "Custom View Filters", "Page Actions"]);
     expect(tiles.filter(tile => tile.full !== undefined)).toEqual([expect.objectContaining({ label: "DCA", count: 1, full: "Dynamic Cell Access (DCA)" })]);
   });
 
@@ -1082,7 +1085,8 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, fine), fileView(model, earlier), fileView(result("app", [appDetails, filters]), filters)]).toEqual([{ table: blankTable(fine) }, { table: blankTable(earlier) }, { table: blankTable(filters) }]);
     // The table is the file as it stands: its tile counts its rows, and the IDs are in the cells a search reads.
     expect(fileView(model, filters).table.rows).toEqual([blankTable(filters).rows[1], blankTable(filters).rows[0]]);
-    expect(overviewOf(result("model", [modelDetails, filters])).tiles.find(tile => tile.label === "Page Filters")?.count).toBe(2);
+    // Its tile names it as the page does: Custom View Filters, the file keeping its name.
+    expect(overviewOf(result("model", [modelDetails, filters])).tiles.find(tile => tile.label === "Custom View Filters")?.count).toBe(2);
   });
 
   it("says a Model Calendar's tile by the kind of its calendar and its current fiscal year, not by a count", () => {

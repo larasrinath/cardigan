@@ -608,7 +608,8 @@ describe("The sources of a model's imports", () => {
     // A client that numbers it otherwise: none is taken for it.
     constants.SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION = 4000009999;
     const elsewhere = await run();
-    expect([elsewhere.result.importMappings?.some(mapping => mapping.fileOptions), elsewhere.log.at(-1)]).toEqual([false, "Import mapping sources: no column of source definitions among the 2 given"]);
+    expect([elsewhere.result.importMappings?.some(mapping => mapping.fileOptions), elsewhere.log.filter(line => line.startsWith("Import mapping sources")).at(-1)])
+      .toEqual([false, "Import mapping sources: no column of source definitions among the 2 given"]);
     // A read the model refuses leaves the mappings as they are, and the log says why.
     delete constants.SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION;
     served.sourceDefinitions = undefined;

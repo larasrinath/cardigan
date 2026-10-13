@@ -1,6 +1,6 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, PageUses, ProcessActions, ProcessStep,
-  ResultTable, TargetKind } from "./result-types.js";
+import type { AnalysisResult, AxisFilter, Cell, FileOptions, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, PageUses, ProcessActions, ProcessStep,
+  ResultTable, SavedViewDetail, SavedViewFilter, TargetKind, ViewAxis, ViewCondition } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -207,6 +207,81 @@ export function readPageUses(value: unknown): PageUses | undefined {
   return { lineItems, modules, unread: uses.unread, unnamed: uses.unnamed };
 }
 
+/** The axes of a view, by the result's words for them (result-types.ts `ViewAxis`). */
+const AXES: ReadonlySet<string> = new Set<ViewAxis>(["Rows", "Columns", "Pages"]);
+/** A list of texts, read entry by entry, or nothing where any entry is no text. */
+const texts = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const entries = Array.from(value as unknown[]);
+  return entries.every((entry): entry is string => typeof entry === "string") ? entries : undefined;
+};
+
+/** One condition of a view's filter, every field checked, or nothing when anything else is there. */
+function readCondition(value: unknown): ViewCondition | undefined {
+  const condition = value as Partial<ViewCondition> | null;
+  const values = texts(condition?.values);
+  const contexts = texts(condition?.contexts);
+  if (!condition || typeof condition !== "object" || typeof condition.lineItem !== "string" || (condition.lineItemModule !== undefined && typeof condition.lineItemModule !== "string")
+      || typeof condition.operator !== "string" || typeof condition.dataType !== "string" || !values || !contexts || typeof condition.valid !== "boolean") return undefined;
+  return { lineItem: condition.lineItem, ...(condition.lineItemModule !== undefined ? { lineItemModule: condition.lineItemModule } : {}), operator: condition.operator,
+    dataType: condition.dataType, values, contexts, valid: condition.valid };
+}
+
+/** One axis's filter, every field checked, or nothing when anything else is there. */
+function readAxisFilter(value: unknown): AxisFilter | undefined {
+  const filter = value as Partial<AxisFilter> | null;
+  if (!filter || typeof filter !== "object" || typeof filter.axis !== "string" || !AXES.has(filter.axis) || (filter.dimension !== undefined && typeof filter.dimension !== "string")
+      || typeof filter.active !== "boolean" || (filter.match !== "all" && filter.match !== "any") || !Array.isArray(filter.conditions)) return undefined;
+  const conditions: ViewCondition[] = [];
+  for (const entry of Array.from(filter.conditions as unknown[])) {
+    const condition = readCondition(entry);
+    if (!condition) return undefined;
+    conditions.push(condition);
+  }
+  return { axis: filter.axis, ...(filter.dimension !== undefined ? { dimension: filter.dimension } : {}), active: filter.active, match: filter.match, conditions };
+}
+
+/** A model's saved views with their filters (result-types.ts `SavedViewDetail`), every field checked, or nothing when
+ * anything else is there. As for the mappings, a result is not refused for them: the page only lists no view's filters.
+ * The results page checks them so too before it lists them, whoever kept the result. */
+export function readSavedViewDetails(value: unknown): SavedViewDetail[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const views: SavedViewDetail[] = [];
+  for (const entry of Array.from(value as unknown[])) {
+    const view = entry as Partial<SavedViewDetail> | null;
+    if (!view || typeof view !== "object" || typeof view.name !== "string" || typeof view.module !== "string" || typeof view.read !== "boolean" || !Array.isArray(view.filters)) return undefined;
+    const filters: AxisFilter[] = [];
+    for (const item of Array.from(view.filters as unknown[])) {
+      const filter = readAxisFilter(item);
+      if (!filter) return undefined;
+      filters.push(filter);
+    }
+    views.push({ name: view.name, module: view.module, read: view.read, filters });
+  }
+  return views;
+}
+
+/** The conditions of a model's saved views' filters, for the Model map (result-types.ts `savedViewFilters`), every field
+ * checked, or nothing when anything else is there. A result is not refused for them. */
+export function readSavedViewFilters(value: unknown): SavedViewFilter[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const filters: SavedViewFilter[] = [];
+  for (const entry of Array.from(value as unknown[])) {
+    const filter = entry as Partial<SavedViewFilter> | null;
+    if (!filter || typeof filter !== "object" || typeof filter.view !== "string" || typeof filter.module !== "string" || typeof filter.axis !== "string" || !AXES.has(filter.axis)
+        || typeof filter.lineItem !== "string" || typeof filter.lineItemModule !== "string" || typeof filter.active !== "boolean" || typeof filter.valid !== "boolean") return undefined;
+    filters.push({ view: filter.view, module: filter.module, axis: filter.axis, lineItem: filter.lineItem, lineItemModule: filter.lineItemModule, active: filter.active, valid: filter.valid });
+  }
+  return filters;
+}
+
+/** The IDs of a model's saved views (result-types.ts `savedViewIds`): texts of digits, or nothing when anything else is
+ * there. A result is not refused for them: the pages that show a view are only not found. */
+function readViewIds(value: unknown): string[] | undefined {
+  const ids = texts(value);
+  return ids?.every(id => /^\d{1,19}$/.test(id)) ? ids : undefined;
+}
+
 /** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it.
  * Only the fields read here are kept: the names of the items its imports map manually that a result of 0.38.0 holds
  * (`importItemNames`) are left out, whatever they are. */
@@ -234,10 +309,14 @@ function readResult(value: unknown): AnalysisResult | undefined {
   const lineItemColumns = data.kind === "model" ? readTexts(data.lineItemColumns) : undefined;
   // A count of rows the model refused: a whole number above nought, as the export gives one only where it refused some.
   const lineItemsRefused = data.kind === "model" && isCount(data.lineItemsRefused) && data.lineItemsRefused > 0 ? data.lineItemsRefused : undefined;
+  const savedViewDetails = data.kind === "model" ? readSavedViewDetails(data.savedViewDetails) : undefined;
+  const savedViewFilters = data.kind === "model" ? readSavedViewFilters(data.savedViewFilters) : undefined;
+  const savedViewIds = data.kind === "model" ? readViewIds(data.savedViewIds) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}), ...(listIds ? { listIds } : {}),
     ...(data.kind === "model" && data.engine === "polaris" ? { engine: "polaris" } : {}),
     ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}),
-    ...(pageUses ? { pageUses } : {}), ...(lineItemColumns ? { lineItemColumns } : {}), ...(lineItemsRefused ? { lineItemsRefused } : {}) };
+    ...(pageUses ? { pageUses } : {}), ...(lineItemColumns ? { lineItemColumns } : {}), ...(lineItemsRefused ? { lineItemsRefused } : {}),
+    ...(savedViewDetails ? { savedViewDetails } : {}), ...(savedViewFilters ? { savedViewFilters } : {}), ...(savedViewIds ? { savedViewIds } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is

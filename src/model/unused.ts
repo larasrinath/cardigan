@@ -17,6 +17,7 @@ import { message } from "../util.js";
  *
  * A line item is used, by a real use, where:
  * - a page names it (result-types.ts `PageUses`, and the Page Filters table: a condition, or a filtered line item);
+ * - a saved view's filter names it in a condition, on or off (result-types.ts `savedViewFilters`);
  * - it drives who may read or write cells (the driver columns of Line Items, and the Dynamic Cell Access table);
  * - it is a member of a line item subset that a module or a line item applies to, or that something refers to (Line Item
  *   Subsets: its members, and its Referenced columns);
@@ -45,7 +46,7 @@ import { message } from "../util.js";
  * of its line items, headings aside, is listed (No line item used). Divider modules, named as headings, are left out.
  *
  * Where the run could not see what it would take to know (the pages, Line Items, the imports' mappings, an export's source,
- * a subset's members), the tables are made all the same, and a note says what may be used after all. So it is where the
+ * a subset's members, a saved view's filter), the tables are made all the same, and a note says what may be used after all. So it is where the
  * model refused some rows of Line Items, which the export kept without them (native.ts `readGrid`). What their formulas
  * read is used all the same: a Referenced By that names a line item the table does not have counts as a use. But their
  * other uses are not seen: a line item that only one of them uses otherwise, as an operand of its Ratio summary, as the
@@ -169,7 +170,7 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
     usedBy.set(used, (usedBy.get(used) ?? new Set()).add(user));
   };
   const counts = { references: 0, others: 0, unresolved: 0, ratios: 0, ratiosUnmatched: 0, parents: 0, parentsUnmatched: 0, drivers: 0, driversUnmatched: 0,
-    pages: 0, pagesUnmatched: 0, filters: 0, subsets: 0, subsetsUnread: 0, ids: 0, idsUnmatched: 0, imported: 0, mappingsUnread: 0 };
+    pages: 0, pagesUnmatched: 0, filters: 0, viewFilters: 0, viewFiltersUnmatched: 0, subsets: 0, subsetsUnread: 0, ids: 0, idsUnmatched: 0, imported: 0, mappingsUnread: 0 };
 
   if (read) {
     const referencedBy = lineItems.at("Referenced By") !== undefined;
@@ -267,6 +268,18 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
       }
     }
   }
+
+  // Saved views' filters: each condition's line item, whether the filter is on or off, as the export named it by its ID.
+  for (const filter of result.savedViewFilters ?? []) {
+    const condition = find(filter.lineItemModule, filter.lineItem);
+    if (condition) {
+      counts.viewFilters++;
+      roots.add(condition);
+    } else counts.viewFiltersUnmatched++;
+  }
+  const viewsUnread = result.savedViewDetails?.filter(view => !view.read).length ?? 0;
+  if (!result.savedViewFilters) notes.push("The saved views' filters could not be read, so some line items may be used by a saved view's filter after all.");
+  else if (viewsUnread) notes.push(`${plural(viewsUnread, "saved view's", "saved views'")} filters could not be read, so some line items may be used by ${viewsUnread === 1 ? "it" : "them"} after all.`);
 
   // Line item subsets: the members of a subset that a module or a line item applies to, or that something refers to.
   const subsets = readOf(result, SUBSETS_FILE);
@@ -430,10 +443,10 @@ function findUnused(result: AnalysisResult, lineItemIds: readonly (readonly [str
     `Unused: ${lineItemRows.length} of ${items.filter(item => !item.heading).length} line items that hold data listed (${by([WHY.importedNeverRead, WHY.readByNothing, WHY.onlyFeedsUnused])}); `
       + `${moduleRowsOut.length} of ${moduleRows.size} modules listed (${by([WHY.empty, WHY.noLineItemUsed])}); ${roots.size} line items used directly, ${whole.size} modules used whole`,
     `Unused: uses found: Referenced By ${counts.references}, ratio ${counts.ratios}, parent ${counts.parents}, driver cells ${counts.drivers}, on pages ${counts.pages}, `
-      + `page filter conditions ${counts.filters}, imported ${counts.imported} (mappings not read ${counts.mappingsUnread}), subsets in use ${counts.subsets} (${counts.subsetsUnread} not read), `
-      + `action IDs ${counts.ids - counts.idsUnmatched} of ${counts.ids}; `
+      + `page filter conditions ${counts.filters}, saved view filter conditions ${counts.viewFilters}, imported ${counts.imported} (mappings not read ${counts.mappingsUnread}), `
+      + `subsets in use ${counts.subsets} (${counts.subsetsUnread} not read), action IDs ${counts.ids - counts.idsUnmatched} of ${counts.ids}; `
       + `Referenced By naming no line item: something else ${counts.others}, nothing ${counts.unresolved}; not matched: ratio operands ${counts.ratiosUnmatched}, `
-      + `parents ${counts.parentsUnmatched}, drivers ${counts.driversUnmatched}, page line items ${counts.pagesUnmatched}`,
+      + `parents ${counts.parentsUnmatched}, drivers ${counts.driversUnmatched}, page line items ${counts.pagesUnmatched}, saved view filter line items ${counts.viewFiltersUnmatched}`,
     `Unused: Action cells of Exports: ${said(shapes.exports)}; of Other Actions: ${said(shapes.others)}; exports whose source was not read: ${exportsUnread}`,
   ];
   // Where Line Items was not read, nothing could be checked, and that is all there is to say.

@@ -64,11 +64,18 @@ export function axis(native: Native, name: string): string {
   return value;
 }
 
+/** Why a read was not made: the page still had requests of its own in flight after the wait (`waitIdle`). */
+export const BUSY = "The model page is busy; try again when it is idle.";
+
+/** Whether a read failed because the page was busy (`BUSY`): the read of a grid's first page fails so, and a later page's
+ * failure carries it as its cause (`GridFailure`). A refusal by the model is no such failure. */
+export const isBusy = (error: unknown): boolean => error instanceof Error && (error.message === BUSY || (error.cause instanceof Error && error.cause.message === BUSY));
+
 /** Wait while the page has its own requests in flight (for example the user's pending edits). */
 async function waitIdle(native: Native): Promise<void> {
   const until = Date.now() + 15_000;
   while (native.aggregator.isDirty?.()) {
-    if (Date.now() > until) throw new Error("The model page is busy; try again when it is idle.");
+    if (Date.now() > until) throw new Error(BUSY);
     await sleep(50);
   }
 }
@@ -137,7 +144,7 @@ function reasonOf(value: unknown, native: Native): string | undefined {
 
 /** A read the model answered with a refusal, or with no grid. The message says which, and the model's words on why where
  * it gave any (`reasonOf`); `said` gives those words, or what it gave in their place, for a line of the log. */
-class Refusal extends Error {
+export class Refusal extends Error {
   readonly said: string;
   constructor(what: string, instead: string, reason: string | undefined) {
     super(reason ? `${what}: ${reason}${/[.!?…]$/.test(reason) ? "" : "."}` : `${what}.`);
@@ -330,6 +337,54 @@ export async function readGrid(native: Native, rows: string, columns: string, na
     if (refused.length) grid.refused = { rowCount, places: refused };
   }
   return grid;
+}
+
+/** The page requests of a view request, which ask for its cells, its row labels and its column labels. A read of a saved
+ * view's definition asks for none of them. */
+const PAGE_REQUESTS = ["dataPageRequests", "rowLabelPageRequests", "columnLabelPageRequests"] as const;
+/** The pages of a view's answer that would hold its cells and its labels: never read, whatever they hold. */
+const ANSWER_PAGES = ["dataPages", "rowLabelPages", "columnLabelPages"] as const;
+
+/** What a read of a saved view's definition gives: the view's page info, which holds its axes with their sort and filter
+ * definitions, and how many data, row-label or column-label pages the answer held all the same, which are not read. */
+export interface ViewDefinition { pageInfo: unknown; ignored: number }
+
+/** Checks a request before it is sent as a read of saved view `id`'s definition: a read (`assertRead`), of exactly one view,
+ * by that saved view's reference, with no data, row-label or column-label page asked for, and no view definition or view
+ * change of its own. Anything else is refused. */
+export function assertDefinitionRead(request: Any, id: number): void {
+  assertRead(request);
+  const views: unknown = request.viewRequests;
+  const view: Any = Array.isArray(views) && views.length === 1 ? views[0] : undefined;
+  if (!view || typeof view !== "object" || PAGE_REQUESTS.some(key => !Array.isArray(view[key]) || view[key].length !== 0)
+      || view.viewDefinition !== undefined || view.viewChanges !== undefined || view.viewReference?.entityDefaultViewEntityLongId !== id) {
+    throw new Error("Refusing to send anything but a read of one saved view's definition, with no cells or labels.");
+  }
+}
+
+/** Reads one saved view's definition as Model Building asks for it when it opens the view: one view request, by the saved
+ * view's reference, with an empty list of page requests. An empty list is still a list, so the client's generator makes
+ * the view request, and every page request in it is empty: no cell, no row label and no column label is asked for
+ * (anaplan/data/ViewRequestRequestGenerator.js `getRequest`, `_getViewRequests`). The request is checked before it is sent
+ * (`assertDefinitionRead`), and sent as every read is (`post`): a refusal is a `Refusal`, with the model's words on why. Of
+ * the answer only the page info is kept; data or label pages it holds all the same are counted for the log, and nothing
+ * of them is read. */
+export async function readViewDefinition(native: Native, id: number): Promise<ViewDefinition> {
+  await waitIdle(native);
+  const generator = new native.RequestGenerator(native.workspaceId);
+  let request: Any;
+  try {
+    request = generator.getRequest({ modelId: native.modelId, viewReference: { entityDefaultViewEntityLongId: id }, pageRequests: [],
+      cellSelectorLabelsRequired: false, pageSelectorLabelsRequired: false, viewIndex: -1 });
+  } finally {
+    generator.uninitialize?.();
+  }
+  assertDefinitionRead(request, id);
+  const result = await post(native, request);
+  const view = Array.isArray(result?.viewRequestResults) ? result.viewRequestResults[0] : undefined;
+  if (!view || view.errorInfo) throw new Refusal("The model returned no view for this read", "no view", view ? reasonOf(view.errorInfo, native) : undefined);
+  const ignored = ANSWER_PAGES.reduce((count, key) => count + (Array.isArray(view[key]) ? view[key].length : 0), 0);
+  return { pageInfo: view.pageInfo, ignored };
 }
 
 /** Entity type index of an ID (102 module, 101 list, 107 version, 123 time range, …). */

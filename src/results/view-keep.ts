@@ -81,11 +81,12 @@ export const subjectOf = (result: { kind: string; id: string }): string => `${re
 /** Each column's key: its label, and where two columns of the table have one label, the label and which of them it is
  * ("Notes #2"). The label is what the user knows a column by, and what a new run's table names it by too. A column of
  * times is keyed by the file's name for it, whichever zone its times are shown in (times.ts `fileLabel`): `zone` is the
- * viewer's, in which they may be. */
-export function columnKeys(columns: readonly Pick<Column, "label">[], zone = "UTC"): string[] {
+ * viewer's, in which they may be. A column the page shows under another name than its header's is keyed by its header
+ * (columns.ts `SHOWN_COLUMNS`), as it was before it was renamed. */
+export function columnKeys(columns: readonly Pick<Column, "label" | "key">[], zone = "UTC"): string[] {
   const seen = new Map<string, number>();
-  return columns.map(({ label: shown }) => {
-    const label = fileLabel(shown, zone);
+  return columns.map(({ label: shown, key }) => {
+    const label = key ?? fileLabel(shown, zone);
     const count = (seen.get(label) ?? 0) + 1;
     seen.set(label, count);
     return count === 1 ? label : `${label} #${count}`;
@@ -127,7 +128,7 @@ export function findRow<T extends Row>(rows: readonly T[], key: string, table?: 
 /** What a table holds that its settings are made of, as the page holds it. */
 export interface TableLooks {
   search?: string;
-  columns: readonly Pick<Column, "index" | "label" | "range" | "hidden">[];
+  columns: readonly Pick<Column, "index" | "label" | "key" | "range" | "hidden">[];
   /** Column -> the values ticked; a column with every value ticked has no entry. */
   filters: ReadonlyMap<number, ReadonlySet<string>>;
   ranges: ReadonlyMap<number, RangeState>;
@@ -197,10 +198,10 @@ const CARRIED: ReadonlyMap<string, string> = new Map([[START_COLUMN, START_DATE]
  * every value is no filter. A range whose ends cannot be read for the column is let go, and so is one on a column that
  * is no longer one of numbers or of dates. A setting of a column an earlier version showed in the place of one the table
  * has now (`CARRIED`) is that column's, where the table does not have the earlier one. */
-export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index" | "label" | "range" | "hidden">[], valuesOf: (column: number) => readonly string[], zone = "UTC"): TakenTable {
+export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index" | "label" | "key" | "range" | "hidden">[], valuesOf: (column: number) => readonly string[], zone = "UTC"): TakenTable {
   const keys = columnKeys(columns, zone);
   const byKey = new Map(keys.map((key, at) => [key, columns[at]]));
-  const carried = (key: string): Pick<Column, "index" | "label" | "range" | "hidden"> | undefined => {
+  const carried = (key: string): Pick<Column, "index" | "label" | "key" | "range" | "hidden"> | undefined => {
     const now = CARRIED.get(key);
     return byKey.get(key) ?? (now === undefined ? undefined : byKey.get(now));
   };

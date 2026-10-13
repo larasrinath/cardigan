@@ -134,17 +134,19 @@ describe("The results page's columns", () => {
     }
     // A model's files, as model/export.ts names them, and the headers of Anaplan's own grids: each count is a count, right-
     // aligned as a number is, and every other column of the file stays plain text, whatever number it holds.
-    // Line Items also counts the page filters that have each line item as their condition, which a model's run adds. The
-    // run's tables of what nothing uses count a line item's or a module's cells, and a module's line items.
-    expect([...MODEL_COUNTS]).toEqual([["Modules.csv", ["Cell Count", "Populated Cell Count"]], ["Line Items.csv", ["Cell Count", "Populated Cell Count", "Page Filters"]],
+    // Line Items also counts the page filters that have each line item as their condition, and the saved views whose filters
+    // use it, which a model's run adds. The run's tables of what nothing uses count a line item's or a module's cells, and a
+    // module's line items.
+    expect([...MODEL_COUNTS]).toEqual([["Modules.csv", ["Cell Count", "Populated Cell Count"]], ["Line Items.csv", ["Cell Count", "Populated Cell Count", "Page Filters", "Saved View Filters"]],
       ["General Lists.csv", ["Item Count"]], ["Unused Line Items.csv", ["Cell Count"]], ["Unused Modules.csv", ["Line Items", "Cell Count"]]]);
     expect([shown(table("Unused Line Items.csv", ["Line Item", "Module", "Why", "Format", "Cell Count", "Notes", "Formula", "Referenced By"])),
       shown(table("Unused Modules.csv", ["Module", "Why", "Line Items", "Cell Count", "Functional Area", "Notes"]))])
       .toEqual([[["Cell Count", "count", true]], [["Line Items", "count", true], ["Cell Count", "count", true]]]);
     expect(shown(table("Modules.csv", ["", "Applies To", "Cell Count", "Functional Area", "Notes"]))).toEqual([["Cell Count", "count", true]]);
     expect(shown(table("General Lists.csv", ["", "Parent Hierarchy", "Top Level Item", "Numbered List", "Item Count", "Next Item Index", "Notes"]))).toEqual([["Item Count", "count", true]]);
-    expect(shown(table("Line Items.csv", ["", "Format", "Time Range", "Cell Count", "Populated Cell Count", "Calculation Effort", "Code", "Module Name", "Page Filters"])))
-      .toEqual([["Cell Count", "count", true], ["Populated Cell Count", "count", true], ["Page Filters", "count", true]]);
+    // The page shows the count of page filters as Custom View Filters, its header still its key (`SHOWN_COLUMNS`).
+    expect(shown(table("Line Items.csv", ["", "Format", "Time Range", "Cell Count", "Populated Cell Count", "Calculation Effort", "Code", "Module Name", "Page Filters", "Saved View Filters"])))
+      .toEqual([["Cell Count", "count", true], ["Populated Cell Count", "count", true], ["Custom View Filters", "count", true], ["Saved View Filters", "count", true]]);
     // Another model file with a column of the same name is not known to count anything, nor is a count's header in
     // another case, and the files of actions keep their times and durations as text.
     expect([shown(table("Versions.csv", ["", "Cell Count"])), shown(table("Modules.csv", ["", "cell count"])),

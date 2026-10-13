@@ -7,23 +7,30 @@ import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, refusedNote, refusedRemark, type Grid, type GridRow, type Table } from "./grid.js";
-import { IMPORT_DEFINITION, importNames, importsLine, readImportMappings, SOURCE_DEFINITION } from "./import-mappings.js";
+import { IMPORT_DEFINITION, importNames, importsLine, readImportMappings, SOURCE_DEFINITION, sourceObjectsOf } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { LINE_ITEM_SUBSETS, readLineItemSubsets } from "./line-item-subsets.js";
-import { axis, GridFailure, loadNative, readGrid, typeIndex, type Native } from "./native.js";
+import { axis, GridFailure, isBusy, loadNative, readGrid, typeIndex, type Native } from "./native.js";
 import { PROCESS_DEFINITION, processActions, processesLine } from "./process-actions.js";
+import { listSavedViews, readSavedViews, type SavedViewsRead } from "./saved-views.js";
+import { SAVED_VIEW_FILTERS } from "../saved-view-filters.js";
 
 /** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
  * the model calendar in the assessment template, and Model Details.csv about the export itself. One file more is no
  * grid's: Dynamic Cell Access.csv, made from the tables of the others (access.ts). Two grids are read for no table: the
  * imports' definitions, for the mapping of each import, and the data sources' definitions, for what each import's source
- * says of how it is read, which the result carries beside its tables (import-mappings.ts). A table is named as the CSV
- * file it once was written to: the results page shows it under its label, and makes no file.
+ * says of how it is read, which the result carries beside its tables (import-mappings.ts). Last, each saved view's
+ * definition is read, one view at a time and with no cells or labels, for the filters saved on it: Saved View Filters.csv,
+ * which the results page shows under App Usage (saved-views.ts). A grid the page is too busy to read is read once more once
+ * the others are read, and its file keeps its place. A table is named as the CSV file it once was written to: the results
+ * page shows it under its label, and makes no file.
  * Evidence for each grid's axes: the classic client's settings tabs (anaplan/settings/*.js, tabs/Settings.js). */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
+/** A file's place in the result: its entries stand after those of every place before it (`exportModel`'s `place`). */
+type Place = { at: number };
 /** How to read the tables, as the results page shows them: the overview lists these rows as they are. So they say what
  * the page's tables hold, where that is not the table as it is made here: the page says a definition in words
  * (results/readable-cells.ts), shows a module's own row of Line Items in bold and adds Format type (results/line-items-view.ts), shows the
@@ -36,15 +43,16 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["General Lists", "Name, Parent Hierarchy, Top Level, Item Count, Numbered, Production Data, Properties, Subsets and Notes are shown. Display Name Property and the three columns of references start hidden. Top Level Item and Numbered List keep those names where the model uses them."],
   ["Line Item Subsets", "Under Lists, beside General Lists, for Classic and Polaris models read through Model Building. Name, Modules, Line Items and Notes come first. Modules shows names in model order; Module IDs keeps the raw IDs hidden. Unknown IDs stay as IDs and are named in the log. Line Items shows a count with a number range filter; hidden Line Item Names keeps members searchable. Membership is read one subset at a time, as Model Building's editor reads it, with that subset as the static context. A subset with no Modules has 0 members and needs no membership read. Only true cells select members, whatever their case or surrounding spaces; empty, false, disabled and unexpected values mean not selected, and Diagnostics counts the unexpected ones. Module headings are never members. A missing column or failed read leaves only its subset unknown: its count is blank, Membership read is false, and its details say so. The log gives the reason; other subsets still show. If the native identifier helper is missing, membership is not read. Diagnostics flags identical non-empty member lists across subsets with different Modules, without changing the data. Details show Line items · N, grouped under linked module headings, in model and line item order; each member links to its Line Items row. Applies To in Modules and Line Items opens a matching subset. Model opens the settings page. IDs and membership status start hidden; columns stay in the chooser. With no subsets, its tab stays under Lists with an empty table, and it has no Overview tile."],
   ["Modules", "Name, Functional Area, Applies To, Time Scale, Time Range, Versions, Cell Count and Notes are shown. Line Items and Referenced By start hidden. Modules and Line Items keep Populated Cell Count where the model uses that name."],
-  ["Line Items", "Name and Module Name come first, then Format, Format type, Formula, Applies To, Time Scale, Versions, Summary, Referenced By, Cell Count, Calculation Effort, Page Filters and Notes. The other known columns start hidden. The table lists only line items, each beside its module under Module Name. Modules' own rows and the headings that divide modules are left out; a module's own settings are in Modules. Line items whose module is not known stay in the table. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format: untick No Data in its filter to leave out line items that are headings. Three added columns start hidden. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."],
+  ["Line Items", "Name and Module Name come first, then Format, Format type, Formula, Applies To, Time Scale, Versions, Summary, Referenced By, Cell Count, Calculation Effort, Custom View Filters, Saved View Filters and Notes. The other known columns start hidden. The table lists only line items, each beside its module under Module Name. Modules' own rows and the headings that divide modules are left out; a module's own settings are in Modules. Line items whose module is not known stay in the table. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format: untick No Data in its filter to leave out line items that are headings. Three added columns start hidden. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."],
   ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is the module's own: its driver is set on the module's own row. Controlled Module opens that module in Modules. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."],
-  ["Unused Line Items", "Not a Model settings grid: the line items nothing uses, worked out once the pages built on the model are read. A line item is used when another line item's formula reads it, as its Referenced By says; a Ratio summary divides by it; it is a summary parent or summed into one (Parent), each counting as using the other; it drives read or write access; a page names it anywhere on a card: a field, KPI or image card, a button, a grid's shown, hidden or reordered line items, a sort, a formatting rule or a page filter; it is in a line item subset that something applies to or refers to; or an action's definition names it by ID. Every line item of a module is used when the module is used whole: on a page through a saved view, its default view or a grid section that does not list its line items; read by an export or by an import in this model; or in Used in Dashboards. A list property or anything else Referenced By names that is no line item counts as a use. A line item that refers only to itself is not used by that. Headings, formatted as No Data, are never listed. Why gives one reason: Imported, never read, where an import loads it and nothing in use reads it; Read by nothing; or Only feeds unused line items, where only listed line items use it. What an imported line item uses, such as its summary parent, counts as used. Where it cannot be told which line items an import loads, as for an import from a module, every line item of its module without a formula counts as loaded. Filter on Why to leave out the imported ones. Line Item, Module, Why, Format, Cell Count and Notes are shown; Formula and Referenced By start hidden. Rows follow Line Items. Unused means no use Cardigan can see: other models importing from this one, API or integration reads outside this model's exports, line items hidden in saved views and Workflow aren't visible. Where the pages, Line Items or the imports' mappings could not be read, the line under the table's name says what may be used after all."],
+  ["Unused Line Items", "Not a Model settings grid: the line items nothing uses, worked out once the pages built on the model are read. A line item is used when another line item's formula reads it, as its Referenced By says; a Ratio summary divides by it; it is a summary parent or summed into one (Parent), each counting as using the other; it drives read or write access; a page names it anywhere on a card: a field, KPI or image card, a button, a grid's shown, hidden or reordered line items, a sort, a formatting rule or a custom view filter; a saved view's filter uses it, on or off; it is in a line item subset that something applies to or refers to; or an action's definition names it by ID. Every line item of a module is used when the module is used whole: on a page through a saved view, its default view or a grid section that does not list its line items; read by an export or by an import in this model; or in Used in Dashboards. A list property or anything else Referenced By names that is no line item counts as a use. A line item that refers only to itself is not used by that. Headings, formatted as No Data, are never listed. Why gives one reason: Imported, never read, where an import loads it and nothing in use reads it; Read by nothing; or Only feeds unused line items, where only listed line items use it. What an imported line item uses, such as its summary parent, counts as used. Where it cannot be told which line items an import loads, as for an import from a module, every line item of its module without a formula counts as loaded. Filter on Why to leave out the imported ones. Line Item, Module, Why, Format, Cell Count and Notes are shown; Formula and Referenced By start hidden. Rows follow Line Items. Unused means no use Cardigan can see: other models importing from this one, API or integration reads outside this model's exports, line items hidden in saved views and Workflow aren't visible. Where the pages, Line Items, the imports' mappings or the saved views' filters could not be read, the line under the table's name says what may be used after all."],
   ["Unused Modules", "Not a Model settings grid: modules with no line items but headings (Empty), and modules whose every line item, headings aside, is in Unused Line Items (No line item used). A module used whole, on a page, by an export, by an import in this model or in Used in Dashboards, is never listed. Divider modules, named as headings, are left out. Module, Why, Line Items, Cell Count and Functional Area are shown; Notes starts hidden. Line Items counts the module's line items, headings aside. Rows follow Modules."],
   ["Processes, Exports and Other Actions", "The Actions list split at its headings. Processes starts with Name and Actions; Exports and Other Actions with Name, Action and Used in Processes, with Action List after Action in Other Actions. Start Date, Start Time, Most recent duration (ms) and Notes follow. Start Date and Start Time say when an action last started, in the zone picked in the header, and a row's details keep the time Anaplan wrote, in UTC, under As read. Used in Dashboards starts hidden. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported. A process's details list its actions once, before All details, in the order it runs them, as the process's own definition holds them: each with its kind, and each opening its own row."],
   ["Imports", "Shown as three tables in Actions: File Imports, the imports of uploaded data; Model-to-Model Imports, of a module, a saved view or a list of another model; and In-Model Imports, of this model's own. An import of a module, a saved view or a list is placed by what its data source says, where the export read it, else by Source Model, the model its Source Object names, against this model's name. One that cannot be told is listed in Model-to-Model Imports. File Imports shows Name, Source Label, Target Type, Target Object, Used in Processes, Start Date, Start Time, Most recent duration (ms), Notes and Production Data. Model-to-Model Imports shows Name, Source Model, Source Module, Saved View, Source List, Source Type, Target Type, Target Object, Used in Processes, Start Date, Start Time, Most recent duration (ms) and Notes; In-Model Imports the same but Source Model, which is this model in every row. Start Date and Start Time are in the zone picked in the header. Every other column starts hidden and stays in the column chooser. The source and target come from the Imports tab, joined to the Actions list by the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same. Source Object is shown as four columns, Source Model, Source Module, Saved View and Source List: Source Model names this model where the import reads from this model itself, and Source List names the list an import of a list reads, whole where its Source Object is not written as a model's object is. A row's details keep Source Object under As read, folded at first. Any other Source Object stands as it is under Source Model. A row's details start with the import's Mapping, before All details, as the import's own definition holds it, whatever its source: uploaded data, a module, a saved view or a list. Under the heading, an import of uploaded data says how its data is read, as its data source holds it: header row, first data row, column separators, text delimiter, decimal separator and encoding. An import from a module, a saved view or a list names that object instead, as this table does. An import into a module says beside the heading whether it clears its target before it loads or only updates imported cells, as Anaplan's import dialog does. Its dimensions follow in the dialog's order, Time, the lists, Versions, then the line items, each with what feeds it, how its items or periods are matched, and which of its items it clears first, which is left empty where the import only updates imported cells. Its Line items list each header mapped manually with its line item, or Ignored, and each line item's own column. Headers matched to line items by name or code when the import runs are not stored: the line items a header can match are listed instead, the first five, then Show all. An import into a list lists source columns first with the targets they feed, then constants and prompts, and names below the targets nothing feeds. For uploaded data, a line says which columns before the last one mapped are not used; Anaplan keeps the import's mapping, not the header row it was made from, so columns after the last one mapped are not known. A column of a module, a saved view or a list is named as the definition writes it, else by this model's own name where the object is in this model, else by its ID. Targets and constants use this model's own names from the client and the grids already read; Time constants use the client's period labels, then the Model Calendar's period choices. A line item the import still maps to that the model doesn't have reads Missing line item, with its ID, and a line under the Mapping says what that means. Other unknown names stay as IDs, with the client entity type in the diagnostic log."],
   ["Import Data Sources", "Name, Source Type (Type where the grid calls it that), Source Model, Source Object Name and Imports (Used in Imports in some models), all shown."],
   ["Model Calendar", "Setting and Value are shown; Section and Allowed values start hidden. The rows about the model are left out; the Overview names the workspace and model under About this export. Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."],
   ["Source Models", "Name, Mapped Workspace, Mapped Model, Sources and Imports are shown in that order. Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details list Sources and Imports before All details, without repeating their counts, and keep Mapped To under As read, folded at first. A Mapped To that cannot be read stands as it is under Mapped Workspace."],
+  [SAVED_VIEW_FILTERS, "Under App Usage's Page Filters, beside Custom View Filters, for models read through Model Building: each saved view of the model with a filter on its rows, columns or pages, on or off, in Model Building's order. Name, Module, Filters, Filter Line Items, Used on Pages, Used by Imports and Used by Exports are shown; Definition read starts hidden. A view's definition is read as Model Building opens the view, one view at a time, with no cells or labels. Filters gives each axis's filter in short: Rows, Columns or Pages, with a page's dimension and (off) where the filter is not on, then Match any where any condition is enough, and each condition: its line item, with its context items in brackets, the comparison and its values, and (not valid) where Anaplan marks it so. A row's details give each axis's filter under its heading, Match all or Match any, and each condition in the filter dialog's words, with its values by their labels and its context items. Filter Line Items lists the line items the conditions use, each opening its row of Line Items, whose Saved View Filters column counts the views whose filters use each line item; that count is empty, not 0, where a view's definition was not read. Used on Pages names the pages built on the model whose cards show the view, each with its app in brackets; it is empty where the pages could not be read. Used by Imports names the imports of this model that read the view, by their data source or their Source Object; Used by Exports the exports from it, by their definition or the Actions list's words. A view whose definition was not read is listed with Definition read No, and the log says why. Sorts and hidden items are not read."],
 ];
 
 /** What the user is told when not one grid could be read (progress.ts `Failure`); why each could not is the detail. */
@@ -121,41 +129,76 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   const notes: string[] = [];
   const fileRows: DetailRow[] = [];
   const noteRows: DetailRow[] = [];
-  /** Where the next file goes: among the tables, the summary's lines, the notes and the Details file's Files rows. A file
-   * whose table is made after later grids were read is put at the place that was taken when its own grid was read. */
-  const place = () => ({ table: tables.length, line: summary.length, note: notes.length, row: fileRows.length });
+  /** Each entry's place among its kind, side by side with the four lists above: the tables, the summary's lines, the notes
+   * and the Details file's Files rows each stand in the order of their places, entries of one place in the order they came. */
+  const placed = { tables: [] as number[], summary: [] as number[], notes: [] as number[], fileRows: [] as number[] };
+  let nextPlace = 0;
+  /** The place a file's entries take while a grid is read again once the others are read (`busy`): the place taken when
+   * its step first began. */
+  let placing: Place | undefined;
+  /** Where the next file goes: after every file before it, and before every file after it. A file whose table is made after
+   * later grids were read, or whose grid is read again once the others are (`busy`), is put at the place that was taken
+   * when its own grid was first read. */
+  const place = (): Place => placing ?? { at: nextPlace++ };
+  const put = <T>(list: T[], places: number[], at: Place, entry: T): void => {
+    let index = places.length;
+    while (index > 0 && places[index - 1] > at.at) index--;
+    list.splice(index, 0, entry);
+    places.splice(index, 0, at.at);
+  };
   /** What a file's Files row says beside its count where the model refused rows of the one grid the file is made from, by
    * the file's name: "the model refused 2 of 7100". A file whose count comes with words of its own keeps those. */
   const remarks = new Map<string, string>();
   const add = (file: string, table: Table, detail?: string, at = place()) => {
     // No guard: a grid's values are kept exactly as Anaplan's own export writes them. (The mark is read by the tests'
     // writer of a CSV, zip.test-support.ts `toCsv`: the page writes none.)
-    tables.splice(at.table, 0, { file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
+    put(tables, placed.tables, at, { file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
     const said = detail ?? remarks.get(file);
     const rows = `${table.rows.length} rows${said ? ` (${said})` : ""}`;
-    summary.splice(at.line, 0, `${file}: ${rows}`);
-    fileRows.splice(at.row, 0, ["Files", `${file}.csv`, rows]);
+    put(summary, placed.summary, at, `${file}: ${rows}`);
+    put(fileRows, placed.fileRows, at, ["Files", `${file}.csv`, rows]);
   };
   /** A file that is not in the result, with the reason: among the notes, and as the file's row of the Details file. */
   const leftOut = (file: string, why: string, at = place()) => {
-    notes.splice(at.note, 0, `${file}: not exported (${why}).`);
-    fileRows.splice(at.row, 0, ["Files", `${file}.csv`, `Not exported: ${why}`]);
+    put(notes, placed.notes, at, `${file}: not exported (${why}).`);
+    put(fileRows, placed.fileRows, at, ["Files", `${file}.csv`, `Not exported: ${why}`]);
   };
   const fail = (file: string, error: unknown, at = place()) => {
     leftOut(file, message(error), at);
     log(`${file}: ${message(error)}`);
   };
   const note = (detail: string, text: string) => {
-    notes.push(`${detail}: ${text}`);
+    put(notes, placed.notes, place(), `${detail}: ${text}`);
     noteRows.push(["Notes", detail, text]);
   };
-  /** One file's step: what its work gives, or nothing when the work failed, which is then the file's failure. */
-  const step = async <T>(file: string, work: () => Promise<T>): Promise<T | undefined> => {
+  /** The grids the page was too busy to read (native.ts `isBusy`), each to be read once more once the other grids are read,
+   * at the place its step took: its step's work again, then what is made of its grid (`then`). */
+  const busy: { file: string; again: () => Promise<void> }[] = [];
+  /** One file's step: what its work gives, or nothing when the work failed, which is then the file's failure. A grid the
+   * page was too busy to read is no failure yet: the log says so, and the grid is read once more once the others are read
+   * (`busy`), its file taking its place all the same; `then` is given what that read gives. Busy again, it fails as any
+   * other. A refusal by the model is a failure at once. */
+  const step = async <T>(file: string, work: () => Promise<T>, then?: (read: T) => void | Promise<void>, at = place()): Promise<T | undefined> => {
     progress.status(`Reading ${file}…`);
     try {
       return await work();
     } catch (error) {
-      fail(file, error);
+      if (then && isBusy(error)) {
+        log(`${file}: the model page was busy; reading it again after the other tables`);
+        busy.push({ file, again: async () => {
+          progress.status(`Reading ${file}…`);
+          placing = at;
+          try {
+            await then(await work());
+          } catch (again) {
+            fail(file, again);
+          } finally {
+            placing = undefined;
+          }
+        } });
+        return undefined;
+      }
+      fail(file, error, at);
       return undefined;
     }
   };
@@ -173,16 +216,20 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     return read;
   };
   const tableGrid = async (file: string, rows: string, columns: string) => kept(file, await grid(file, rows, columns));
-  const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await tableGrid(file, rows(), columns()))));
+  const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await tableGrid(file, rows(), columns()))), () => undefined);
 
   // Line Items is read first, as ever, and its file keeps the first place. Its table is made only once General Lists has
-  // been read or has failed: that grid's rows name the lists of its Format List column (lineitems.ts), and no grid is read
-  // for the names. Nothing else moves: the reads, the steps and the lines of the log are in the order they had.
+  // been read or has failed, and any grid the page was too busy for has been read again (`busy`): General Lists' rows name
+  // the lists of its Format List column (lineitems.ts), and no grid is read for the names. Nothing else moves: the reads,
+  // the steps and the lines of the log are in the order they had.
   const lineItemsAt = place();
   /** The Line Items grid's columns, wherever its first page was read: the run tells the model's engine by them where there
    * is no Line Items table (content.ts), as when the model refused the grid's later pages. */
   let lineItemColumns: string[] | undefined;
-  const lineItems = await step("Line Items", async () => {
+  let lineItems: Grid | undefined;
+  let modules: Grid | undefined;
+  let lists: Grid | undefined;
+  lineItems = await step("Line Items", async () => {
     try {
       const read = await tableGrid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY"));
       lineItemColumns = read.columns.map(column => column.labels[0] ?? "");
@@ -191,41 +238,30 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
       if (error instanceof GridFailure) lineItemColumns = [...error.columns];
       throw error;
     }
-  });
+  }, read => { lineItems = read; }, lineItemsAt);
   // Its grid is kept for the modules' IDs, which no table holds.
-  const modules = await step("Modules", async () => {
+  modules = await step("Modules", async () => {
     const read = await tableGrid("Modules", axis(native, "MODULE_ALL"), native.axisHelper.getModuleSystemAxisIdentifier());
     add("Modules", gridTable(read));
     return read;
-  });
+  }, read => { modules = read; });
   // Both grids that list modules have been read, or have failed: the modules' IDs are taken now, and the log says how many.
-  const moduleIds = moduleIdsOf(native, [modules, lineItems]);
+  let moduleIds = moduleIdsOf(native, [modules, lineItems]);
   log(moduleIdsLine(native, [modules, lineItems], moduleIds.length));
-  const lists = await step("General Lists", async () => {
+  lists = await step("General Lists", async () => {
     const read = await tableGrid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
     add("General Lists", gridTable(read));
     return read;
-  });
+  }, read => { lists = read; });
   // General Lists has been read, or has failed: the lists' IDs are taken now, and the log says how many.
-  const listIds = listIdsOf(native, [lists]);
+  let listIds = listIdsOf(native, [lists]);
   log(listIdsLine(native, [lists], listIds.length));
   await step(LINE_ITEM_SUBSETS, async () => {
     const read = await readLineItemSubsets(native, log, stop, moduleIds);
     if (read.refused) kept(LINE_ITEM_SUBSETS, read.refused);
     add(LINE_ITEM_SUBSETS, read.table);
     if (read.note) note(LINE_ITEM_SUBSETS, read.note);
-  });
-  /** The IDs of the Line Items table's rows, where the table was made: the pages built on the model are read with them. */
-  let lineItemIds: [string, string][] | undefined;
-  if (lineItems) {
-    // A table that cannot be made is its file's failure, as it was while the table was made in the file's own step.
-    try {
-      add("Line Items", lineItemsTable(lineItems, lists), undefined, lineItemsAt);
-      lineItemIds = lineItemIdsOf(lineItems);
-    } catch (error) {
-      fail("Line Items", error, lineItemsAt);
-    }
-  }
+  }, () => undefined);
   // The Actions list, split at its headings (Processes, Imports, Exports, Other Actions); no combined Actions file.
   progress.status("Reading Actions…");
   let actions: Grid | undefined;
@@ -271,12 +307,6 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     processes = processActions(own, definitions, actions.rows, log, typeof column === "number" ? column : PROCESS_DEFINITION);
   }
   // The Imports tab is kept for the mappings of the imports from a file, which it names.
-  const imports = await step("Imports", async () => {
-    const tab = await tableGrid("Imports", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_DEFINITION_PROPERTY"));
-    const merged = mergeImports(tab, actions && { columns: actions.columns, rows: actions.rows.filter(ofKind("import")) });
-    add("Imports", merged.table, actions ? `${merged.matched} matched in the Actions list` : "Imports tab only: the Actions list could not be read");
-    return tab;
-  });
   // Each import with its mapping, whatever its Source Type, out of its own definition (import-mappings.ts): one grid more,
   // read only where the Imports tab names an import. It is no table, and its failure is none: the Imports table stands as
   // it is, each import says that its mapping could not be read, and the log says why. The step is reported before the
@@ -285,36 +315,45 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   // version made. Lists with unnamed property targets also have their properties read once each, with the list as the
   // grid's context; a failed read leaves those targets as IDs. Once the definitions are read, so are the data sources'
   // own, in one grid more: the File Options of uploaded data, and the object a model's import reads. Its failure is none
-  // either: the mappings are as they are without it, and the log says why.
+  // either: the mappings are as they are without it, and the log says why. A tab the page was too busy to read has all
+  // this done once it is read again (`busy`).
+  let imports: Grid | undefined;
   let mappings: ImportMapping[] | undefined;
   let importDefinitions: Grid | undefined;
   let importSources: Grid | undefined;
-  if (imports) {
-    log(importsLine(imports));
-    mappings = [];
-  }
-  if (imports?.rows.length) {
-    progress.status("Reading Import mappings…");
-    try {
-      importDefinitions = await grid("Import mappings", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_PROPERTY"));
-    } catch (error) {
-      log(`Import mappings: ${message(error)}`);
+  const withImports = async (tab: Grid | undefined): Promise<void> => {
+    imports = tab;
+    if (imports) {
+      log(importsLine(imports));
+      mappings = [];
     }
-    if (importDefinitions) {
+    if (imports?.rows.length) {
+      progress.status("Reading Import mappings…");
       try {
-        importSources = await grid("Import mapping sources", axis(native, "IMPORT_DATA_SOURCE"), axis(native, "IMPORT_DATA_SOURCE_PROPERTY"));
+        importDefinitions = await grid("Import mappings", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_PROPERTY"));
       } catch (error) {
-        log(`Import mapping sources: ${message(error)}`);
+        log(`Import mappings: ${message(error)}`);
+      }
+      if (importDefinitions) {
+        try {
+          importSources = await grid("Import mapping sources", axis(native, "IMPORT_DATA_SOURCE"), axis(native, "IMPORT_DATA_SOURCE_PROPERTY"));
+        } catch (error) {
+          log(`Import mapping sources: ${message(error)}`);
+        }
       }
     }
-  }
+  };
+  await withImports(await step("Imports", async () => {
+    const tab = await tableGrid("Imports", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_DEFINITION_PROPERTY"));
+    const merged = mergeImports(tab, actions && { columns: actions.columns, rows: actions.rows.filter(ofKind("import")) });
+    add("Imports", merged.table, actions ? `${merged.matched} matched in the Actions list` : "Imports tab only: the Actions list could not be read");
+    return tab;
+  }, withImports));
   await plain("Import Data Sources", () => axis(native, "IMPORT_DATA_SOURCE"), () => axis(native, "IMPORT_DATA_SOURCE_DETAILS_PROPERTY"));
-  if (actions) {
-    add("Exports", gridTable(actions, ofKind("export")));
-    // General Lists has been read, or has failed, before the Actions list: its rows name the lists of the Action List
-    // column of Other Actions (actions.ts), as they name those of Format List, and no grid is read for the names.
-    add("Other Actions", otherActionsTable(actions, ofKind("other"), lists));
-  }
+  // Exports and Other Actions stand here, and are made once any grid the page was too busy for has been read again: General
+  // Lists' rows name the lists of the Action List column of Other Actions (actions.ts), as they name those of Format List,
+  // and no grid is read for the names.
+  const actionsAt = place();
   await plain("Time Ranges", () => axis(native, "TIME_RANGE"), () => {
     const calendar = native.cache.getTimescaleInfo?.()?.calendarTypeEntityIndex;
     const c = native.constants;
@@ -334,7 +373,37 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     const showsYearToDate = typeof native.cache.getApplicationPropertyEnabledOrNotSet === "function" && typeof flag === "string"
       ? native.cache.getApplicationPropertyEnabledOrNotSet(flag) !== false : undefined;
     add("Model Calendar", { headers: CALENDAR_HEADERS, rows: calendarRows({ workspace, model, capturedOn: new Date().toISOString().slice(0, 10), values, showsYearToDate }) });
-  });
+  }, () => undefined);
+
+  // Each grid the page was too busy to read is read once more, in the order the export reads them, now that the others are
+  // read: each file takes the place its step took. What is made of the grids that list modules and lists is made again.
+  if (busy.length) {
+    const again = new Set(busy.map(each => each.file));
+    for (const each of busy) await each.again();
+    if (again.has("Line Items") || again.has("Modules")) {
+      moduleIds = moduleIdsOf(native, [modules, lineItems]);
+      log(moduleIdsLine(native, [modules, lineItems], moduleIds.length));
+    }
+    if (again.has("General Lists")) {
+      listIds = listIdsOf(native, [lists]);
+      log(listIdsLine(native, [lists], listIds.length));
+    }
+  }
+  /** The IDs of the Line Items table's rows, where the table was made: the pages built on the model are read with them. */
+  let lineItemIds: [string, string][] | undefined;
+  if (lineItems) {
+    // A table that cannot be made is its file's failure, as it was while the table was made in the file's own step.
+    try {
+      add("Line Items", lineItemsTable(lineItems, lists), undefined, lineItemsAt);
+      lineItemIds = lineItemIdsOf(lineItems);
+    } catch (error) {
+      fail("Line Items", error, lineItemsAt);
+    }
+  }
+  if (actions) {
+    add("Exports", gridTable(actions, ofKind("export")), undefined, actionsAt);
+    add("Other Actions", otherActionsTable(actions, ofKind("other"), lists), undefined, actionsAt);
+  }
 
   // Finish the mappings after the existing calendar read has supplied its period choices.
   if (imports?.rows.length) {
@@ -346,16 +415,32 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
 
   if (!tables.length) throw new Failure(NOTHING_READ, notes.join(" ") || undefined);
 
+  // The saved views' filters, after every grid: one view's definition at a time (saved-views.ts). The views are listed from
+  // the page's client; where it lists none it can be read, the table is not made, and the Details file says why. Which pages
+  // show a view is said once the pages built on the model are read (model-pages.ts).
+  progress.status("Reading saved views' filters…");
+  let savedViews: SavedViewsRead | undefined;
+  try {
+    const listed = listSavedViews(native);
+    const column = native.constants.SYSTEM_PROPERTY_IMPORT_DEFINITION;
+    const sourceColumn = native.constants.SYSTEM_PROPERTY_IMPORT_DATA_SOURCE_DEFINITION;
+    const sourceObjects = imports ? sourceObjectsOf(imports, importDefinitions, typeof column === "number" ? column : IMPORT_DEFINITION,
+      importSources && { grid: importSources, column: typeof sourceColumn === "number" ? sourceColumn : SOURCE_DEFINITION, model: native.modelId }) : undefined;
+    savedViews = await readSavedViews(native, listed, { lineItems, moduleIds, model, imports, mappings, sourceObjects,
+      exports: actions && { columns: actions.columns, rows: actions.rows.filter(ofKind("export")) } }, log, stop);
+    add(SAVED_VIEW_FILTERS, savedViews.table);
+    for (const said of savedViews.notes) note(SAVED_VIEW_FILTERS, said);
+  } catch (error) {
+    fail(SAVED_VIEW_FILTERS, error);
+  }
+
   // Dynamic Cell Access is no grid's. It is the driver cells of Line Items listed from the driver's side, each read as the
   // model map reads it (access.ts), so it is made from the tables above now that every one of them is there: the results
   // page makes its map from these same tables. Nothing is read for the file and no step is reported: the reads, the steps
   // and the lines of the log are those of an export without it, but for the one line of a table that fails to be made.
   // Its place is right after Line Items, which stands at the place taken for it: as a table, with its line of the
   // summary, or, when it could not be exported, as a note; either way with its row of the Details file.
-  const exported = tables[lineItemsAt.table]?.label === "Line Items";
-  const accessAt = exported
-    ? { table: lineItemsAt.table + 1, line: lineItemsAt.line + 1, note: lineItemsAt.note, row: lineItemsAt.row + 1 }
-    : { ...lineItemsAt, note: lineItemsAt.note + 1, row: lineItemsAt.row + 1 };
+  const accessAt: Place = { at: lineItemsAt.at + 0.5 };
   try {
     const access = accessTable(tables);
     // Without Line Items, or without a column of it that the file is made from, there is nothing to make the file from:
@@ -384,5 +469,6 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   const lineItemsRefused = lineItems?.refused?.places.length;
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
     summary: [...summary, ...notes], moduleIds, listIds, ...(mappings ? { importMappings: mappings } : {}), ...(processes ? { processActions: processes } : {}),
-    ...(lineItemIds ? { lineItemIds } : {}), ...(lineItemColumns ? { lineItemColumns } : {}), ...(lineItemsRefused ? { lineItemsRefused } : {}) };
+    ...(lineItemIds ? { lineItemIds } : {}), ...(lineItemColumns ? { lineItemColumns } : {}), ...(lineItemsRefused ? { lineItemsRefused } : {}),
+    ...(savedViews ? { savedViewDetails: savedViews.details, savedViewFilters: savedViews.filters, savedViewIds: savedViews.ids } : {}) };
 }

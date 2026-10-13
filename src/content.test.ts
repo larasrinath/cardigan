@@ -179,6 +179,9 @@ describe("The content scripts on an Anaplan page", () => {
     expect(result.summary[0]).toBe(note);
     expect(overviewOf(result).notes.filter(line => line === note)).toEqual([note]);
     expect(result.tables[0].rows).toContainEqual(["Notes", "Classic client", note]);
+    // No saved view's filters without the Classic client: no table, and a note says why, once.
+    const noViews = "Saved View Filters: not read: Cardigan reads saved views' filters through Model Building's client, which didn't answer.";
+    expect([result.tables.some(table => table.file === "Saved View Filters.csv"), overviewOf(result).notes.filter(line => line === noViews)]).toEqual([false, [noViews]]);
     expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Engine: unknown (no Classic client)"]);
     expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Classic reader: no frame answered within the wait; reading a partial result without it"]);
     expect(service.reads.filter(path => path.includes("springboard-platform-gateway-service"))).toEqual([
@@ -242,6 +245,34 @@ describe("The content scripts on an Anaplan page", () => {
     expect(overviewOf(result).notes.includes(POLARIS_NOTE)).toBe(engine === "Polaris");
     // The columns go no further: the results page holds none.
     expect(Object.hasOwn(result, "lineItemColumns")).toBe(false);
+  });
+
+  it.each([
+    { modules: ["", "Cell Count", "Populated Cell Count", "Memory Used"], said: "Engine: Polaris (from the Modules columns)" },
+    { modules: ["", "Cell Count", "Notes"], said: "Engine: Classic (from the Modules columns)" },
+    { modules: undefined, said: "Engine: Classic (from the Line Items columns)" },
+  ])("tells the engine from the Modules table's columns $modules where Line Items gave none", async ({ modules, said }) => {
+    const sent = exportedModel();
+    if (modules) sent.tables.push({ file: "Modules.csv", label: "Modules", headers: modules, rows: [["Demand", "1", "1", "1"].slice(0, modules.length)], guard: false });
+    const result = await runWith(sent);
+    expect([engineSaid(result), overviewOf(result).notes.includes(POLARIS_NOTE)]).toEqual([[said], said.includes("Polaris")]);
+    // Line Items' columns, where its first page gave them, still say it.
+    expect(engineSaid(await runWith({ ...sent, lineItemColumns: ["Formula", "Cell Count"] }))).toEqual(["Engine: Classic (from the Line Items columns)"]);
+  });
+
+  it("counts in Line Items the saved views whose filters use each line item, finds a filter's line item used, and takes the views' IDs off the result", async () => {
+    const sent = exportedModel();
+    sent.tables.push({ file: "Line Items.csv", label: "Line Items", headers: ["", "Formula", "Referenced By", "Module Name"],
+      rows: [["Demand", "", "", ""], ["Units", "", "", "Demand"], ["Flag", "", "", "Demand"]], guard: false },
+    { file: "Saved View Filters.csv", label: "Saved View Filters", headers: ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"],
+      rows: [["Flagged", "Demand", "Rows: Flag = True", "Demand.Flag", "", "", "", "Yes"]], guard: false });
+    const result = await runWith({ ...sent, savedViewIds: ["105000000001"], savedViewDetails: [{ name: "Flagged", module: "Demand", read: true, filters: [] }],
+      savedViewFilters: [{ view: "Flagged", module: "Demand", axis: "Rows", lineItem: "Flag", lineItemModule: "Demand", active: true, valid: true }] });
+    const lineItems = result.tables.find(table => table.file === "Line Items.csv")!;
+    expect(lineItems.rows.map(row => [row[0], row[lineItems.headers.indexOf("Saved View Filters")]])).toEqual([["Demand", ""], ["Units", 0], ["Flag", 1]]);
+    // Flag is used by the view's filter; Units by nothing.
+    expect(result.tables.find(table => table.file === "Unused Line Items.csv")?.rows.map(row => row[0])).toEqual(["Units"]);
+    expect([Object.hasOwn(result, "savedViewIds"), result.savedViewFilters?.length, result.savedViewDetails?.length]).toEqual([false, 1, 1]);
   });
 
   it("tells Polaris from a Line Items table read in part, and says under Unused Line Items that what the refused rows use may be listed", async () => {

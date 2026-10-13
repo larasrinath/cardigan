@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { engineFromColumns, engineLine } from "./model-engine.js";
+import { engineColumns, engineFromColumns, engineLine } from "./model-engine.js";
 
 describe("Calculation engine from the Line Items columns", () => {
   it.each([
@@ -15,6 +15,16 @@ describe("Calculation engine from the Line Items columns", () => {
 
   it("keeps an unknown engine when no Classic client answers", () => {
     expect(engineLine("unknown")).toBe("Engine: unknown (no Classic client)");
+  });
+
+  it("takes the Modules table's columns where Line Items gave none, and says so; Line Items' come first, even with none of the two", () => {
+    const POLARIS_MODULES = ["", "Cell Count", "Populated Cell Count", "Memory Used"];
+    const told = engineColumns(undefined, POLARIS_MODULES);
+    expect([told.from, engineFromColumns(told.columns), engineLine(engineFromColumns(told.columns), told.from)])
+      .toEqual(["Modules", "polaris", "Engine: Polaris (from the Modules columns)"]);
+    expect(engineColumns(["", "Cell Count"], POLARIS_MODULES)).toEqual({ columns: ["", "Cell Count"], from: "Line Items" });
+    expect(engineColumns(undefined, undefined)).toEqual({ columns: [], from: "Line Items" });
+    expect(engineLine(engineFromColumns(engineColumns(undefined, ["", "Cell Count"]).columns), "Modules")).toBe("Engine: Classic (from the Modules columns)");
   });
 
   it("keeps NOTICE's request table aligned with the removed gateway probe", () => {

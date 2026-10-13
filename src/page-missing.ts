@@ -1,7 +1,7 @@
 import { nameDetails } from "./analyse.js";
 import { entityKey, type UxPageCardDetails } from "./card-reader/card-types.js";
 import { NOT_IN_MODEL, resolveFromCatalog, unresolvedFilterItems, type ModelCatalog } from "./catalog.js";
-import { MISSING_LINE_ITEMS_MODULE, missingIn, missingText, type MissingKind } from "./page-files.js";
+import { CUSTOM_VIEW_FILTERS, MISSING_LINE_ITEMS_MODULE, missingIn, missingText, type MissingKind } from "./page-files.js";
 import { HEADERS, NAME_NOT_FOUND, NONE, type Cell, type Report } from "./report.js";
 
 /** What a card on a page built on a model points at that the model does not have, deleted since the page was built or
@@ -99,6 +99,6 @@ export function missingNote(pages: readonly ReadonlyMap<string, ReadonlySet<stri
   const things = new Set(pages.flatMap(page => [...page.values()].flatMap(each => [...each]))).size;
   const onOne = pages.filter(page => page.size).length === 1;
   return `${cards === 1 ? "1 card on a page" : `${cards} cards on pages`} built on this model ${cards === 1 ? "points" : "point"} at ${things === 1 ? "something" : "things"} `
-    + `the model doesn't have: deleted since ${onOne ? "the page was" : "the pages were"} built, or hidden from you. Module Usage, Page Filters and Page Actions `
+    + `the model doesn't have: deleted since ${onOne ? "the page was" : "the pages were"} built, or hidden from you. Module Usage, ${CUSTOM_VIEW_FILTERS} and Page Actions `
     + "say Missing, with the ID.";
 }
