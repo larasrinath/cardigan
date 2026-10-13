@@ -36,7 +36,8 @@ import { LINE_ITEMS_FILE, lineItemsView, MODULE_NAME } from "./line-items-view.j
 import { subsetOfRow } from "./line-item-subsets-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
-import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
+import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, startColumns, startText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type StartColumns,
+  type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, tableText, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { columnKeys, DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
@@ -141,7 +142,8 @@ interface Shown {
   columns: Column[];
   /** Each column's width, worked out from every row of `table` the first time the table is drawn (column-widths.ts),
    * once its columns are what they stay, and kept: the table is laid out by it whatever is shown of it. Not before: a
-   * model's Line Items can have many thousands of rows, and many a table is never looked at. */
+   * model's Line Items can have many thousands of rows, and many a table is never looked at. A table with times has its
+   * widths from its rows in both zones, and keeps them through a switch of the zone (`widthsOf`). */
   widths?: ReadonlyMap<number, number>;
   keys: RowKeys;
   links: Links;
@@ -152,10 +154,10 @@ interface Shown {
   ranges: Map<number, RangeState>;
   /** Each column of numbers or of dates, read once: the first time its filter opens or keeps rows (`readColumn`). */
   read: Map<number, RangeColumn>;
-  /** Each column of times as moments, read once: the first time a range of days set in a zone keeps rows by it (`readMoments`). */
-  moments?: Map<number, ReadonlyMap<Row, number | undefined>>;
-  /** For a file with a column of times (times.ts): the table as the file's rule and its words give it, with its times in
-   * UTC, from which `table` is said in the zone chosen, again each time the viewer chooses another. */
+  /** Each row's start as its moment, read once: the first time a range of days set in a zone keeps rows by it (`readMoments`). */
+  moments?: ReadonlyMap<Row, number | undefined>;
+  /** For a file with an action's start (times.ts): the table as the file's rule and its words give it, with Start Date
+   * and Start Time in UTC, from which `table` is said in the zone chosen, again each time the viewer chooses another. */
   base?: FileView;
   hidden: Set<number>;
   sort: Sort | undefined;
@@ -422,49 +424,106 @@ function setTimeMode(mode: TimeMode): void {
   retime();
   announce(mode === "local" ? `Times in your time zone, ${ownZone}.` : "Times in UTC.");
 }
-/** Says every time on the page again in the zone chosen: each table with a column of times, from the file's own table,
- * and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
- * hidden columns, order and page, each by the column's place, which a zone does not move. A range of days keeps the rows
- * it kept, in the zone its days were set in. The open details follow the chosen zone too. */
+/** Says every time on the page again in the zone chosen: each table with an action's start, from the file's own table
+ * (`Shown.base`). A switch of the zone moves nothing:
+ * - Each such table keeps its columns, each in its place and as wide as before (`columnsFor`, `widthsOf`), with only the
+ *   names of Start Date and Start Time changed, and what the user chose of it: its filters, ranges, hidden columns, order
+ *   and page, each by the column's place. A range of days keeps the rows it kept, in the zone its days were set in.
+ * - The table shown is drawn again in its box, which stays as far scrolled, down and sideways (`updateTable`).
+ * - Nothing else is drawn again: the overview, the map and the tables without times say no time.
+ * - The open details are written again in the zone chosen, where they stood (`keepingPlace`): they can link to rows of
+ *   these tables, which are new rows now. */
 function retime(): void {
   if (!result) return;
   closePopover();
-  for (const entry of everyTable()) {
-    if (!entry.base) continue;
-    const timed = inTimeMode(entry.base, timeMode, ownZone);
-    entry.table = timed.table;
-    entry.exported = timed.exported;
-    entry.headings = timed.headings;
+  const timed = everyTable().filter((entry): entry is Shown & { base: FileView } => entry.base !== undefined);
+  for (const entry of timed) {
+    const view = inTimeMode(entry.base, timeMode, ownZone);
+    entry.table = view.table;
+    entry.exported = view.exported;
+    entry.headings = view.headings;
     entry.lists = cellLists(result, entry.table);
-    entry.columns = columnsOf(entry.table, entry.lists, ownZone, result?.kind === "model");
+    // Each column of times takes its name in the zone chosen, which it held beside its own (`columnsFor`): nothing else of
+    // a column changes, not even what its kept settings made of it when they were taken back (`takeLooks`).
+    entry.columns = entry.columns.map(column => (column.twin === undefined ? column : { ...column, label: column.twin, twin: column.label }));
     entry.keys = rowKeys(entry.table);
     entry.read = new Map();
     entry.moments = undefined;
-    entry.widths = undefined;
   }
-  renderAll();
-  if (drawerLooks) {
+  if (!timed.length) return;
+  const table = currentEntry();
+  if (table?.base) updateTable(table, true);
+  const drawer = drawerLooks;
+  if (drawer) {
     const focused = document.activeElement;
-    reopenDrawer(drawerLooks, el("drawerBack"), false);
-    if (focused instanceof HTMLElement && document.contains(focused)) focused.focus();
+    keepingPlace(() => reopenDrawer(drawer, el("drawerBack"), false));
+    if (focused instanceof HTMLElement && document.contains(focused)) focused.focus({ preventScroll: true });
   }
 }
-/** What a range's filter says of the zone of its column's times, for a column of times, where its days were set in the
- * other zone also that: they keep the same rows in either. Nothing for any other column. */
+/** The zone the page does not show times in now. */
+const otherMode = (): TimeMode => (timeMode === "local" ? "utc" : "local");
+/** A table's columns (columns.ts `columnsOf`). A table with an action's start (`base`) has the same columns in either zone
+ * but for the names of Start Date and Start Time: each of those has beside its own name its name in the other zone
+ * (`Column.twin`), whose room its header and its row in a row's details keep, and any column has a range or a filter
+ * where either zone's cells give it one. So a switch of the zone changes those two names and nothing else of a column:
+ * not its place, its width, its filter or its range. */
+function columnsFor(table: ResultTable, lists: ReadonlyMap<number, CellList>, base: FileView | undefined): Column[] {
+  const model = result?.kind === "model";
+  const columns = columnsOf(table, lists, ownZone, model);
+  if (!base || ownZone === "UTC") return columns;
+  const other = new Map(columnsOf(inTimeMode(base, otherMode(), ownZone).table, lists, ownZone, model).map(column => [column.index, column]));
+  return columns.map(column => {
+    const twin = other.get(column.index);
+    if (!twin) return column;
+    const range = column.range ?? twin.range;
+    return { ...column, filter: column.filter || twin.filter, ...(range ? { range } : {}), ...(twin.label === column.label ? {} : { twin: twin.label }) };
+  });
+}
+/** Each column's width (column-widths.ts), from every row of the table: for a table with an action's start, from its rows
+ * in both zones, each column as wide as the wider of the two needs, so that a switch of the zone leaves it as wide. */
+function widthsOf(entry: Shown): Map<number, number> {
+  const widths = columnWidths(entry.columns, entry.table.rows);
+  if (!entry.base || ownZone === "UTC") return widths;
+  for (const [index, width] of columnWidths(entry.columns, inTimeMode(entry.base, otherMode(), ownZone).table.rows)) widths.set(index, Math.max(width, widths.get(index) ?? 0));
+  return widths;
+}
+/** Writes the open details again with `write`, where they stood: as far scrolled, with the same folded parts open (As
+ * read, a Mapping's lists) and the same long lists shown whole, each by its place among them. A switch of the zone
+ * changes what they say of a time and nothing of their parts, and the name of a row of times keeps the room of its name in
+ * the other zone (markup.ts `labelHtml`), so each part stands where it stood. */
+function keepingPlace(write: () => void): void {
+  const body = el("drawerBody");
+  const scroll = body.scrollTop;
+  const open = [...body.querySelectorAll("details")].map(details => details.hasAttribute("open"));
+  const whole = [...body.querySelectorAll(".cell-more")].map(control => control.getAttribute("aria-expanded") === "true");
+  write();
+  [...body.querySelectorAll("details")].forEach((details, at) => {
+    if (open[at] === true) details.setAttribute("open", "");
+    else if (open[at] === false) details.removeAttribute("open");
+  });
+  [...body.querySelectorAll(".cell-more")].forEach((control, at) => { if (whole[at]) showRest(control, true); });
+  body.scrollTop = scroll;
+}
+/** What a range's filter says of the zone of its column's dates, for Start Date: the zone the page shows times in. Where
+ * its days were set in the other zone, it says that too, as they keep the same rows in either: the one place the page
+ * names the zone it does not show, for the zone shown alone would not say which rows the range keeps. Nothing for any
+ * other column. */
 function zoneLine(column: Column, range: RangeState | undefined): string | undefined {
   const kind = timesOf(column.label, ownZone);
   if (kind === undefined) return undefined;
-  const times = kind === "local" ? `The column's dates and times are in your time zone, ${ownZone}. ` : "The column's dates and times are UTC. ";
+  const dates = kind === "local" ? `The column's dates are in your time zone, ${ownZone}. ` : "The column's dates are UTC. ";
   const days = range?.zone !== undefined && range.zone !== shownZone() ? `The days set are ${zoneWords(range.zone, ownZone)} days, which keep the same rows in either zone. ` : "";
-  return `${times}${days}`;
+  return `${dates}${days}`;
 }
 /** The column naming a row, independent of where its other columns stand. */
 const identityName = (entry: Shown): number => entry.opensFrom ?? rowNameIndex(entry.table)
   ?? columnIndex(entry.table, "Name") ?? columnIndex(entry.table, "") ?? 0;
-/** Finds the kept identity, or an earlier version's hash with times as they were read. */
+/** Finds the kept identity (view-keep.ts `rowKey`), which no zone changes, or an earlier version's hash of the whole row,
+ * with its start one cell again, as it was read (times.ts `fileRow`). */
 function findShownRow(entry: Shown, key: string): Row | undefined {
+  if (key.startsWith("row:")) return findRow(entry.table.rows, key, entry.table, identityName(entry));
   const asRead = entry.table.rows.map(row => fileRow(entry.table.headers, entry.exported, row, ownZone));
-  const found = findRow(asRead, key, entry.table, identityName(entry));
+  const found = findRow(asRead, key);
   return found && entry.table.rows[asRead.indexOf(found)];
 }
 /** A text node, as Node.TEXT_NODE names it. */
@@ -531,34 +590,35 @@ function query(entry: Shown): TableQuery {
   };
 }
 
-/** A range as the table keeps rows by it. Days set on a column of times keep the moments of those days in the zone they
- * were set in (times.ts `momentRange`): the same rows whichever zone the times are shown in now. Any other range keeps
- * rows by the column's own values. */
+/** Where a table shows an action's start, Start Date and Start Time, in the zone the page shows times in (times.ts). */
+const startOf = (entry: Shown): StartColumns | undefined => (entry.base ? startColumns(entry.table.headers, ownZone) : undefined);
+
+/** A range as the table keeps rows by it. Days set on Start Date keep the moments of those days in the zone they were
+ * set in (times.ts `momentRange`), by each row's start as it was read: the same rows whichever zone the times are shown in
+ * now. Any other range keeps rows by the column's own values. */
 function rangeQuery(entry: Shown, column: Column, range: RangeState): RangeQuery {
   const kept = { kind: column.range ?? "number", blanks: range.blanks, none: column.none } as const;
-  if (range.zone !== undefined && column.range === "date" && timesOf(column.label, ownZone) !== undefined) {
-    return { ...kept, ...momentRange(range.from, range.to, range.zone), values: readMoments(entry, column) };
+  const start = startOf(entry);
+  if (range.zone !== undefined && column.range === "date" && start?.date === column.index) {
+    return { ...kept, ...momentRange(range.from, range.to, range.zone), values: readMoments(entry, start) };
   }
   return { ...kept, from: range.from, to: range.to, values: readColumn(entry, column).values };
 }
 
-/** A column of times as the moments its cells name, read from the UTC text the file holds, once. */
-function readMoments(entry: Shown, column: Column): ReadonlyMap<Row, number | undefined> {
-  entry.moments ??= new Map();
-  let read = entry.moments.get(column.index);
-  if (!read) {
-    read = momentsOf(entry.table.rows, entry.exported, column.index);
-    entry.moments.set(column.index, read);
-  }
-  return read;
+/** Each row's start as the moment it names, read once from the UTC text the file holds, which the table keeps under Start
+ * Time (times.ts `splitTimes`). */
+function readMoments(entry: Shown, start: StartColumns): ReadonlyMap<Row, number | undefined> {
+  entry.moments ??= momentsOf(entry.table.rows, entry.exported, start.time);
+  return entry.moments;
 }
 
-/** Each column of times said in the viewer's zone sorts by the UTC text that was read, which runs as the moments do. */
+/** Start Date and Start Time each sort by the whole moment, the UTC text that was read, which runs as the moments do: so
+ * Start Date runs in time order within a day, in either zone (times.ts `startText`). */
 function timeSortKeys(entry: Shown): Map<number, (row: Row) => string> | undefined {
-  if (timeMode !== "local" || !entry.base) return undefined;
-  const keys = new Map<number, (row: Row) => string>();
-  for (const column of entry.columns) if (timesOf(column.label, ownZone) === "local") keys.set(column.index, row => readText(entry.exported, row, column.index));
-  return keys.size ? keys : undefined;
+  const start = startOf(entry);
+  if (!start) return undefined;
+  const key = (row: Row): string => startText(entry.exported, row, start);
+  return new Map([[start.date, key], [start.time, key]]);
 }
 
 /** What a range keeps, as its column's filter button says it, with the zone its days were set in where that is not the
@@ -573,8 +633,9 @@ function tableView(entry: Shown): TableView {
   const page = pageOf(select(entry.table.rows, query(entry)), entry.page, state.pageSize);
   entry.page = page.page;
   currentSlice = page.rows;
-  // The columns' widths come from all the table's rows, whatever the search, the filters, the sort and the page leave.
-  entry.widths ??= columnWidths(entry.columns, entry.table.rows);
+  // The columns' widths come from all the table's rows, whatever the search, the filters, the sort and the page leave,
+  // and in both zones for a table with times.
+  entry.widths ??= widthsOf(entry);
   return {
     label: tableLabel(entry.table), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
@@ -617,16 +678,20 @@ function renderTable(entry: Shown): void {
  * The table's box stays too, with how far it was scrolled sideways: after a sort, a page, a search or a filter the table
  * written into it has the columns it had, each as wide as before (column-widths.ts), so the browser keeps the box where
  * it was. It is taken back to its top, where the new rows begin: another order, page, search or filter shows other rows,
- * and the head stays at the top of the box. */
-function updateTable(entry: Shown): void {
+ * and the head stays at the top of the box. After a switch of the zone (`inPlace`) it stays where it was down the rows
+ * too, and sideways whatever the browser does: the rows are the ones it showed, in their order and on their page, each
+ * column as wide as before, so the same rows and columns stand in sight. The page says the zone, not the table, then. */
+function updateTable(entry: Shown, inPlace = false): void {
   const wrap = find("#tableWrap");
   const pager = find("#pager");
   const count = find("#rowCount");
   if (!wrap || !pager || !count) return renderTable(entry);
+  const { scrollLeft, scrollTop } = wrap;
   const view = tableView(entry);
   const parts = tableParts(view);
   wrap.innerHTML = parts.grid;
-  wrap.scrollTop = 0;
+  wrap.scrollTop = inPlace ? scrollTop : 0;
+  if (inPlace) wrap.scrollLeft = scrollLeft;
   pager.innerHTML = parts.pager;
   count.textContent = parts.count;
   const reset = find("#resetBtn");
@@ -635,7 +700,7 @@ function updateTable(entry: Shown): void {
   updateFade(wrap);
   markPopOwner();
   markDrawerRow();
-  announceTable(view, entry);
+  if (!inPlace) announceTable(view, entry);
   rememberLooks();
 }
 
@@ -748,14 +813,15 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
     // A file's times are said in the zone chosen, from the table as the file gives them, which is kept to say them again.
     const base = fileView(next, file);
+    const timed = hasTimes(base) ? base : undefined;
     const { table, note, none, empty, opensFrom, exported, readUnder, headings } = inTimeMode(base, timeMode, ownZone);
     const lists = cellLists(next, table);
-    const columns = columnsOf(table, lists, ownZone, result.kind === "model");
+    const columns = columnsFor(table, lists, timed);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
       index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists, columns, keys, search: "", links: { page, card: page && keys.cardId !== undefined },
-      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, ...(hasTimes(base) ? { base } : {}),
+      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, ...(timed ? { base: timed } : {}),
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
     if (entry.links.card) entry.links.hasCard = row => cardsOfRow(entry, row).length < 2;
@@ -1282,7 +1348,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = t
   const columns = entry.columns.map(column => ({ ...column, hidden: entry.hidden.has(column.index) }));
   openDrawer(name, rowDrawerSubHtml(tableLabel(entry.table)),
     rowDrawerHtml(columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
-      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, opens, source && sourceOpens(source),
+      process && { view: process, opens: drawerSteps.map(Boolean) }, opens, source && sourceOpens(source),
       subset && { view: subset, modules: subsetModules!, members: opens.get(subset.namesColumn) ?? [] }), opener);
 }
 /** What a source model's details link to: each of its objects, its own row of Import Data Sources, by its place there,

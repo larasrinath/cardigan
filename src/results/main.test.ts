@@ -7,14 +7,14 @@ import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/ca
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { polarisFixture } from "../polaris.test-support.js";
-import { columnWidths } from "./column-widths.js";
+import { columnWidths, headerWidth } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
 import { OPEN_WAIT_MS, SHOWN_WAIT_MS } from "./connection.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { lineItemsView } from "./line-items-view.js";
-import { rowKey, VIEW_KEY } from "./view-keep.js";
+import { rowKey, VIEW_KEY, type KeptTable } from "./view-keep.js";
 import { FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NAV_ICONS, NOT_REMOVED_LINE } from "./markup.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { PROCESS_LINES } from "./process-actions-view.js";
@@ -2318,7 +2318,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([SOURCES.tables[1].rows, mapBuilds[0].tables]).toEqual([rows(), SOURCES.tables]);
   });
 
-  it("filters a column of dates by whole days, as a box for dates gives them, and says that the column's times are UTC", async () => {
+  it("filters a column of dates by whole days, as a box for dates gives them, and says that the column's dates are UTC", async () => {
     const DATED: AnalysisResult = { ...MODEL, summary: ["Imports: 3 rows"], tables: [MODEL.tables[0], { file: "Imports.csv", label: "Imports",
       headers: ["", "Start Date and Time (UTC)", "Source Type"], guard: false, rows: [["Load", "2026-03-12 23:19:56", "MODEL"], ["Sort", "2026-03-13 00:00:01", "MODEL"], ["Copy", "", "MODEL"]] }] };
     // The viewer chose UTC, in which the file's times stand as they were read. A Source Type that names no model's object
@@ -2329,11 +2329,13 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-colfilter="1"]').press();
     const from = page.find("#popover [data-rfrom]");
     expect([from.getAttribute("type"), from.getAttribute("min"), from.getAttribute("max"), page.find("#rangeHint").textContent.trim()]).toEqual(["date", "2026-03-12", "2026-03-13",
-      "The column's dates and times are UTC. Earliest 2026-03-12, latest 2026-03-13. Whole days, both ends kept; leave a box empty for no end there."]);
-    // Until the 12th keeps the action that started late on the 12th, and the one that never ran.
+      "The column's dates are UTC. Earliest 2026-03-12, latest 2026-03-13. Whole days, both ends kept; leave a box empty for no end there."]);
+    // Until the 12th keeps the action that started late on the 12th, and the one that never ran. The range is Start Date's:
+    // Start Time, beside it, has no filter at all.
     page.find("#popover [data-rto]").type("2026-03-12");
     page.find('#popover [data-popact="apply"]').press();
-    expect([column("Name"), page.find('[data-colfilter="1"]').getAttribute("aria-label")]).toEqual([["Load", "Copy"], "Filter by Start Date and Time (UTC) (filter on: until 2026-03-12)"]);
+    expect([column("Name"), page.find('[data-colfilter="1"]').getAttribute("aria-label"), page.all('[data-colfilter="2"]').length])
+      .toEqual([["Load", "Copy"], "Filter by Start Date (UTC) (filter on: until 2026-03-12)", 0]);
   });
 
   it("shows a model's Dynamic Cell Access right after its Line Items, as the file stands, under a line that says what it lists and how many drivers could not be matched", async () => {
@@ -7807,13 +7809,27 @@ describe("How a result was looked at, kept through a refresh of the page until t
 describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the header says", () => {
   /** A model whose Imports have started at these moments, UTC as Anaplan writes them, and whose export was made at 14:02
    * UTC. The viewer's clock is Japan's, nine hours ahead (`fixTimeZone`). Their Source Type names no model's object, so
-   * the page lists them in Model-to-Model Imports (import-tables.ts), the third of its tables after the result's two. */
-  const TIMED: AnalysisResult = { ...MODEL, summary: ["Imports: 4 rows"], tables: [
-    { ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Export", "Exported on", "2026-10-03 14:02 UTC"]] },
-    { file: "Imports.csv", label: "Imports", headers: ["", "Start Date and Time (UTC)", "Source Type"], guard: false,
-      rows: [["Load", "2026-03-12 23:19:56", "MODEL"], ["Sort", "2026-03-13 00:00:01", "MODEL"], ["Late", "2026-03-13 20:00:00", "MODEL"], ["Copy", "", "MODEL"]] }] };
-  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.childNodes[0]?.textContent?.trim() ?? "");
+   * the page lists them in Model-to-Model Imports (import-tables.ts), the third of its tables after the result's two.
+   * Early started on the 13th by the viewer's clock, as Load and Sort did, before both, and is last in the file. */
+  const TIMED: AnalysisResult = { ...MODEL, summary: ["Imports: 5 rows"], tables: [
+    { ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Export", "Exported on", "2026-10-03 14:02 UTC"], ["How to read", "Imports", "Shown as three tables in Actions."]] },
+    { file: "Imports.csv", label: "Imports", headers: ["", "Start Date and Time (UTC)", "Source Type", "Notes"], guard: false,
+      rows: [["Load", "2026-03-12 23:19:56", "MODEL", "Nightly"], ["Sort", "2026-03-13 00:00:01", "MODEL", ""], ["Late", "2026-03-13 20:00:00", "MODEL", ""], ["Copy", "", "MODEL", ""],
+        ["Early", "2026-03-12 23:00:00", "MODEL", ""]] }] };
+  /** Sixty imports, each started half an hour after the one before, from 20:00 UTC on 12 March: 38 of them on the 13th by
+   * the viewer's clock. Every name is made up. */
+  const LONG: AnalysisResult = { ...TIMED, summary: ["Imports: 60 rows"], tables: [TIMED.tables[0], { ...TIMED.tables[1], rows: Array.from({ length: 60 }, (_, at): Cell[] => {
+    const moment = new Date(Date.UTC(2026, 2, 12, 20) + at * 30 * 60_000).toISOString();
+    return [`Import ${String(at + 1).padStart(2, "0")}`, `${moment.slice(0, 10)} ${moment.slice(11, 19)}`, "MODEL", at % 7 ? "" : "Weekly"];
+  }) }] };
+  /** What a reader sees of an element: its text without what stands there only to hold room, unseen and unread
+   * (aria-hidden), as a column's name in the zone not shown does (markup.ts `labelHtml`). */
+  const seen = (node: { nodeType: number; textContent: string }): string => (node.nodeType !== 1 ? node.textContent
+    : (node as FakeElement).getAttribute("aria-hidden") === "true" ? "" : (node as FakeElement).childNodes.map(seen).join(""));
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => seen(button).trim());
   const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
+  /** A row's details as a reader sees them: each name, and each value. */
+  const details = () => [page.all("#drawerBody dt").map(term => seen(term).trim()), page.texts("#drawerBody dd")];
   /** The zone the Timezone pill says the times are in: the word it shows. */
   const zone = () => page.all("#timeZone [data-tz]").filter(word => word.classList.contains("on")).map(word => word.dataset.tz);
   /** A press of the pill: the times in the other zone. */
@@ -7830,7 +7846,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     page.find('#popover [data-popact="apply"]').press();
   };
 
-  it("says each time in the viewer's zone, unless the viewer chose UTC: the column's header says local, and the switch Local", async () => {
+  it("shows an action's start as Start Date and Start Time in the viewer's zone unless the viewer chose UTC, each header naming the zone, and the switch Local", async () => {
     // No result yet: the switch is hidden.
     await open(clicked(42));
     expect(page.id("timeZone").hidden).toBe(true);
@@ -7840,48 +7856,61 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     // the viewer's zone.
     expect([page.id("timeZone").hidden, zone(), page.id("timeZone").getAttribute("aria-label"), page.id("timeZone").title])
       .toEqual([false, ["local"], "Timezone: Local. Switch to UTC", "Times in your time zone, Asia/Tokyo. Press to say them in UTC."]);
-    // Neither the header nor the overview says when the export was made.
+    // Neither the header nor About this export says when the export was made, in either zone.
     expect(page.id("hdMeta").textContent).not.toContain("Exported");
     expect(about()).toEqual([[["Model", "Model one"]], false]);
     goToNamed("Model-to-Model Imports");
-    expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Source Type", "Start Date and Time (Asia/Tokyo)"],
-      ["2026-03-13 08:19:56", "2026-03-13 09:00:01", "2026-03-14 05:00:00", ""]]);
+    // Two columns side by side in the place of the file's one, each naming the zone: the day and the time of day by the
+    // viewer's clock, to the second as Anaplan wrote them. The action that never ran has both empty.
+    expect([headings(), column("Start Date (Asia/Tokyo)"), column("Start Time (Asia/Tokyo)")]).toEqual([["Name", "Source Type", "Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)", "Notes"],
+      ["2026-03-13", "2026-03-13", "2026-03-14", "", "2026-03-13"], ["08:19:56", "09:00:01", "05:00:00", "", "08:00:00"]]);
     // The search finds a time as it is shown, and not as it was read.
     page.id("tblSearch").type("08:19");
     expect(firstCells()).toEqual(["Load"]);
     page.id("tblSearch").type("23:19");
     expect(firstCells()).toEqual([]);
     page.id("tblSearch").type("");
-    // A row's details say the time in both zones, the one shown first, and nothing more of it.
+    // A row's details say its start in the zone shown, a row for its day and one for its time, and nothing of UTC but the
+    // text Anaplan wrote, under As read, folded at first.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")]).toEqual([["Name", "Source Type", "Start Date and Time (Asia/Tokyo)"],
-      ["Load", "MODEL", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC"]]);
-    // The header remains usable while details are open; the row and its focus return survive the table being retimed.
+    expect(details()).toEqual([["Name", "Source Type", "Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)", "Notes", "Start Date and Time (UTC) as read"],
+      ["Load", "MODEL", "2026-03-13", "08:19:56", "Nightly", "2026-03-12 23:19:56"]]);
+    expect(page.find("#drawerBody details.d-raw").hasAttribute("open")).toBe(false);
+    // The header remains usable while details are open. A switch says the details in UTC alone, nothing of the viewer's
+    // zone; the row and its focus return survive the table being said again.
     switchZone();
-    expect(page.texts("#drawerBody dd").at(-1)).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
+    expect(details()).toEqual([["Name", "Source Type", "Start Date (UTC)", "Start Time (UTC)", "Notes", "Start Date and Time (UTC) as read"],
+      ["Load", "MODEL", "2026-03-12", "23:19:56", "Nightly", "2026-03-12 23:19:56"]]);
+    expect(page.all("#drawerBody dt, #drawerBody dd").map(seen).filter(words => /local|Asia/.test(words))).toEqual([]);
     expect(page.document.activeElement === page.id("timeZone")).toBe(true);
     expect(page.id("drawerBack").hidden).toBe(true);
     page.key("Escape");
     expect(page.document.activeElement === page.all('#tableWrap tbody [data-act="row"]')[0]).toBe(true);
     switchZone();
     vi.advanceTimersByTime(300);
-    // Ordered by the time, from the earliest moment, and the action that never ran first.
+    // Start Date sorts by the whole moment: the three that started on the 13th run in time order, Early, Load and Sort,
+    // whatever the file's order, and the action that never ran comes first.
     page.find('[data-sort="1"]').press();
-    expect([sortOf(1), firstCells()]).toEqual(["ascending", ["Copy", "Load", "Sort", "Late"]]);
+    expect([sortOf(1), firstCells()]).toEqual(["ascending", ["Copy", "Early", "Load", "Sort", "Late"]]);
+    // So does Start Time, where the time of day alone would put Late's 05:00 first; and the other way round.
+    page.find('[data-sort="2"]').press();
+    expect([sortOf(2), firstCells()]).toEqual(["ascending", ["Copy", "Early", "Load", "Sort", "Late"]]);
+    page.find('[data-sort="2"]').press();
+    expect([sortOf(2), firstCells()]).toEqual(["descending", ["Late", "Sort", "Load", "Early", "Copy"]]);
   });
 
-  it("says each time in UTC once the viewer chooses it, keeps the choice for the next page, and back again", async () => {
+  it("says each start in UTC once the viewer chooses it, keeps the choice for the next page, and back again", async () => {
     await openWith(TIMED);
     goToNamed("Model-to-Model Imports");
     page.find('[data-sort="1"]').press();
     switchZone();
     // The table shown is said anew, as the file has it, in the order it had; the pill follows.
-    expect([zone(), headings(), column("Start Date and Time (UTC)"), sortOf(1), stored.get(TIMES_KEY), page.id("live").textContent])
-      .toEqual([["utc"], ["Name", "Source Type", "Start Date and Time (UTC)"], ["", "2026-03-12 23:19:56", "2026-03-13 00:00:01", "2026-03-13 20:00:00"], "ascending",
-        "utc", "Times in UTC."]);
+    expect([zone(), headings(), column("Start Date (UTC)"), column("Start Time (UTC)"), sortOf(1), stored.get(TIMES_KEY), page.id("live").textContent])
+      .toEqual([["utc"], ["Name", "Source Type", "Start Date (UTC)", "Start Time (UTC)", "Notes"], ["", "2026-03-12", "2026-03-12", "2026-03-13", "2026-03-13"],
+        ["", "23:00:00", "23:19:56", "00:00:01", "20:00:00"], "ascending", "utc", "Times in UTC."]);
     expect([page.id("timeZone").getAttribute("aria-label"), page.id("timeZone").title]).toEqual(["Timezone: UTC. Switch to Local", "Times in UTC, as Anaplan writes them. Press to say them in your time zone."]);
-    page.all('#tableWrap tbody [data-act="row"]')[1].press();
-    expect(page.texts("#drawerBody dd")[2]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
+    page.all('#tableWrap tbody [data-act="row"]')[2].press();
+    expect(details().map(said => said.slice(2, 4))).toEqual([["Start Date (UTC)", "Start Time (UTC)"], ["2026-03-12", "23:19:56"]]);
     page.key("Escape");
     vi.advanceTimersByTime(300);
     // The overview has no time to say in UTC either.
@@ -7893,51 +7922,167 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     port.send({ type: "subject", subject: { kind: "app", id: TIMED.id } });
     sendResult(port, TIMED);
     goToNamed("Model-to-Model Imports");
-    expect([zone(), headings()[2]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
+    expect([zone(), headings().slice(2, 4)]).toEqual([["utc"], ["Start Date (UTC)", "Start Time (UTC)"]]);
     // And Local takes them back to the viewer's clock.
     switchZone();
-    expect([zone(), column("Start Date and Time (Asia/Tokyo)").includes("2026-03-13 08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
+    expect([zone(), column("Start Time (Asia/Tokyo)").includes("08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
       .toEqual([["local"], true, "local", "Times in your time zone, Asia/Tokyo."]);
   });
 
-  it("keeps the rows a range of days kept, in the zone its days were set in, whichever zone the times are shown in, through a refresh too", async () => {
+  it("keeps the rows a range of days on Start Date kept, in the zone its days were set in, whichever zone the times are shown in, through a refresh too", async () => {
     await openWith(TIMED);
     await letKeep();
     goToNamed("Model-to-Model Imports");
-    // Local days: the 13th by the viewer's clock holds Load and Sort, and Late is the 14th's. The cells that say nothing stay.
+    // Local days: the 13th by the viewer's clock holds Load, Sort and Early, and Late is the 14th's. The cells that say
+    // nothing stay. The filter says the zone its dates are in, the one shown.
     rangeTo("2026-03-13", "2026-03-13");
-    expect(firstCells()).toEqual(["Load", "Sort", "Copy"]);
-    // In UTC the same rows stay: Load started on the 12th there, yet within the viewer's 13th. The filter says whose days.
+    expect([firstCells(), page.find("#rangeHint").textContent.trim()]).toEqual([["Load", "Sort", "Copy", "Early"],
+      "The column's dates are in your time zone, Asia/Tokyo. Earliest 2026-03-13, latest 2026-03-14. Whole days, both ends kept; leave a box empty for no end there."]);
+    page.key("Escape");
+    // In UTC the same rows stay: Load and Early started on the 12th there, yet within the viewer's 13th. The filter says
+    // whose days they are.
     switchZone();
     expect([firstCells(), page.find('[data-colfilter="1"]').getAttribute("aria-label")])
-      .toEqual([["Load", "Sort", "Copy"], "Filter by Start Date and Time (UTC) (filter on: on 2026-03-13 (local days))"]);
+      .toEqual([["Load", "Sort", "Copy", "Early"], "Filter by Start Date (UTC) (filter on: on 2026-03-13 (local days))"]);
     page.find('[data-colfilter="1"]').press();
-    expect(page.find("#rangeHint").textContent.trim()).toBe("The column's dates and times are UTC. The days set are local days, which keep the same rows in either zone. "
+    expect(page.find("#rangeHint").textContent.trim()).toBe("The column's dates are UTC. The days set are local days, which keep the same rows in either zone. "
       + "Earliest 2026-03-12, latest 2026-03-13. Whole days, both ends kept; leave a box empty for no end there.");
     page.key("Escape");
-    // The tab keeps the range under the column's name as the file has it, with its zone.
+    // The tab keeps the range under the column's name in UTC, with its zone.
     vi.advanceTimersByTime(1000);
     expect((JSON.parse(session.held.get(VIEW_KEY) ?? "{}") as { tables: unknown }).tables).toEqual({
-      "Model-to-Model Imports.csv": { ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "2026-03-13", blanks: true, zone: "Asia/Tokyo" } } } });
+      "Model-to-Model Imports.csv": { ranges: { "Start Date (UTC)": { from: "2026-03-13", to: "2026-03-13", blanks: true, zone: "Asia/Tokyo" } } } });
     // After a refresh, in UTC as chosen, the range keeps the same rows.
     await open("?tab=42#3");
     await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
-    expect([headings()[2], firstCells()]).toEqual(["Start Date and Time (UTC)", ["Load", "Sort", "Copy"]]);
+    expect([headings()[2], firstCells()]).toEqual(["Start Date (UTC)", ["Load", "Sort", "Copy", "Early"]]);
     // Days set in UTC are UTC days: the 13th there is Sort's and Late's.
     rangeTo("2026-03-13", "2026-03-13");
     expect(firstCells()).toEqual(["Sort", "Late", "Copy"]);
     switchZone();
     expect([firstCells(), page.find('[data-colfilter="1"]').getAttribute("aria-label")])
-      .toEqual([["Sort", "Late", "Copy"], "Filter by Start Date and Time (Asia/Tokyo) (filter on: on 2026-03-13 (UTC days))"]);
+      .toEqual([["Sort", "Late", "Copy"], "Filter by Start Date (Asia/Tokyo) (filter on: on 2026-03-13 (UTC days))"]);
+  });
+
+  it.each([
+    { from: "local", rows: 13, count: "26–38 of 38 rows (filtered from 60)", shown: "Asia/Tokyo", other: "UTC" },
+    { from: "utc", rows: 23, count: "26–48 of 48 rows (filtered from 60)", shown: "UTC", other: "Asia/Tokyo" },
+  ])("moves nothing when the zone switches from $from: each column keeps its place and width, and the table its scroll, page, order, filters and hidden columns, and the details theirs",
+    async ({ from, rows, count, shown, other }) => {
+      if (from === "utc") stored.set(TIMES_KEY, "utc");
+      await openWith(LONG);
+      goToNamed("Model-to-Model Imports");
+      // What the user chose: the 13th, of the viewer's days or UTC's, 38 or 48 rows of the 60; 25 rows a page; newest first
+      // by Start Date; Source Type hidden; the second page, scrolled down and sideways; a row's details, with As read open,
+      // scrolled down.
+      rangeTo("2026-03-13", "2026-03-13");
+      page.key("Escape");
+      page.id("pageSize").choose("25");
+      page.find('[data-sort="1"]').press();
+      page.find('[data-sort="1"]').press();
+      page.id("colBtn").press();
+      page.find('#popover input[data-col="3"]').tick();
+      page.key("Escape");
+      page.find('#pager [data-page="1"]').press();
+      const wrap = page.id("tableWrap");
+      wrap.scrollLeft = 120;
+      wrap.scrollTop = 80;
+      page.all('#tableWrap tbody [data-act="row"]')[2].press();
+      page.find("#drawerBody details.d-raw summary").press();
+      page.id("drawerBody").scrollTop = 40;
+      const now = () => ({
+        scroll: [page.id("tableWrap").scrollLeft, page.id("tableWrap").scrollTop], places: page.all("#tableWrap thead .th-sort").map(button => button.dataset.sort),
+        widths: page.all("#tableWrap col").map(col => col.getAttribute("style")), sorted: page.all("#tableWrap thead th").map(heading => heading.getAttribute("aria-sort")),
+        filtered: page.all("[data-colfilter]").map(button => [button.dataset.colfilter, button.classList.contains("active")]), rows: firstCells(),
+        selected: page.all("#tableWrap tbody tr").findIndex(row => row.classList.contains("details-selected")), count: page.id("rowCount").textContent,
+        drawer: [page.id("drawer").hidden, page.id("drawerTitle").textContent, page.id("drawerBody").scrollTop, page.find("#drawerBody details.d-raw").hasAttribute("open"),
+          page.all("#drawerBody dt").length],
+      });
+      const before = now();
+      expect([before.rows.length, before.count, before.places, before.selected, before.drawer]).toEqual([rows, count, ["0", "1", "2", "4"], 2, [false, before.rows[2], 40, true, 6]]);
+      // Each column of times is as wide as the longer of its two names needs, its name in either zone, with Start Date's
+      // filter, from whichever zone the page started in: the page sets the same width in either.
+      const width = (label: string, twin: string, filter: boolean) => `--width:${headerWidth({ index: 0, label, twin, kind: "text", num: false, filter, hidden: false, none: true })}ch`;
+      expect(before.widths.slice(1, 3)).toEqual([width("Start Date (Asia/Tokyo)", "Start Date (UTC)", true), width("Start Time (Asia/Tokyo)", "Start Time (UTC)", false)]);
+      switchZone();
+      // The times are said in the other zone, and nothing else changed: the same box, scrolled as far, the same columns as
+      // wide in the same places, the same rows of the same page in the same order under the same filters, and the same
+      // details, as far scrolled, with As read open.
+      expect([headings().slice(1, 3), page.id("tableWrap") === wrap, now()]).toEqual([[`Start Date (${other})`, `Start Time (${other})`], true, before]);
+      switchZone();
+      expect([zone(), page.id("tableWrap") === wrap, now()]).toEqual([[from], true, before]);
+      // Every column stays in the chooser, and Defaults shows both of the start's again, with Source Type.
+      page.id("colBtn").press();
+      expect(page.all("#popover .pop-opt").map(option => [option.textContent.trim(), option.querySelector("input")?.checked]))
+        .toEqual([["Name", true], ["Source Type", false], [`Start Date (${shown})`, true], [`Start Time (${shown})`, true], ["Notes", true]]);
+      page.find('#popover [data-popact="defaults"]').press();
+      expect(headings()).toEqual(["Name", "Source Type", `Start Date (${shown})`, `Start Time (${shown})`, "Notes"]);
+    });
+
+  it("leaves the overview, and a table without times, as they are when the zone switches", async () => {
+    await openWith({ ...TIMED, tables: [...TIMED.tables, MODEL.tables[2]] });
+    // How to read stays open, and the overview is not written again.
+    page.find("#ovHowTo summary").press();
+    const overview = page.id("view").innerHTML;
+    switchZone();
+    expect([page.id("ovHowTo").hasAttribute("open"), page.id("view").innerHTML === overview]).toEqual([true, true]);
+    // A table without times keeps its box, as scrolled.
+    goTo(2);
+    const wrap = page.id("tableWrap");
+    wrap.scrollTop = 30;
+    wrap.scrollLeft = 20;
+    switchZone();
+    expect([page.id("tableWrap") === wrap, wrap.scrollTop, wrap.scrollLeft]).toEqual([true, 30, 20]);
+  });
+
+  it("takes a kept setting of the one column an earlier version showed over to Start Date, starts Start Time as the page starts it, and lets a list of its values go", async () => {
+    await openWith(TIMED);
+    await letKeep();
+    // What 0.41.1 kept of the table: the one column hidden, the table sorted by it, newest first, and a range of the
+    // viewer's days on it, each by the column's name in UTC.
+    const keep = (table: KeptTable) => session.held.set(VIEW_KEY, JSON.stringify({ subject: `model:${TIMED.id}`, tables: { "Model-to-Model Imports.csv": table } }));
+    keep({ hidden: ["Start Date and Time (UTC)"], sort: { column: "Start Date and Time (UTC)", dir: "desc" },
+      ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "2026-03-13", blanks: true, zone: "Asia/Tokyo" } } });
+    await open("?tab=42#3");
+    await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
+    // Start Date is hidden, and sorts the table and keeps the rows of the viewer's 13th; Start Time is shown.
+    expect([headings(), firstCells()]).toEqual([["Name", "Source Type", "Start Time (Asia/Tokyo)", "Notes"], ["Sort", "Load", "Early", "Copy"]]);
+    page.id("colBtn").press();
+    expect(page.all("#popover .pop-opt").map(option => [option.textContent.trim(), option.querySelector("input")?.checked]))
+      .toEqual([["Name", true], ["Source Type", true], ["Start Date (Asia/Tokyo)", false], ["Start Time (Asia/Tokyo)", true], ["Notes", true]]);
+    page.find('#popover input[data-col="1"]').tick();
+    page.key("Escape");
+    expect([sortOf(1), page.find('[data-colfilter="1"]').getAttribute("aria-label")]).toEqual(["descending", "Filter by Start Date (Asia/Tokyo) (filter on: on 2026-03-13)"]);
+    // The settings are kept again under Start Date's name.
+    vi.advanceTimersByTime(1000);
+    expect((JSON.parse(session.held.get(VIEW_KEY) ?? "{}") as { tables: Record<string, unknown> }).tables["Model-to-Model Imports.csv"])
+      .toEqual({ ranges: { "Start Date (UTC)": { from: "2026-03-13", to: "2026-03-13", blanks: true, zone: "Asia/Tokyo" } }, sort: { column: "Start Date (UTC)", dir: "desc" } });
+    // A list of the one column's values is let go: they were days with their times, which would keep no row now.
+    keep({ filters: { "Start Date and Time (UTC)": { t: ["2026-03-13 08:19:56"] } } });
+    await open("?tab=42#3");
+    await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
+    expect([firstCells(), page.all("#tableWrap .th-filter.active").length]).toEqual([["Load", "Sort", "Late", "Copy", "Early"], 0]);
   });
 
   it("says local times where the browser's storage cannot be read, and switches all the same, keeping nothing", async () => {
     storeRefuses = new Error("The storage is not available.");
     await openWith(TIMED);
     goToNamed("Model-to-Model Imports");
-    expect([zone(), headings()[2]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
+    expect([zone(), headings().slice(2, 4)]).toEqual([["local"], ["Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)"]]);
     switchZone();
-    expect([zone(), headings()[2], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
+    expect([zone(), headings().slice(2, 4), stored.size]).toEqual([["utc"], ["Start Date (UTC)", "Start Time (UTC)"], 0]);
+  });
+
+  it("shows the two columns in UTC either way to a viewer whose own zone is UTC, with no other zone's name held", async () => {
+    fixTimeZone("UTC");
+    await openWith(TIMED);
+    goToNamed("Model-to-Model Imports");
+    const widths = () => page.all("#tableWrap col").map(col => col.getAttribute("style"));
+    const local = [headings(), column("Start Time (UTC)"), widths()];
+    expect([local[0], local[1], page.all("#tableWrap .zone-words").length]).toEqual([["Name", "Source Type", "Start Date (UTC)", "Start Time (UTC)", "Notes"],
+      ["23:19:56", "00:00:01", "20:00:00", "", "23:00:00"], 0]);
+    switchZone();
+    expect([zone(), headings(), column("Start Time (UTC)"), widths()]).toEqual([["utc"], ...local]);
   });
 });
 

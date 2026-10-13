@@ -5,7 +5,8 @@ import { columnsOf } from "./columns.js";
 import { fileView } from "./result-view.js";
 import { keepTable, takeTable } from "./view-keep.js";
 
-const run = ["Start Date and Time (UTC)", "Most recent duration (ms)"];
+/** When an action last started, as the page shows it (times.ts `splitTimes`), and how long it took. */
+const run = ["Start Date (UTC)", "Start Time (UTC)", "Most recent duration (ms)"];
 const dashboards = ["Used in Dashboards"];
 const place = ["Page type", "App ID", "Page ID"];
 const layouts: [string, string[], string[]][] = [
@@ -56,6 +57,21 @@ describe("A model's reading layouts", () => {
       .toEqual(["Name", "Type", "Source Model", "Source Object Name", "Used in Imports"]);
     expect(columnsOf(table("Imports", ["", "Notes", "Start Date and Time (Europe/London)", "Source Type"]), undefined, "Europe/London").map(column => column.label))
       .toEqual(["Name", "Source Type", "Start Date and Time (Europe/London)", "Notes"]);
+    // Start Date and Start Time in the viewer's zone stand where they do in UTC; an action's start as one column, as the
+    // file has it, and one whose header names no zone, stand in Start Date's place.
+    expect(columnsOf(table("Imports", ["", "Notes", "Start Time (Europe/London)", "Start Date (Europe/London)", "Source Type"]), undefined, "Europe/London").map(column => column.label))
+      .toEqual(["Name", "Source Type", "Start Date (Europe/London)", "Start Time (Europe/London)", "Notes"]);
+    expect(["Start Date and Time (UTC)", "Start Date and Time"].map(start => columnsOf(table("Exports", ["", "Notes", "Most recent duration (ms)", start, "Action"]))
+      .map(column => column.label))).toEqual([["Name", "Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes"], ["Name", "Action", "Start Date and Time", "Most recent duration (ms)", "Notes"]]);
+  });
+
+  it("offers a range of days on an action's Start Date, in either zone, and no filter on its Start Time", () => {
+    const rows = [["Nightly", "", "2026-03-12", "23:19:56", "5"], ["Weekly", "", "2026-03-13", "06:00:00", "7"], ["Never", "", "", "", ""]];
+    for (const [zone, end] of [["UTC", "UTC"], ["Europe/London", "Europe/London"]]) {
+      const columns = columnsOf(table("Processes", ["", "Actions", `Start Date (${end})`, `Start Time (${end})`, "Most recent duration (ms)"], rows), undefined, zone);
+      expect(columns.map(column => [column.label, column.filter, column.range, column.hidden])).toEqual([["Name", false, undefined, false], ["Actions", true, undefined, false],
+        [`Start Date (${end})`, true, "date", false], [`Start Time (${end})`, false, undefined, false], ["Most recent duration (ms)", true, "number", false]]);
+    }
   });
 
   it("takes kept columns, filters, ranges and sorts by name across reading orders and changed defaults", () => {

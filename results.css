@@ -95,6 +95,14 @@ input,select{font:inherit;color:inherit}
 .tz-words{display:inline-grid}
 .tz-words > span{grid-area:1/1}
 .tz-words > span:not(.on){visibility:hidden}
+/* A column of times names the zone it is in: its header and its row in a row's details (markup.ts `labelHtml`) hold its
+   name in the other zone in the same cell of a grid, unseen, as the pill holds its other word. Each is then as high in
+   either zone, also where a long zone's name takes a second line, and a switch moves nothing below it. The name shown
+   starts at the cell's start in either zone, as a header's name does, and not in the middle of the other's room, where a
+   button would put it. */
+.zone-words{display:inline-grid;justify-items:start;text-align:left}
+.zone-words > span{grid-area:1/1}
+.zone-words > .twin{visibility:hidden}
 .btn{
   display:inline-flex;align-items:center;gap:7px;border-radius:999px;
   border:1px solid var(--border-strong);background:var(--panel);color:var(--text);

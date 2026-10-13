@@ -139,18 +139,43 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect(takeTable({ filters: { Format: { u: ["Gone"] } } }, columns, after).filters).toEqual(new Map());
   });
 
-  it("keeps a column of times by the file's name for it in either zone, and a range of its days with the zone they were set in", () => {
-    // Shown in the viewer's zone, the column's header names the zone; it is kept as the file names it, and taken back in UTC.
-    const local: TableLooks["columns"] = [{ index: 0, label: "Name", hidden: false }, { index: 1, label: "Start Date and Time (Asia/Tokyo)", range: "date", hidden: false }];
-    const utc: TableLooks["columns"] = [local[0], { ...local[1], label: "Start Date and Time (UTC)" }];
-    expect([columnKeys(local, "Asia/Tokyo"), columnKeys(local)]).toEqual([["Name", "Start Date and Time (UTC)"], ["Name", "Start Date and Time (Asia/Tokyo)"]]);
+  it("keeps a column of times by its name in UTC in either zone, and a range of its days with the zone they were set in", () => {
+    // Shown in the viewer's zone, the column's header names the zone; it is kept by its name in UTC, and taken back in UTC.
+    const local: TableLooks["columns"] = [{ index: 0, label: "Name", hidden: false }, { index: 1, label: "Start Date (Asia/Tokyo)", range: "date", hidden: false },
+      { index: 2, label: "Start Time (Asia/Tokyo)", hidden: false }];
+    const utc: TableLooks["columns"] = [local[0], { ...local[1], label: "Start Date (UTC)" }, { ...local[2], label: "Start Time (UTC)" }];
+    expect([columnKeys(local, "Asia/Tokyo"), columnKeys(local)]).toEqual([["Name", "Start Date (UTC)", "Start Time (UTC)"], ["Name", "Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)"]]);
     const set: RangeState = { fromText: "2026-03-13", toText: "", from: Date.parse("2026-03-13T00:00:00Z") / 86_400_000, blanks: true, zone: "Asia/Tokyo" };
-    const kept = keepTable({ ...looks(), columns: local, hidden: new Set(), ranges: new Map([[1, set]]), sort: { column: 1, dir: "desc" } }, () => [], "Asia/Tokyo")!;
-    expect(kept).toEqual({ ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" } }, sort: { column: "Start Date and Time (UTC)", dir: "desc" } });
+    const kept = keepTable({ ...looks(), columns: local, hidden: new Set([2]), ranges: new Map([[1, set]]), sort: { column: 1, dir: "desc" } }, () => [], "Asia/Tokyo")!;
+    expect(kept).toEqual({ ranges: { "Start Date (UTC)": { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" } }, hidden: ["Start Time (UTC)"],
+      sort: { column: "Start Date (UTC)", dir: "desc" } });
     const taken = takeTable(kept, utc, () => [], "Asia/Tokyo");
-    expect([taken.ranges.get(1), taken.sort, takeTable(kept, local, () => [], "Asia/Tokyo").ranges.get(1)]).toEqual([set, { column: 1, dir: "desc" }, set]);
+    expect([taken.ranges.get(1), taken.sort, [...taken.hidden], takeTable(kept, local, () => [], "Asia/Tokyo").ranges.get(1)]).toEqual([set, { column: 1, dir: "desc" }, [2], set]);
     // A range of another column, with no zone, is kept and taken back without one.
-    expect(takeTable({ ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: true } } }, utc, () => []).ranges.get(1)?.zone).toBeUndefined();
+    expect(takeTable({ ranges: { "Start Date (UTC)": { from: "2026-03-13", to: "", blanks: true } } }, utc, () => []).ranges.get(1)?.zone).toBeUndefined();
+  });
+
+  it("takes what an earlier version kept of an action's start, one column then, over to Start Date, and starts Start Time as the page starts it", () => {
+    // The table as the page shows it now, in the viewer's zone: Start Date with its range of days, Start Time beside it.
+    const columns: TableLooks["columns"] = [{ index: 0, label: "Name", hidden: false }, { index: 1, label: "Start Date (Asia/Tokyo)", range: "date", hidden: false },
+      { index: 2, label: "Start Time (Asia/Tokyo)", hidden: false }, { index: 3, label: "Notes", hidden: false }];
+    // What 0.41.1 kept, by the one column's name in UTC: hidden, sorted by, and a range of the viewer's days on it.
+    const before = { hidden: ["Start Date and Time (UTC)"], sort: { column: "Start Date and Time (UTC)", dir: "desc" as const },
+      ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: false, zone: "Asia/Tokyo" } } };
+    const taken = takeTable(before, columns, () => [], "Asia/Tokyo");
+    const set: RangeState = { fromText: "2026-03-13", toText: "", from: Date.parse("2026-03-13T00:00:00Z") / 86_400_000, blanks: false, zone: "Asia/Tokyo" };
+    expect([[...taken.hidden], taken.sort, [...taken.ranges]]).toEqual([[1], { column: 1, dir: "desc" }, [[1, set]]]);
+    // Shown, where Start Date started hidden: the choice is Start Date's again, and Start Time keeps its own.
+    const startHidden = columns.map(column => ({ ...column, hidden: column.index === 1 || column.index === 2 }));
+    expect([...takeTable({ shown: ["Start Date and Time (UTC)"] }, startHidden, () => [], "Asia/Tokyo").hidden]).toEqual([2]);
+    // A list of its values is let go: they were days with their times, and would keep no row of Start Date's.
+    expect(takeTable({ filters: { "Start Date and Time (UTC)": { t: ["2026-03-13 08:19:56"] } } }, columns, () => ["2026-03-13", ""], "Asia/Tokyo").filters).toEqual(new Map());
+    // A table that has the one column takes its settings as its own.
+    const one: TableLooks["columns"] = [columns[0], { index: 1, label: "Start Date and Time (UTC)", range: "date", hidden: false }, { index: 2, label: "Start Date (UTC)", range: "date", hidden: false }];
+    expect(takeTable(before, one, () => []).sort).toEqual({ column: 1, dir: "desc" });
+    // What is kept again is kept by Start Date's name.
+    expect(keepTable({ ...looks(), columns, hidden: taken.hidden, ranges: taken.ranges, sort: taken.sort }, () => [], "Asia/Tokyo")).toEqual({
+      ranges: { "Start Date (UTC)": { from: "2026-03-13", to: "", blanks: false, zone: "Asia/Tokyo" } }, hidden: ["Start Date (UTC)"], sort: { column: "Start Date (UTC)", dir: "desc" } });
   });
 
   it("lets a range go whose ends cannot be read for the column, or that keeps every row", () => {

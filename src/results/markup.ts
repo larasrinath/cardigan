@@ -17,7 +17,6 @@ import { pixelGridHtml } from "./pixel-loader.js";
 import { ALL_WORDS } from "./spinner-words.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type OverviewTile, type SectionCell } from "./result-view.js";
 import { cellText, dayText, groupedCount, NONE, tableText, type RangeColumn, type Row, type Sort } from "./table-engine.js";
-import { bothTimes, timesOf, type TimeMode } from "./times.js";
 import { usedOn, type WhereUsedObject } from "./where-used-view.js";
 
 /** The results page's markup, as the design writes it: each function turns data into the HTML text the page then shows.
@@ -68,6 +67,13 @@ export function idPill(id: unknown): string {
 }
 
 const plain = (text: string): string => `<span class="cell-t" title="${esc(text)}">${esc(text)}</span>`;
+
+/** A column's name, as its header and its row in a row's details say it. A column of times names the zone it is in, and
+ * holds the room its name in the other zone takes (`Column.twin`): the two stand in one place, the other unseen and unread,
+ * as the Timezone pill's two words do (results.css `.zone-words`), so that its header or its row is as high in either zone
+ * and a switch of the zone moves nothing below it. */
+const labelHtml = (column: Pick<Column, "label" | "twin">): string => (column.twin === undefined ? esc(column.label)
+  : `<span class="zone-words"><span>${esc(column.label)}</span><span class="twin" aria-hidden="true">${esc(column.twin)}</span></span>`);
 
 /** The colour of a colour stop as report.ts `cfRuleText` writes it, its colour, " at " and its value: `#` and three or
  * six hexadecimal digits that start a stop, where the text starts or after "; ", ": " or " | " (a card's rules, one after
@@ -765,7 +771,7 @@ export function tableParts(view: TableView): TableParts {
         data-colfilter="${column.index}" aria-label="${says}" aria-haspopup="dialog" aria-expanded="false" title="${says}">
         <svg width="11" height="11" viewBox="0 0 16 16" ${active ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"'} aria-hidden="true">${FILTER_PATH}</svg></button>` : "";
     return `<th scope="col" class="${column.num ? "num" : ""}" aria-sort="${aria}">
-      <div class="th-in"><button type="button" class="th-sort" data-sort="${column.index}">${name}${arrow}</button>${filter}</div></th>`;
+      <div class="th-in"><button type="button" class="th-sort" data-sort="${column.index}">${labelHtml(column)}${arrow}</button>${filter}</div></th>`;
   }).join("");
 
   let body = "";
@@ -925,11 +931,11 @@ export function colFilterHtml(column: Column, values: FilterValues, selected: Re
 /** The filter of a column of numbers or of dates (columns.ts `range`): a range, from one value to another, in two boxes
  * one under the other. A box left empty is an open end, and both ends are kept. A box for numbers shows the column's
  * lowest or highest value as its placeholder, as the cells show it; a box for dates is the browser's own, held to the
- * column's first and last day, and a line under them names both, and says that the column's times are UTC where its
+ * column's first and last day, and a line under them names both, and says that the column's dates are UTC where its
  * header says so. A column with cells that say nothing offers to keep them or leave them out, with how many there are.
  * A line, empty until something cannot be read, says what is wrong, and a screen reader hears it at once. `state` is
  * the range in force, whose boxes are written back as they were typed. `zone`, for a column of times (times.ts), says in
- * place of the header's own word which zone the column's times and the boxes' days are in. */
+ * place of the header's own word which zone the column's dates and the boxes' days are in. */
 export function rangeFilterHtml(column: Column, read: RangeColumn, state: RangeState | undefined, zone?: string): string {
   const date = column.range === "date";
   const shown = (text: string) => (column.kind === "count" ? groupedCount(text) : text);
@@ -941,7 +947,7 @@ export function rangeFilterHtml(column: Column, read: RangeColumn, state: RangeS
     : `<label class="pr-field"><span>${label}</span><input type="text" inputmode="decimal" data-r${end} ${end === "from" ? "data-first" : ""} value="${esc(typed)}"
         placeholder="${esc(edge)}" autocomplete="off" spellcheck="false" aria-describedby="rangeHint"></label>`;
   const edges = lowest ? `${date ? "Earliest" : "Lowest"} ${lowest}, ${date ? "latest" : "highest"} ${highest}. ` : "";
-  const utc = !date ? "" : zone !== undefined ? zone : /\bUTC\b/.test(column.label) ? "The column's dates and times are UTC. " : "";
+  const utc = !date ? "" : zone !== undefined ? zone : /\bUTC\b/.test(column.label) ? "The column's dates are UTC. " : "";
   const keep = state?.blanks !== false;
   return `
     <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="clear">Clear</button></div>
@@ -992,32 +998,29 @@ const itemsHtml = (items: Items, colours = false, opens?: readonly (number | und
 };
 
 /** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
- * the value stands in a `dd`, so no space of the markup's own is kept with it. `exported` has, for each cell the table
- * says in words, the text that was read in its place, by the column's place, for times shown in both zones.
+ * the value stands in a `dd`, so no space of the markup's own is kept with it. A cell of a column of times is as the table
+ * shows it, in the zone the page shows times in, under the column's name, which names that zone (`labelHtml`).
  * `items` has, for each cell that lists several items (cell-lists.ts), those
  * items, by the column's place: the cell is listed one item to a line. Only a column of plain text or of colour stops is
  * listed so, the colour stops each with its square: an ID, a tag and a link stay what they are. */
-const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  times?: DrawerTimes, opens?: ReadonlyMap<number, readonly (number | undefined)[]>, omitted: ReadonlySet<string> = new Set()): string =>
+const allColumns = (columns: readonly Column[], row: Row, links: Links, items?: ReadonlyMap<number, Items>,
+  opens?: ReadonlyMap<number, readonly (number | undefined)[]>, omitted: ReadonlySet<string> = new Set()): string =>
   `<dl class="d-dl">${rowColumns(columns, row).filter(column => !omitted.has(column.label)).sort((a, b) => Number(a.hidden) - Number(b.hidden)).map(column => {
-    // A time is said in both zones, the one the page shows first: the UTC text that was read stands in it.
-    const kind = times && timesOf(column.label, times.zone);
-    const read = kind === "local" ? cellText(exported?.get(column.index) ?? row[column.index]) : kind === "utc" ? cellText(row[column.index]) : undefined;
-    const both = read === undefined || !times ? undefined : bothTimes(read, times.mode, times.zone);
-    if (both !== undefined) return `<dt>${esc(column.label)}</dt><dd><span class="cell-t">${esc(both)}</span></dd>`;
     const listed = column.kind === "text" || column.kind === "colours" ? items?.get(column.index) : undefined;
     // A value that lists several items says how many beside its name, and lists them one to a line.
     const open = opens?.get(column.index)?.[0];
     const single = open === undefined ? cellHtml(column, row, links, true)
       : `<span class="cell-t"><button type="button" class="link" data-act="item" data-item="${open}">${esc(cellText(row[column.index]))}</button></span>`;
     return listed && listed.length > 1
-      ? `<dt>${esc(column.label)} <span class="d-count">(${listed.length})</span></dt><dd>${itemsHtml(listed, column.kind === "colours", opens?.get(column.index))}</dd>`
-      : `<dt>${esc(column.label)}</dt><dd>${single}</dd>`;
+      ? `<dt>${labelHtml(column)} <span class="d-count">(${listed.length})</span></dt><dd>${itemsHtml(listed, column.kind === "colours", opens?.get(column.index))}</dd>`
+      : `<dt>${labelHtml(column)}</dt><dd>${single}</dd>`;
   }).join("")}</dl>`;
 
-/** Raw values have one place after the readable columns, folded until requested. Times already show both zones. */
-function asReadHtml(columns: readonly Column[], exported?: ReadonlyMap<number, unknown>, readUnder?: ReadonlyMap<number, string>, times?: DrawerTimes): string {
-  const raw = columns.filter(column => exported?.has(column.index) && !(times && timesOf(column.label, times.zone)));
+/** Raw values have one place after the readable columns, folded until requested: each text that was read in the place of
+ * a cell the page says otherwise, a definition said in words, an import's Source Object or an action's start, under the
+ * name of the file's column it was read from. */
+function asReadHtml(columns: readonly Column[], exported?: ReadonlyMap<number, unknown>, readUnder?: ReadonlyMap<number, string>): string {
+  const raw = columns.filter(column => exported?.has(column.index));
   if (!raw.length) return "";
   return `<details class="d-sec d-raw"><summary>As read</summary><dl class="d-dl">${raw.map(column =>
     `<dt>${esc(readUnder?.get(column.index) ?? column.label)} as read</dt><dd><span class="cell-t">${esc(exported!.get(column.index))}</span></dd>`).join("")}</dl></details>`;
@@ -1100,11 +1103,12 @@ export function subsetMembershipHtml(view: SubsetView, modules: readonly (number
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
  * for each cell that lists several items those items, one to a line, with how many there are beside the column's name
  * (`items`); an item that names a row the page can open is a link to that row's details (`itemOpens`, by the column's
- * place and the item's, item-links.ts). A cell of a column of times says its time
- * in both zones, the one the page shows first (`times`). Mapping, Actions, or Sources and Imports come first,
- * followed by All details without those repeated, then the folded raw values. */
+ * place and the item's, item-links.ts). An action's start is said as the table says it, its Start Date and its Start
+ * Time in the zone the page shows times in, and nothing of the other zone; the text Anaplan wrote is under As read.
+ * Mapping, Actions, or Sources and Imports come first, followed by All details without those repeated, then the folded
+ * raw values. */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes,
+  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] },
   itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>,
   source?: { view: SourceModelView; sources: readonly (number | undefined)[]; imports: readonly (number | undefined)[] },
   subset?: { view: SubsetView; modules: readonly (number | undefined)[]; members: readonly (number | undefined)[] }): string {
@@ -1114,11 +1118,8 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
   if (source?.view.imports.length) omitted.add("Imports");
   if (subset) ["Line Items", LINE_ITEM_NAMES, "Membership read"].forEach(label => omitted.add(label));
   return `${subset ? subsetMembershipHtml(subset.view, subset.modules, subset.members) : ""}${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All details</h3>
-    ${allColumns(columns, row, links, exported, items, times, itemOpens, omitted)}</div>${asReadHtml(columns, exported, readUnder, times)}`;
+    ${allColumns(columns, row, links, items, itemOpens, omitted)}</div>${asReadHtml(columns, exported, readUnder)}`;
 }
-
-/** Which zone the page shows times in, and the viewer's own: a row's details say each time in both (times.ts). */
-export interface DrawerTimes { mode: TimeMode; zone: string }
 
 /** Where a button under the name in a row's details leads: the model map, a line item's source inputs on the model map,
  * a module or a list of the model in Model Building, an app, or a page of an app. */
@@ -1165,7 +1166,7 @@ const sectionCellHtml = (cell: SectionCell, colours = false): string => (typeof 
 export function cardDrawerHtml(columns: readonly Column[], row: Row, links: Links, sections: readonly CardSection[], items?: ReadonlyMap<number, Items>): string {
   return `
     <div class="d-sec"><h3>Card details</h3>
-      ${allColumns(columns, row, links, undefined, items)}</div>
+      ${allColumns(columns, row, links, items)}</div>
     ${sections.map(section => `<div class="d-sec"><h3>${esc(section.title)} (${section.rows.length})</h3>
       ${section.rows.length ? `<table class="mini"><thead><tr>${section.headings.map(heading => `<th>${esc(heading)}</th>`).join("")}</tr></thead>
         <tbody>${section.rows.map(cells => `<tr>${cells.map((cell, index) => `<td>${sectionCellHtml(cell, section.colours[index])}</td>`).join("")}</tr>`).join("")}</tbody></table>`

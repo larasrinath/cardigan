@@ -938,8 +938,9 @@ describe("What the results page reads out of a result", () => {
       ["Update period", action("UPDATE_CURRENT_PERIOD"), "", "", "", "", "", "Products"]] };
     const kept = structuredClone(actions);
     const shown = fileView(result("model", [modelDetails, actions]), actions);
-    // The words stand in the Action column. The Action List column is the file's own, cell for cell.
-    expect(shown.table.headers).toEqual(headers);
+    // The words stand in the Action column, and the action's start is two columns, Start Date and Start Time (times.ts
+    // `splitTimes`). The Action List column is the file's own, cell for cell.
+    expect(shown.table.headers).toEqual(["", "Action", "Start Date (UTC)", "Start Time (UTC)", ...headers.slice(3)]);
     const cells = (header: string) => shown.table.rows.map(row => row[shown.table.headers.indexOf(header)]);
     expect([cells(""), cells("Action"), cells("Action List")]).toEqual([actions.rows.map(row => row[0]),
       ["Delete from Products using Selection", "Order Regions <b>& more</b>", "Order list ID 109000000004", "Delete from List using Selection", "Bulk Copy",
@@ -970,6 +971,26 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(result("app", [appDetails, actions]), actions)).toEqual({ table: actions });
   });
 
+  it("shows a model's actions' start as Start Date and Start Time in UTC, keeping the text Anaplan wrote, and a lone dash or another text under Start Date", () => {
+    // The Exports file as the export writes it, with an export that ran, one that never did, as the dash says, and a start
+    // that names no moment. Every name is made up.
+    const headers = ["", "Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes"];
+    const exports: ResultTable = { file: "Exports.csv", label: "Exports", guard: false, headers,
+      rows: [["Send plan", "", "2026-03-12 23:19:56", "5320", "Weekly"], ["Never run", "", "-", "", ""], ["Odd", "", "soon", "", ""]] };
+    const kept = structuredClone(exports);
+    const view = fileView(result("model", [modelDetails, exports]), exports);
+    // The two columns in the one's place. The dash is blank, as a lone dash is in every model's table; another text stands
+    // under Start Date, with Start Time empty.
+    expect([view.table.headers, view.table.rows]).toEqual([["", "Action", "Start Date (UTC)", "Start Time (UTC)", "Most recent duration (ms)", "Notes"],
+      [["Send plan", "", "2026-03-12", "23:19:56", "5320", "Weekly"], ["Never run", "", "", "", "", ""], ["Odd", "", "soon", "", "", ""]]]);
+    // The text that was read is kept under Start Time, by the file's name for the column, for the start that names a moment.
+    expect([[...(view.exported?.get(view.table.rows[0]) ?? [])], view.table.rows.slice(1).map(row => view.exported?.has(row)), [...(view.readUnder ?? [])]])
+      .toEqual([[[3, "2026-03-12 23:19:56"]], [false, false], [[3, "Start Date and Time (UTC)"]]]);
+    // The file itself is as it was, dash and all: a model's map is made of it. An app's table is shown as it stands.
+    expect(exports).toEqual(kept);
+    expect(fileView(result("app", [appDetails, exports]), exports).table.headers).toEqual(headers);
+  });
+
   it("shows a model's Processes without Used in Processes or an Action that no process has, and with the actions each runs right after its name", () => {
     // The Processes file as the export writes it: the Actions list's own columns, of which Used in Processes and Action say
     // nothing of a process, as Anaplan runs no process inside another.
@@ -998,11 +1019,12 @@ describe("What the results page reads out of a result", () => {
       { id: "118000000003", name: "Empty", actions: [] },
       { id: "118000000004", name: "Twin", actions: [{ id: "116000000001", name: "Send plan", type: "EXPORT" }] },
       { id: "118000000005", name: "Twin", actions: [{ id: "117000000001", name: "Delete old items", type: "ACTION" }] }] };
-    const kept1 = ["", "Actions", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Dashboards"];
+    // The start of each is two columns, its day and its time (times.ts `splitTimes`), empty for a process that never ran.
+    const kept1 = ["", "Actions", "Start Date (UTC)", "Start Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Dashboards"];
     expect(shownAs(ordered)).toEqual([kept1, [
-      ["Nightly load", "Prices from the hub, 1.1 Load regions, Delete old items", "2026-03-12 23:19:56", "582", "Runs at 2am", "Admin"],
-      ["Weekly load", "Send plan, ID 112000000099", "", "", "", ""], ["Empty", "", "", "", "", ""],
-      ["Twin", "Send plan", "", "", "", ""], ["Twin", "Delete old items", "", "", "", "", "beyond"]]]);
+      ["Nightly load", "Prices from the hub, 1.1 Load regions, Delete old items", "2026-03-12", "23:19:56", "582", "Runs at 2am", "Admin"],
+      ["Weekly load", "Send plan, ID 112000000099", "", "", "", "", ""], ["Empty", "", "", "", "", "", ""],
+      ["Twin", "Send plan", "", "", "", "", ""], ["Twin", "Delete old items", "", "", "", "", "", "beyond"]]]);
     // Without the processes' own actions, as a result of an earlier version has it, each lists the actions whose Used in
     // Processes names it, by kind: imports, then exports, then other actions. Both processes named Twin are named so.
     expect(shownAs(result("model", tables))[1].map(row => [row[0], row[1]])).toEqual([["Nightly load", "Prices from the hub, 1.1 Load regions, Delete old items"],
@@ -1012,7 +1034,7 @@ describe("What the results page reads out of a result", () => {
     expect(shownAs(unread)[1].map(row => row[1])).toEqual(["Prices from the hub, 1.1 Load regions, Delete old items", "1.1 Load regions, Send plan", "", "Send plan", "Delete old items"]);
     // An Action that a process has after all is kept, after the actions: only an Action no process has is left out.
     const withAction = { ...processes, rows: processes.rows.map((row, at) => (at === 1 ? row.map((cell, index) => (index === 1 ? "Something" : cell)) : row)) };
-    expect(fileView(ordered, withAction).table.headers).toEqual(["", "Actions", "Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Dashboards"]);
+    expect(fileView(ordered, withAction).table.headers).toEqual(["", "Actions", "Action", "Start Date (UTC)", "Start Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Dashboards"]);
     // The Actions column is a column like any other: plain text, shown, with a filter by each action (cell-lists.ts).
     expect(columnsOf(fileView(ordered, processes).table).slice(0, 2).map(column => [column.label, column.kind, column.hidden])).toEqual([["Name", "text", false], ["Actions", "text", false]]);
     // The file itself is as it was: the model map is made of it. The other actions' tables keep their Used in Processes.

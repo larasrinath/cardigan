@@ -91,7 +91,7 @@ describe("Line Item Subsets in results", () => {
     expect(html.indexOf("Units")).toBeLessThan(html.indexOf("Cost"));
     expect(html.indexOf("Cost")).toBeLessThan(html.indexOf("Plan, next"));
     const drawer = rowDrawerHtml(columnsOf(view), view.rows[0], { page: false, card: false }, undefined, undefined, undefined,
-      undefined, undefined, undefined, undefined, undefined, { view: grouped, modules: [3, 4], members: [0, 1, 2] });
+      undefined, undefined, undefined, undefined, { view: grouped, modules: [3, 4], members: [0, 1, 2] });
     expect(drawer).toContain(html);
     expect(drawer).not.toContain("<dt>Line Item Names</dt>");
     expect(drawer).not.toContain("<dt>Line Items</dt>");

@@ -40,6 +40,12 @@ function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> 
     from: page.from, to: page.to, total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
 }
 const text = (element: FakeElement | null | undefined): string => element?.textContent.trim() ?? "";
+/** What a reader sees of an element: its text without what stands there only to hold room, unseen and unread (aria-hidden). */
+const seen = (element: FakeElement | null | undefined): string => {
+  const shown = (node: { nodeType: number; textContent: string; childNodes?: unknown[] }): string => (node.nodeType !== 1 ? node.textContent
+    : (node as FakeElement).getAttribute("aria-hidden") === "true" ? "" : (node as FakeElement).childNodes.map(shown).join(""));
+  return element ? shown(element).trim() : "";
+};
 /** An overview that holds nothing but what a test gives it. */
 const overviewWith = (parts: Partial<Overview>): Overview => ({ tiles: [], notes: [], about: [], files: [], howToRead: [], log: [], ...parts });
 /** The body of a table's markup: the text of each cell, row by row. */
@@ -222,7 +228,7 @@ describe("What the results page's markup shows", () => {
     const row: Cell[] = ["SYS100 Time", "'REV01 Revenue', 'Gone'", many.join(", "), "Kept, as it is"];
     const items = new Map<number, readonly string[]>([[1, ["'REV01 Revenue'", "'Gone'"]], [2, many]]);
     const opens = new Map<number, readonly (number | undefined)[]>([[1, [0, undefined]], [2, many.map((_, at) => at + 1)]]);
-    const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, undefined, items, undefined, undefined, undefined, undefined, opens));
+    const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, undefined, items, undefined, undefined, undefined, opens));
     // The count stands beside the column's name; a value that lists nothing is said whole, with no count.
     expect(drawer.querySelectorAll("dt").map(text)).toEqual(["Name", "Referenced By (2)", "Line Items (20)", "Notes"]);
     const [, referenced, lineItems, notes] = drawer.querySelectorAll("dd");
@@ -462,38 +468,60 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(rangeFilterHtml(sources, rangeColumn([["a", "1"], ["b", "2"]], 1, "number", true), undefined)).querySelectorAll("[data-rblanks]").length).toBe(0);
   });
 
-  it("gives a column of dates the browser's boxes for dates, held to its first and last day, and says that its times are UTC where its header does", () => {
-    const started = column(1, "Start Date and Time (UTC)", "text", { filter: true, range: "date", none: false });
-    const read = rangeColumn([["a", "2026-03-12 23:19:56"], ["b", "2026-10-09 08:00:00"]], 1, "date", false);
+  it("gives a column of dates the browser's boxes for dates, held to its first and last day, and says that its dates are UTC where its header does", () => {
+    const started = column(1, "Start Date (UTC)", "text", { filter: true, range: "date", none: false });
+    const read = rangeColumn([["a", "2026-03-12"], ["b", "2026-10-09"]], 1, "date", false);
     const popover = parseMarkup(rangeFilterHtml(started, read, { fromText: "2026-03-01", toText: "", from: dayOf("2026-03-01"), blanks: true }));
     expect(popover.querySelectorAll(".pop-find, [data-ftoggle], [data-fstatus], [data-flimit]")).toEqual([]);
     const from = popover.querySelector("[data-rfrom]");
     expect([from?.getAttribute("type"), from?.getAttribute("min"), from?.getAttribute("max"), from?.value, popover.querySelector("[data-rto]")?.value, popover.querySelectorAll("[data-rblanks]").length])
       .toEqual(["date", "2026-03-12", "2026-10-09", "2026-03-01", "", 0]);
-    expect(text(popover.querySelector("#rangeHint"))).toBe("The column's dates and times are UTC. Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
+    expect(text(popover.querySelector("#rangeHint"))).toBe("The column's dates are UTC. Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
     // A column of dates whose header says nothing of UTC says nothing of it.
     expect(text(parseMarkup(rangeFilterHtml({ ...started, label: "Last published" }, read, undefined)).querySelector("#rangeHint")))
       .toBe("Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
     // The page's own words for the zone take the place of the header's, for a column of times shown in the viewer's zone.
-    expect(text(parseMarkup(rangeFilterHtml({ ...started, label: "Start Date and Time (Asia/Tokyo)" }, read, undefined, "The column's dates and times are in your time zone, Asia/Tokyo. "))
-      .querySelector("#rangeHint"))).toBe("The column's dates and times are in your time zone, Asia/Tokyo. Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
+    expect(text(parseMarkup(rangeFilterHtml({ ...started, label: "Start Date (Asia/Tokyo)" }, read, undefined, "The column's dates are in your time zone, Asia/Tokyo. "))
+      .querySelector("#rangeHint"))).toBe("The column's dates are in your time zone, Asia/Tokyo. Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
   });
 
-  it("says a time in a row's drawer in both zones, the one the page shows first, and no text as read beside it", () => {
-    const columns = [column(0, "Name"), column(1, "Start Date and Time (Asia/Tokyo)"), column(2, "Notes")];
-    const shown = ["Load", "2026-03-13 08:19:56", "Nightly"];
-    const local = parseMarkup(rowDrawerHtml(columns, shown, NO_LINKS, new Map([[1, "2026-03-12 23:19:56"]]), undefined, undefined, undefined, undefined, { mode: "local", zone: "Asia/Tokyo" }));
-    expect([local.querySelectorAll("dt").map(text), local.querySelectorAll("dd").map(text)])
-      .toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Notes"], ["Load", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC", "Nightly"]]);
-    // In UTC the cell is the time as it was read; the viewer's comes second.
-    const utc = parseMarkup(rowDrawerHtml([columns[0], column(1, "Start Date and Time (UTC)"), columns[2]], ["Load", "2026-03-12 23:19:56", "Nightly"], NO_LINKS, undefined, undefined,
-      undefined, undefined, undefined, { mode: "utc", zone: "Asia/Tokyo" }));
-    expect(utc.querySelectorAll("dd").map(text)[1]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
-    // A cell that names no moment, and a drawer told nothing of times, show the cell as it is.
-    expect(parseMarkup(rowDrawerHtml(columns, ["Copy", "", ""], NO_LINKS, undefined, undefined, undefined, undefined, undefined, { mode: "local", zone: "Asia/Tokyo" }))
-      .querySelectorAll("dd").map(text)).toEqual(["Copy", "", ""]);
-    expect(parseMarkup(rowDrawerHtml(columns, shown, NO_LINKS)).querySelectorAll("dd").map(text)[1]).toBe("2026-03-13 08:19:56");
+  it("names a column of times in its header in the zone shown, holding the room of its name in the other zone, unseen and unread", () => {
+    const columns = [column(0, "Name"), column(1, "Start Date (Asia/Tokyo)", "text", { filter: true, range: "date", twin: "Start Date (UTC)" }),
+      column(2, "Start Time (Asia/Tokyo)", "text", { twin: "Start Time (UTC)" })];
+    const started: ResultTable = { file: "Processes.csv", label: "Processes", headers: ["", "Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)"], rows: [["Load", "2026-03-13", "08:19:56"]],
+      guard: false };
+    const html = parseMarkup(tableHtml(viewOf(started, NO_LINKS, { columns, widths: new Map() })));
+    // Each header says its name in the zone shown; the other zone's stands in the same place, hidden from sight and from a
+    // screen reader, and the filter's button names the column by the name shown.
+    expect([html.querySelectorAll(".th-sort").map(seen), html.querySelectorAll(".th-sort .zone-words .twin").map(twin => [text(twin), twin.getAttribute("aria-hidden")]),
+      html.querySelector('[data-colfilter="1"]')?.getAttribute("aria-label")]).toEqual([["Name", "Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)"],
+      [["Start Date (UTC)", "true"], ["Start Time (UTC)", "true"]], "Filter by Start Date (Asia/Tokyo)"]);
+    // Its column is as wide as the longer of the two names needs.
+    expect(html.querySelectorAll("col").map(col => col.getAttribute("style")).slice(1)).toEqual(columns.slice(1).map(each => `--width:${headerWidth(each)}ch`));
+    expect(html.querySelectorAll(".th-sort").filter(button => button.querySelector(".zone-words") === null).map(text)).toEqual(["Name"]);
   });
+
+  it("says an action's start in a row's details as the table does, in the zone shown and no other, and the text Anaplan wrote under As read, folded", () => {
+    // Start Date and Start Time as the page shows them in Tokyo, each with its name in UTC beside it (columns.ts `twin`),
+    // and the text that was read, which the table keeps under Start Time by the file's own name for the column.
+    const columns = [column(0, "Name"), column(1, "Start Date (Asia/Tokyo)", "text", { twin: "Start Date (UTC)" }),
+      column(2, "Start Time (Asia/Tokyo)", "text", { twin: "Start Time (UTC)" }), column(3, "Notes")];
+    const drawer = parseMarkup(rowDrawerHtml(columns, ["Load", "2026-03-13", "08:19:56", "Nightly"], NO_LINKS, new Map([[2, "2026-03-12 23:19:56"]]), undefined,
+      new Map([[2, "Start Date and Time (UTC)"]])));
+    // A row for each, in the zone shown alone, and the text that was read after them, under As read.
+    expect([drawer.querySelectorAll("dt").map(seen), drawer.querySelectorAll("dd").map(text)]).toEqual([
+      ["Name", "Start Date (Asia/Tokyo)", "Start Time (Asia/Tokyo)", "Notes", "Start Date and Time (UTC) as read"], ["Load", "2026-03-13", "08:19:56", "Nightly", "2026-03-12 23:19:56"]]);
+    expect([drawer.querySelector("details.d-raw")?.hasAttribute("open"), text(drawer.querySelector("details.d-raw summary"))]).toEqual([false, "As read"]);
+    // The name in the other zone is there to hold its room, so that the row is as high in either zone: unseen
+    // (results.css `.zone-words`) and unread by a screen reader. No value names a zone.
+    expect(drawer.querySelectorAll(".zone-words .twin").map(twin => [text(twin), twin.getAttribute("aria-hidden")])).toEqual([["Start Date (UTC)", "true"], ["Start Time (UTC)", "true"]]);
+    expect(drawer.querySelectorAll("dd").map(text).filter(value => /local|UTC/.test(value))).toEqual([]);
+    // A start that named no moment stands as it is under Start Date, with Start Time empty and nothing under As read; a
+    // column with no name in another zone, as for a viewer whose own zone is UTC, has its name alone.
+    const none = parseMarkup(rowDrawerHtml([columns[0], column(1, "Start Date (UTC)"), column(2, "Start Time (UTC)"), columns[3]], ["Copy", "soon", "", ""], NO_LINKS));
+    expect([none.querySelectorAll("dd").map(text), none.querySelectorAll(".zone-words, details").length]).toEqual([["Copy", "soon", "", ""], 0]);
+  });
+
 
   it("says on a filter's button that its filter is on, and what a range in force keeps", () => {
     const button = (view: TableView, index: number) => parseMarkup(tableHtml(view)).querySelector(`[data-colfilter="${index}"]`);
@@ -1109,7 +1137,7 @@ describe("What a source model gives, as its row's details write it", () => {
   it("writes no section of nothing, and stands before All details in a row's details", () => {
     expect(sourceModelHtml({ sources: [], imports: [{ name: "IMP01", from: [] }], sourceLines: [], importLines: [] }, [], [undefined])).not.toContain("drawerSources");
     const [column] = columnsOf({ file: "Source Models.csv", label: "Source Models", headers: [""], rows: [["Hub"]], guard: false });
-    const drawer = parseMarkup(rowDrawerHtml([column], ["Hub"], {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    const drawer = parseMarkup(rowDrawerHtml([column], ["Hub"], {}, undefined, undefined, undefined, undefined, undefined, undefined,
       { view: { sources: [{ name: "SYS02", kind: "Module", row: 0 }], imports: [], sourceLines: [], importLines: [] }, sources: [undefined], imports: [] }));
     expect(drawer.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (1)", "All details"]);
   });
