@@ -111,6 +111,24 @@ describe("Which row of the result an item of a row's details names", () => {
     expect(named(PROCESSES, "Used in Processes", 0, ["Nightly load"])).toEqual([undefined]);
   });
 
+  it("finds from Saved View Filters the condition's line item and its module, the filtered module, and the saved view among Saved Views by its name and module", () => {
+    const views = table("Saved Views", ["Name", "Module", "Filters"], [["Open items", "REV01 Revenue", "Rows: Price > 0"], ["Open items", "SYS100 Time", ""], ["Twice", "REV01 Revenue", ""],
+      ["Twice", "REV01 Revenue", ""]]);
+    const tables = new Map([...TABLES, [views.file, { table: views, name: 0 }]]);
+    const filters = table("Saved View Filters", ["Condition line item's module", "Condition line item", "Filtered module", "Saved view", "Filtered dimension"],
+      [["SYS100 Time", "Price", "REV01 Revenue", "Open items", "Products"], ["SYS100 Time", "Price", "REV01 Revenue", "Twice", "Rows"], ["SYS100 Time", "Price", "Gone", "Open items", "Rows"]]);
+    const found = (row: number, header: string) => itemRows(filters, header, [cellText(filters.rows[row][filters.headers.indexOf(header)])], filters.rows[row], tables)
+      .map(each => (each ? `${each.file}: ${each.row.slice(0, 2).map(cell => cellText(cell)).join(" / ")}` : undefined))[0];
+    expect(["Condition line item's module", "Condition line item", "Filtered module", "Saved view", "Filtered dimension"].map(header => found(0, header))).toEqual([
+      "Modules.csv: SYS100 Time / Time", "Line Items.csv: Price / SYS100 Time", "Modules.csv: REV01 Revenue / Products, Time", "Saved Views.csv: Open items / REV01 Revenue",
+      "General Lists.csv: Products / REV01 Revenue, 'REV01 Revenue'.Units"]);
+    // A view of one name in another module is another view; one of a name two rows of one module have, or of a module the
+    // row does not name a view of, is none. An axis is no list.
+    expect([found(1, "Saved view"), found(2, "Saved view"), found(1, "Filtered dimension")]).toEqual([undefined, undefined, undefined]);
+    // Without Saved Views, the view is plain.
+    expect(itemRows(filters, "Saved view", ["Open items"], filters.rows[0], TABLES)).toEqual([undefined]);
+  });
+
   it("names nothing for a column that names no rows, nor without the table its items would be rows of", () => {
     expect(named(MODULES, "Notes", 0, ["Price", "Units"])).toEqual([undefined, undefined]);
     expect(itemRows(MODULES, "Line Items", ["Price", "Units"], MODULES.rows[0], new Map([[MODULES.file, { table: MODULES, name: 0 }]]))).toEqual([undefined, undefined]);

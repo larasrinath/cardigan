@@ -1,7 +1,7 @@
 import { splitOutside, unquote } from "../map/graph-names.js";
 import { missingIn, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { ResultTable } from "../result-types.js";
-import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
+import { SAVED_VIEW_FILTERS_FILE, SAVED_VIEWS_FILE } from "../saved-view-filters.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { Items } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
@@ -10,7 +10,7 @@ import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
 /** Which row of the result an item of a row's details names, where the item is itself a row the page can open: a module,
- * a line item, a list, a process, or an action a process runs. The details list such a cell one item to a line
+ * a line item, a list, a process, an action a process runs, or a saved view. The details list such a cell one item to a line
  * (cell-lists.ts), and an item that is a row opens that row's details, as a click on it in its own table does. Nothing is
  * guessed: an item is a row only where its column names rows of one table, or of the actions' tables together, and only
  * where exactly one of those rows has its name. An item that no row has, or that several have, is said as text. Only a
@@ -90,8 +90,8 @@ const objectNamed: Resolver = (item, row, table, tables) => {
   return module && sibling ? undefined : module ?? sibling;
 };
 
-/** A line item, by its module's name and its own, behind a dot, as Filter Line Items of Saved View Filters writes one; a
- * name alone is a line item whose module is not known, which names no row. */
+/** A line item, by its module's name and its own, behind a dot, as Filter Line Items of Saved Views writes one; a name
+ * alone is a line item whose module is not known, which names no row. */
 const lineItemNamed: Resolver = (item, _row, _table, tables) => {
   const parts = splitOutside(item, ".").map(unquote);
   return parts.length === 2 ? oneRow(tables, LINE_ITEMS_FILE, parts[1], parts[0]) : undefined;
@@ -108,6 +108,16 @@ const cell = (table: ResultTable, row: Row, header: string): string => {
 const lineItemIn = (header: string): Resolver => (item, row, table, tables) => {
   const module = cell(table, row, header);
   return module === "" ? undefined : oneRow(tables, LINE_ITEMS_FILE, item, module);
+};
+/** A saved view, by its name, of the module the row names in the column `header`: the one row of Saved Views with both, as
+ * a model keeps its saved views apart. None without the module, or where Saved Views has no such row, or more than one. */
+const viewIn = (header: string): Resolver => (item, row, table, tables) => {
+  const views = tables.get(SAVED_VIEWS_FILE);
+  const moduleAt = views && columnIndex(views.table, "Module");
+  const module = cell(table, row, header);
+  if (!views || moduleAt === undefined || module === "" || item.trim() === "") return undefined;
+  const found = views.table.rows.filter(each => cellText(each[views.name]).trim() === item.trim() && cellText(each[moduleAt]).trim() === module);
+  return found.length === 1 ? { file: SAVED_VIEWS_FILE, row: found[0] } : undefined;
 };
 /** A module or a line item, as `objectNamed` reads one, where the row names its line item's module in the column `header`:
  * a name alone is a line item of that module, or a module. */
@@ -155,8 +165,11 @@ const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Ob
   [MODULE_USAGE_FILE]: { Module: rowNamed(MODULES_FILE) },
   [PAGE_FILTERS_FILE]: { "Condition line item's module": rowNamed(MODULES_FILE), "Condition line item": lineItemIn("Condition line item's module"),
     "Filtered module": rowNamed(MODULES_FILE), "Filtered dimension": rowNamed(LISTS_FILE) },
+  // The filters of the saved views the pages show name rows as Page Filters does, and each its saved view's row.
+  [SAVED_VIEW_FILTERS_FILE]: { "Condition line item's module": rowNamed(MODULES_FILE), "Condition line item": lineItemIn("Condition line item's module"),
+    "Filtered module": rowNamed(MODULES_FILE), "Saved view": viewIn("Filtered module"), "Filtered dimension": rowNamed(LISTS_FILE) },
   [PAGE_ACTIONS_FILE]: { "Model action name": pageAction },
-  [SAVED_VIEW_FILTERS_FILE]: { Module: rowNamed(MODULES_FILE), "Filter Line Items": lineItemNamed, "Used by Imports": rowNamed(IMPORTS_FILE), "Used by Exports": rowNamed("Exports.csv") },
+  [SAVED_VIEWS_FILE]: { Module: rowNamed(MODULES_FILE), "Filter Line Items": lineItemNamed, "Used by Imports": rowNamed(IMPORTS_FILE), "Used by Exports": rowNamed("Exports.csv") },
 }).map(([file, columns]) => [file, new Map(Object.entries(columns))]));
 
 /** For each item of a cell of `row`, in the cell's order, the row it names, or nothing for an item that is no row the

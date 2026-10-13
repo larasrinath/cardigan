@@ -5,7 +5,8 @@ import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
-import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable, SavedViewDetail } from "../result-types.js";
+import { SAVED_VIEW_FILTER_HEADERS, viewFilterRows, type ViewCard } from "../saved-view-filters.js";
 import { polarisFixture } from "../polaris.test-support.js";
 import { columnWidths, headerWidth } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
@@ -6470,6 +6471,36 @@ describe("The buttons at the top right of a row's details that open it in Anapla
       "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here."]);
   });
 
+  it("opens a saved view's filter's two modules, its app and its page from Saved View Filters, and says of a line item the model doesn't have that the view is to be fixed", async () => {
+    const card = { app: `Planning ${TAG}`, page: "Revenue board", number: 1, section: "1", place: ["Board", APP, BOARD], cardId: "card-1" };
+    const rows = viewFilterRows({ name: "Big orders", module: "COST01 Costs", filters: [{ axis: "Rows", active: true, match: "all", conditions: [
+      { lineItem: "Units", lineItemModule: "REV01 Revenue", lineItemId: "1901000000001", operator: "GREATER_THAN", dataType: "NUMBER", values: ["100"], contexts: [], valid: true },
+      { lineItem: "Missing line item (ID 1916000000014)", lineItemId: "1916000000014", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: [], valid: false },
+      { lineItem: "Price", lineItemModule: "COST01 Costs", lineItemId: "1901000000002", operator: "IS_NOT_BLANK", dataType: "NUMBER", values: [], contexts: [], valid: true }] }] }, card);
+    const result: AnalysisResult = { ...WITH_PAGES, tables: [...WITH_PAGES.tables,
+      { file: "Saved View Filters.csv", label: "Saved View Filters", guard: true, headers: [...SAVED_VIEW_FILTER_HEADERS], rows }] };
+    await openModel(result);
+    choose(String(result.tables.findIndex(table => table.file === "Saved View Filters.csv")));
+    // As Page Filters: the condition line item's module and the filtered module, the view's, each its own button, then the app and the page.
+    openRow("Units");
+    expect([opens(), why()]).toEqual([[["Condition module", "Open REV01 Revenue in Model Building"], ["Filtered module", "Open COST01 Costs in Model Building"],
+      ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Revenue board in Anaplan"]], undefined]);
+    await press("Filtered module");
+    expect(tabUpdates.map(([, properties]) => (properties as { url: string }).url)).toEqual([link("102000000002")]);
+    page.key("Escape");
+    // One Model button where the two are one module.
+    openRow("Price");
+    expect(opens().map(([label]) => label)).toEqual(["Model", "App", "Page"]);
+    page.key("Escape");
+    // A line item the view's filter still names, which the model doesn't have: no button for its module, and a line saying
+    // to fix the view, which its module, the filtered module, opens.
+    openRow(MISSING_LINE_ITEMS_MODULE);
+    expect([opens().map(([label]) => label), why()]).toEqual([["Filtered module", "App", "Page"],
+      "The model doesn't have this line item: deleted since the view was saved, or hidden from you. Open the view's module to fix its filter."]);
+    // Nothing above the table counts such rows as cards to fix: the view, not a card, names the line item.
+    expect(page.texts("#view .view-note")).toEqual([]);
+  });
+
   it("opens one tab in the place of the Anaplan tab once that is closed, and every later address in that one", async () => {
     await openModel();
     tabClosed = true;
@@ -8309,55 +8340,85 @@ describe("A model's imports in the three tables of their kinds, on the page", ()
   });
 });
 
-describe("The saved views' filters and the custom view filters, under App Usage", () => {
-  const table = (label: string, headers: string[], rows: Cell[][], file = `${label}.csv`): ResultTable => ({ file, label, headers, rows, guard: false });
+describe("Saved Views under Modules, and the saved views' filters beside the custom view filters under App Usage", () => {
+  const table = (label: string, headers: readonly string[], rows: Cell[][], file = `${label}.csv`): ResultTable => ({ file, label, headers: [...headers], rows, guard: false });
   const VIEW_HEADERS = ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"];
-  const condition = { lineItem: "Active?", lineItemModule: "SYS01 Flags", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: [], valid: true };
-  /** An invented model with a saved view with filters on two axes, one not read, its line items, the pages' custom view filters
-   * and an import that reads the view. */
+  const [APP_ID, DEMAND, SUPPLY] = ["0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e", "11111111-2222-4333-8444-555555555555", "22222222-3333-4444-8555-666666666666"];
+  const condition = { lineItem: "Active?", lineItemModule: "SYS01 Flags", lineItemId: "2000000001", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: [], valid: true };
+  /** A saved view with filters on two axes, the second off, one of its conditions not valid; the client named the rows'
+   * dimensions, and none of the columns'. */
+  const OPEN_ITEMS: SavedViewDetail = { name: "Open items", module: "REV01 Revenue", read: true, filters: [
+    { axis: "Rows", dimensions: ["Products", "Time"], active: true, match: "all", conditions: [condition] },
+    { axis: "Columns", active: false, match: "any", conditions: [{ ...condition, lineItem: "Region", lineItemId: "2000000003", dataType: "ENTITY", values: ["North", "South"],
+      contexts: ["SCN042:Spring Launch"] }, { lineItem: "Missing line item (ID 2000000099)", lineItemId: "2000000099", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"],
+      contexts: [], valid: false }] }] };
+  const OPEN_ITEMS_ROW: Cell[] = ["Open items", "REV01 Revenue",
+    "Rows: Active? = True; Columns (off): Match any: Region (SCN042:Spring Launch) = North or South, Missing line item (ID 2000000099) = True (not valid)",
+    "SYS01 Flags.Active?, SYS01 Flags.Region, Missing line item (ID 2000000099)", "Demand board (Planning app), Supply board (Planning app)", "Load open items", "", "Yes"];
+  const REFUSED_ROW: Cell[] = ["Refused", "SYS01 Flags", "", "", "", "", "", "No"];
+  /** A card of the invented app that shows a saved view. */
+  const card = (page: string, number: number, pageId: string, cardId: string): ViewCard => ({ app: "Planning app", page, number, section: "1", place: ["Board", APP_ID, pageId], cardId });
+  /** An invented model as a run makes it now: every saved view in Saved Views, one with filters, one without and one not read,
+   * in that order, with their details; the filters of the one two cards show, a set for each card, the Supply board's first in
+   * the result; the pages' custom view filters, the line items and an import that reads the view. */
   const VIEWS_MODEL: AnalysisResult = { ...MODEL, site: { origin: "https://us1a.app.anaplan.com", customer: "a".repeat(32) },
     moduleIds: [["REV01 Revenue", "102000000001"], ["SYS01 Flags", "102000000002"]],
-    savedViewDetails: [
-      { name: "Open items", module: "REV01 Revenue", read: true, filters: [
-        { axis: "Rows", active: true, match: "all", conditions: [condition] },
-        { axis: "Columns", active: false, match: "any", conditions: [{ ...condition, lineItem: "Region", dataType: "ENTITY", values: ["North", "South"], contexts: ["SCN042:Spring Launch"] },
-          { lineItem: "Missing line item (ID 2000000099)", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: [], valid: false }] }] },
-      { name: "Refused", module: "SYS01 Flags", read: false, filters: [] }],
+    savedViewDetails: [OPEN_ITEMS, { name: "Plain", module: "REV01 Revenue", read: true, filters: [] }, { name: "Refused", module: "SYS01 Flags", read: false, filters: [] }],
     tables: [{ ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Model", "Workspace ID", "b".repeat(32)], ["Model", "Model ID", MODEL.id]] },
       table("Modules", ["", "Functional Area"], [["REV01 Revenue", "Sales"], ["SYS01 Flags", "System"]]),
       table("Line Items", ["", "Module Name", "Format", "Page Filters", "Saved View Filters"], [["Active?", "SYS01 Flags", "BOOLEAN", 2, 1], ["Region", "SYS01 Flags", "LIST", 0, 1],
         ["Volume", "REV01 Revenue", "NUMBER", 0, 0]]),
+      table("General Lists", ["", "Top Level"], [["Products", "All Products"], ["Customers", "All Customers"]]),
       table("Imports", ["", "Source Type", "Source Object"], [["Load open items", "SAVED VIEW", "'REV01 Revenue'.'Open items'"]]),
+      table("Saved Views", VIEW_HEADERS, [OPEN_ITEMS_ROW, ["Plain", "REV01 Revenue", "", "", "Demand board (Planning app)", "", "", "Yes"], REFUSED_ROW]),
       table("Module Usage", ["Module", "App", "Page"], [["REV01 Revenue", "Planning app", "Demand board"]]),
-      table("Saved View Filters", VIEW_HEADERS, [
-        ["Open items", "REV01 Revenue", "Rows: Active? = True; Columns (off): Match any: Region (SCN042:Spring Launch) = North or South, Missing line item (ID 2000000099) = True (not valid)",
-          "SYS01 Flags.Active?, SYS01 Flags.Region, Missing line item (ID 2000000099)", "Demand board (Planning app)", "Load open items", "", "Yes"],
-        ["Refused", "SYS01 Flags", "", "", "", "", "", "No"]]),
-      table("Page Filters", ["Condition line item's module", "Condition line item", "Filtered module"], [["SYS01 Flags", "Active?", "REV01 Revenue"]])],
+      table("Saved View Filters", SAVED_VIEW_FILTER_HEADERS, [...viewFilterRows(OPEN_ITEMS, card("Supply board", 2, SUPPLY, "card-2")),
+        ...viewFilterRows(OPEN_ITEMS, card("Demand board", 1, DEMAND, "card-1"))]),
+      table("Page Filters", PAGE_FILTERS_HEADERS, [PAGE_FILTERS_HEADERS.map(header => ({ "Condition line item's module": "SYS01 Flags", "Condition line item": "Active?",
+        "Filtered module": "REV01 Revenue", App: "Planning app", Page: "Demand board" } as Record<string, Cell>)[header] ?? "")])],
   };
   const row = (name: string) => page.all('#tableWrap tbody [data-act="row"]').find(cell => cell.closest("tr")?.children[0].textContent.trim() === name)!;
+  /** Opens a row's details by an exact cell value, wherever it stands in the row. */
+  const openRow = (name: string) => page.all("#tableWrap tbody tr").find(each => each.children.some(cell => cell.textContent.trim() === name))!
+    .querySelector('[data-act="row"]')!.press();
   const item = (words: string) => page.all('#drawerBody [data-act="item"]').find(link => link.textContent === words)!;
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
+  const column = (heading: string) => page.all("#tableWrap tbody tr").map(each => each.children[headings().indexOf(heading)].textContent.trim());
+  const menu = (group: string) => {
+    page.find(`#navList [aria-controls="${group}"]`).press();
+    const entries = page.all(`#${group} .nav-item`).map(entryLabel);
+    page.key("Escape");
+    return entries;
+  };
 
-  it("lists the saved views' filters beside the custom view filters under App Usage's Page Filters, and gives each a tile where it has rows", async () => {
+  it("lists every saved view under Modules after Line Items, and the saved views' filters beside the custom view filters under App Usage's Page Filters, each with a tile where it has rows", async () => {
     await openWith(VIEWS_MODEL);
+    expect(menu("navGroupModules")).toEqual(["Modules", "Line Items", "Saved Views"]);
     page.find('#navList [aria-controls="navGroupAppUsage"]').press();
     expect(page.texts("#navGroupAppUsage .nav-heading")).toEqual(["Module Usage", "Page Filters"]);
     expect(page.all("#navGroupAppUsage .nav-item").map(entryLabel)).toEqual(["Module Usage", "Saved View Filters", "Custom View Filters"]);
-    expect(page.texts("#view .stat .s-lab")).toEqual(expect.arrayContaining(["Saved View Filters", "Custom View Filters"]));
+    page.key("Escape");
+    // The tiles in the menus' order: Saved Views after Line Items, Saved View Filters before Custom View Filters.
+    const tiles = page.texts("#view .stat .s-lab");
+    expect([tiles.indexOf("Saved Views") - tiles.indexOf("Line Items"), tiles.indexOf("Custom View Filters") - tiles.indexOf("Saved View Filters")]).toEqual([1, 1]);
   });
 
-  it("keeps the saved views' filters in the menu, without a tile, for a model with no saved view that has a filter", async () => {
-    await openWith({ ...VIEWS_MODEL, savedViewDetails: [], tables: VIEWS_MODEL.tables.map(each => (each.file === "Saved View Filters.csv" ? { ...each, rows: [] } : each)) });
-    expect([page.all("#navList .nav-item").map(entryLabel).includes("Saved View Filters"), page.texts("#view .stat .s-lab").includes("Saved View Filters")]).toEqual([true, false]);
+  it("keeps both tables in their menus, without a tile, for a model with no saved view, or none a page shows", async () => {
+    const none = VIEWS_MODEL.tables.map(each => (["Saved Views.csv", "Saved View Filters.csv"].includes(each.file) ? { ...each, rows: [] } : each));
+    await openWith({ ...VIEWS_MODEL, savedViewDetails: [], tables: none });
+    expect([menu("navGroupModules").includes("Saved Views"), menu("navGroupAppUsage").includes("Saved View Filters")]).toEqual([true, true]);
+    expect(page.texts("#view .stat .s-lab").filter(label => label.startsWith("Saved View"))).toEqual([]);
   });
 
-  it("opens a view's details with its Filters before All details: each axis under its heading, each condition in the dialog's words, its line item opening its row", async () => {
+  it("opens a view's details from Saved Views with its Filters before All details, a view without a filter with none, and one not read with a line", async () => {
     await openWith(VIEWS_MODEL);
-    goToNamed("Saved View Filters");
-    // The columns shown, with Definition read hidden and in the chooser.
+    goToNamed("Saved Views");
+    // Every view is a row; the columns shown, with Definition read hidden and in the chooser.
+    expect([page.texts("#view h1"), firstCells()]).toEqual([["Saved Views"], ["Open items", "Plain", "Refused"]]);
     expect(page.all("#tableWrap thead th").map(th => th.textContent.trim()).filter(Boolean))
       .toEqual(["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports"]);
     row("Open items").press();
+    expect(page.id("drawerSub").textContent).toBe("Saved Views");
     const filters = page.id("drawerFilters");
     expect(filters.querySelectorAll("h4").map(heading => heading.textContent)).toEqual(["Rows · Match all", "Columns · Match any · off"]);
     expect(filters.querySelectorAll("li").map(each => each.textContent)).toEqual(["Active? is equal to True",
@@ -8365,8 +8426,8 @@ describe("The saved views' filters and the custom view filters, under App Usage"
     // Filters stand before All details, which do not repeat them; Definition read is among them, hidden in the table.
     const html = page.id("drawerBody").innerHTML;
     expect(html.indexOf('id="drawerFilters"')).toBeLessThan(html.indexOf("All details"));
-    const terms = page.all("#drawerBody dt").map(term => term.textContent.trim());
-    expect([terms.includes("Filters"), terms.includes("Definition read")]).toEqual([false, true]);
+    const terms = () => page.all("#drawerBody dt").map(term => term.textContent.trim());
+    expect([terms().includes("Filters"), terms().includes("Definition read")]).toEqual([false, true]);
     // The Model button opens the view's module; the line items, the module, the listed line items and the import link to their rows.
     expect(page.texts("#drawerOpens button")).toContain("Model");
     expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Active?", "Region", "REV01 Revenue", "SYS01 Flags.Active?", "SYS01 Flags.Region", "Load open items"]);
@@ -8374,9 +8435,80 @@ describe("The saved views' filters and the custom view filters, under App Usage"
     expect(page.id("drawerTitle").textContent).toBe("Active?");
     page.id("drawerBack").press();
     expect(page.id("drawerTitle").textContent).toBe("Open items");
+    // A view without a filter has no Filters section: its empty Filters cell is among All details.
+    row("Plain").press();
+    expect([page.id("drawerTitle").textContent, page.has("#drawerFilters"), terms().includes("Filters")]).toEqual(["Plain", false, true]);
     // A view whose definition was not read says so.
     row("Refused").press();
     expect(page.id("drawerFilters").textContent).toContain("This view's definition was not read, so its filters are not known. The diagnostic log says why.");
+  });
+
+  it("lays Saved View Filters out as Custom View Filters, with Saved view after Filtered module and Filter state hidden last, its rows in Custom View Filters' order", async () => {
+    await openWith(VIEWS_MODEL);
+    goToNamed("Custom View Filters");
+    const custom = headings();
+    goToNamed("Saved View Filters");
+    expect(headings()).toEqual([...custom.slice(0, 3), "Saved view", ...custom.slice(3)]);
+    expect(headings()).toEqual(["Condition line item's module", "Condition line item", "Filtered module", "Saved view", "Filtered dimension", "Filtered line items", "Operator",
+      "Value", "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page"]);
+    // Every column is in the chooser, in Custom View Filters' order; numbers, where the page is, IDs and Filter state start hidden.
+    page.id("colBtn").press();
+    expect(page.all("#popover .pop-opt").map(option => `${option.children[1].textContent}${option.children[0].checked ? " ✓" : ""}`)).toEqual([...SAVED_VIEW_FILTER_HEADERS]
+      .map(header => (["Card #", "Section #", "Page type", "App ID", "Page ID", "Card ID", "Line item ID", "Filter state"].includes(header) ? header : `${header} ✓`)));
+    page.key("Escape");
+    // As Custom View Filters' rows: by the condition line item's module, the line item, the app, the page and the card; the
+    // Demand board's first though the result has the Supply board's first. The rows' dimensions as the client named them, and
+    // none for the columns, whose dimensions it named none of.
+    expect([column("Condition line item's module"), column("Condition line item"), column("Page"), column("Filter on"), column("Filtered dimension"),
+      column("Show items that match"), column("Value")]).toEqual([
+      ["Missing line item: module not known", "Missing line item: module not known", "SYS01 Flags", "SYS01 Flags", "SYS01 Flags", "SYS01 Flags"],
+      ["Missing line item (ID 2000000099)", "Missing line item (ID 2000000099)", "Active?", "Active?", "Region", "Region"],
+      ["Demand board", "Supply board", "Demand board", "Supply board", "Demand board", "Supply board"],
+      ["Columns", "Columns", "Rows", "Rows", "Columns", "Columns"], ["", "", "Products, Time", "Products, Time", "", ""], ["Any", "Any", "All", "All", "Any", "Any"],
+      ["True", "True", "True", "True", "North or South", "North or South"]]);
+    // A sort of the user's own is let go with Reset, and the rows are in that order again.
+    page.find('[data-sort="1"]').press();
+    page.find('[data-sort="1"]').press();
+    expect(column("Condition line item")[0]).toBe("Region");
+    page.id("resetBtn").press();
+    expect(column("Condition line item")).toEqual(["Missing line item (ID 2000000099)", "Missing line item (ID 2000000099)", "Active?", "Active?", "Region", "Region"]);
+  });
+
+  it("lists in a row's details of Saved View Filters each dimension of Filtered dimension, a list opening its row of General Lists", async () => {
+    await openWith(VIEWS_MODEL);
+    goToNamed("Saved View Filters");
+    openRow("Active?");
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["SYS01 Flags", "Active?", "REV01 Revenue", "Open items", "Products"]);
+    const parts = page.all("#drawerBody .d-dl")[0].children;
+    const at = parts.findIndex(each => each.localName === "dt" && each.textContent.trim().startsWith("Filtered dimension"));
+    expect([parts[at].textContent.replace(/\s+/g, " ").trim(), parts[at + 1].querySelectorAll("li").map(each => each.textContent.trim())])
+      .toEqual(["Filtered dimension (2)", ["Products", "Time"]]);
+    item("Products").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Products", "General Lists"]);
+  });
+
+  it("opens from a row of Saved View Filters its condition line item, the modules and its saved view, each to its row, and the modules, the app and the page in Anaplan", async () => {
+    await openWith(VIEWS_MODEL);
+    goToNamed("Saved View Filters");
+    openRow("Region");
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Region", "Saved View Filters"]);
+    // The context, whether the filter is off and the condition's ID are among All details.
+    const value = (term: string) => {
+      const parts = page.all("#drawerBody .d-dl")[0].children;
+      const at = parts.findIndex(each => each.localName === "dt" && each.textContent.trim() === term);
+      return at < 0 ? undefined : parts[at + 1]?.textContent.trim();
+    };
+    expect([value("Condition context"), value("Filter state"), value("Line item ID"), value("Card ID")]).toEqual(["SCN042:Spring Launch", "Off", "2000000003", "card-1"]);
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["SYS01 Flags", "Region", "REV01 Revenue", "Open items"]);
+    expect(page.texts("#drawerOpens button")).toEqual(["Condition module", "Filtered module", "App", "Page"]);
+    item("Open items").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.has("#drawerFilters")]).toEqual(["Open items", "Saved Views", true]);
+    page.id("drawerBack").press();
+    item("Region").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Region", "Line Items"]);
+    page.id("drawerBack").press();
+    item("SYS01 Flags").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["SYS01 Flags", "Modules"]);
   });
 
   it("shows Line Items' count of the custom view filters as Custom View Filters, and the saved views' beside it", async () => {
@@ -8386,9 +8518,29 @@ describe("The saved views' filters and the custom view filters, under App Usage"
     expect([heads.indexOf("Saved View Filters") - heads.indexOf("Custom View Filters"), heads.includes("Page Filters")]).toEqual([1, false]);
   });
 
-  it("opens a result an earlier version kept, without the table or any view's details", async () => {
+  it("shows the table of the saved views a result of 0.43.0 or 0.44.0 kept as Saved Views, under Modules, with the lines about it, and nothing of it under App Usage", async () => {
+    const NOTE = "1 of the 3 saved views could not be read, so their filters are not known: Definition read says No in their rows, and the diagnostic log says why.";
+    const OLD: AnalysisResult = { ...VIEWS_MODEL, savedViewDetails: [OPEN_ITEMS, { name: "Refused", module: "SYS01 Flags", read: false, filters: [] }],
+      summary: ["Saved View Filters: 2 rows", `Saved View Filters: ${NOTE}`],
+      tables: VIEWS_MODEL.tables.filter(each => !["Saved Views.csv", "Saved View Filters.csv"].includes(each.file)).map((each, at) => (at === 0
+        ? { ...each, rows: [...each.rows, ["Files", "Saved View Filters.csv", "2 rows"], ["Notes", "Saved View Filters", NOTE],
+          ["How to read", "Saved View Filters", "Under App Usage's Page Filters, beside Custom View Filters, for models read through Model Building: each saved view of the model with a filter."]] }
+        : each)).concat(table("Saved View Filters", VIEW_HEADERS, [OPEN_ITEMS_ROW, REFUSED_ROW])) };
+    await openWith(OLD);
+    expect([menu("navGroupModules"), menu("navGroupAppUsage")]).toEqual([["Modules", "Line Items", "Saved Views"], ["Module Usage", "Custom View Filters"]]);
+    // The overview says its count on its tile alone, its note and how to read it under its name now, and nothing more of it.
+    const how = page.all("#ovHowTo dt").map(term => term.textContent.trim());
+    expect([page.texts("#view .stat .s-lab").includes("Saved Views"), page.texts("#view .warn-list li"), page.has("#ovFiles"), how.includes("Saved Views"),
+      how.includes("Saved View Filters")]).toEqual([true, [`Saved Views: ${NOTE}`], false, true, false]);
+    goToNamed("Saved Views");
+    expect([firstCells(), headings()]).toEqual([["Open items", "Refused"], ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports"]]);
+    row("Open items").press();
+    expect(page.id("drawerFilters").querySelectorAll("li")).toHaveLength(3);
+  });
+
+  it("opens a result an earlier version kept, without either table or any view's details", async () => {
     await openWith(MODEL);
-    expect(page.all("#navList .nav-item").map(entryLabel).includes("Saved View Filters")).toBe(false);
+    expect(page.all("#navList .nav-item").map(entryLabel).filter(label => label.startsWith("Saved View"))).toEqual([]);
     goToNamed("Line Items");
     expect(page.texts("#view h1")).toEqual(["Line Items"]);
   });

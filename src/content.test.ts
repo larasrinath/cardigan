@@ -179,9 +179,11 @@ describe("The content scripts on an Anaplan page", () => {
     expect(result.summary[0]).toBe(note);
     expect(overviewOf(result).notes.filter(line => line === note)).toEqual([note]);
     expect(result.tables[0].rows).toContainEqual(["Notes", "Classic client", note]);
-    // No saved view's filters without the Classic client: no table, and a note says why, once.
-    const noViews = "Saved View Filters: not read: Cardigan reads saved views' filters through Model Building's client, which didn't answer.";
-    expect([result.tables.some(table => table.file === "Saved View Filters.csv"), overviewOf(result).notes.filter(line => line === noViews)]).toEqual([false, [noViews]]);
+    // No saved view without the Classic client: neither table, and a note says why, once, of Saved Views; nothing is said of
+    // the saved views' filters on the pages, which the export never read.
+    const noViews = "Saved Views: not read: Cardigan reads saved views and their filters through Model Building's client, which didn't answer.";
+    expect([result.tables.some(table => ["Saved Views.csv", "Saved View Filters.csv"].includes(table.file)), overviewOf(result).notes.filter(line => line === noViews),
+      overviewOf(result).notes.filter(line => line.startsWith("Saved View Filters"))]).toEqual([false, [noViews], []]);
     expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Engine: unknown (no Classic client)"]);
     expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Classic reader: no frame answered within the wait; reading a partial result without it"]);
     expect(service.reads.filter(path => path.includes("springboard-platform-gateway-service"))).toEqual([
@@ -264,7 +266,7 @@ describe("The content scripts on an Anaplan page", () => {
     const sent = exportedModel();
     sent.tables.push({ file: "Line Items.csv", label: "Line Items", headers: ["", "Formula", "Referenced By", "Module Name"],
       rows: [["Demand", "", "", ""], ["Units", "", "", "Demand"], ["Flag", "", "", "Demand"]], guard: false },
-    { file: "Saved View Filters.csv", label: "Saved View Filters", headers: ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"],
+    { file: "Saved Views.csv", label: "Saved Views", headers: ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"],
       rows: [["Flagged", "Demand", "Rows: Flag = True", "Demand.Flag", "", "", "", "Yes"]], guard: false });
     const result = await runWith({ ...sent, savedViewIds: ["105000000001"], savedViewDetails: [{ name: "Flagged", module: "Demand", read: true, filters: [] }],
       savedViewFilters: [{ view: "Flagged", module: "Demand", axis: "Rows", lineItem: "Flag", lineItemModule: "Demand", active: true, valid: true }] });

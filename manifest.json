@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Cardigan",
-  "version": "0.44.0",
+  "version": "0.45.0",
   "minimum_chrome_version": "111",
   "description": "Read-only look inside any Anaplan model or app: searchable tables and an interactive model map. Nothing leaves your browser.",
   "icons": {

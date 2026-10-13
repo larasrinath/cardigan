@@ -255,19 +255,19 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const NO_ACCESS = "Line Items has no Module Name, Read Access Driver and Write Access Driver columns.";
     expect(result.summary.filter(line => !/^[A-Za-z ]+: \d+ rows$/.test(line))).toEqual(["Imports: 3 rows (2 matched in the Actions list)",
       `Dynamic Cell Access: not exported (${NO_ACCESS}).`, "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
-      "Saved View Filters: not exported (the model page's client does not list its saved views)."]);
+      "Saved Views: not exported (the model page's client does not list its saved views)."]);
     expect([overview.notes, overview.files]).toEqual([["Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."],
       [["DCA", `Not exported: ${NO_ACCESS}`], ["Line Item Subsets", "Not exported: This model page has no LINE_ITEM_SUBSET axis."], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."],
-        ["Saved View Filters", "Not exported: the model page's client does not list its saved views"]]]);
+        ["Saved Views", "Not exported: the model page's client does not list its saved views"]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
-    // each one), is in that order, Saved View Filters among them, which App Usage lists. The names in the order that the
-    // export does not know are the tables the run adds after the export: those of what nothing uses (model/unused.ts) and
-    // those of the pages built on the model; and the three tables the page shows the Imports file as (import-files.ts),
-    // which are no file of the export's.
+    // each one), is in that order, Saved Views among them, which Modules lists. The names in the order that the export does
+    // not know are the tables the run adds after the export: those of what nothing uses (model/unused.ts) and those of the
+    // pages built on the model, the filters of the saved views they show among them; and the three tables the page shows
+    // the Imports file as (import-files.ts), which are no file of the export's.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
     expect([known.length, known.filter(file => !MODEL_FILE_ORDER.includes(file)), MODEL_FILE_ORDER.filter(file => !known.includes(file))])
       .toEqual([15, [], ["Unused Line Items.csv", "Unused Modules.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv", "Module Usage.csv",
-        "Page Filters.csv", "Page Actions.csv"]]);
+        "Saved View Filters.csv", "Page Filters.csv", "Page Actions.csv"]]);
     // So this result's files are listed in the order of Anaplan's Model settings, each one once. (This model has no source
     // models, and no Dynamic Cell Access file.) Its Imports file is listed as the tables of its imports' kinds that have
     // rows: one import of uploaded data; one of another model's saved view, with the one the Actions list alone has, whose
@@ -276,7 +276,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
       "File Imports", "Model-to-Model Imports", "Import Data Sources", "Exports", "Other Actions"]);
     expect(result.tables.map(table => table.label)).toEqual(["Model Details", "Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
       "Time Ranges", "Versions", "Model Calendar"]);
-    expect(result.summary.at(-1)).toBe("Saved View Filters: not exported (the model page's client does not list its saved views).");
+    expect(result.summary.at(-1)).toBe("Saved Views: not exported (the model page's client does not list its saved views).");
     // The page says the export's definitions in words. A line item's Summary, where a Ratio is said with the two names the
     // export wrote beside it; an action's definition; and an export's, which the words are not known for, stays as it
     // was read. The table the result holds keeps Anaplan's text.
@@ -379,7 +379,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // Import definitions are still read in place; naming finishes after the calendar supplies its period choices, and the
     // saved views' step comes after it.
     const expectedLog = withLinesSaid(steps(ACCESS_ZIP_0_8_1));
-    const finishesMapping = (line: string) => /Import mapping 11200000000[12]:|Import mappings: 2 of 2 read;|Reading saved views' filters…|Saved View Filters: the model page's client/.test(line);
+    const finishesMapping = (line: string) => /Import mapping 11200000000[12]:|Import mappings: 2 of 2 read;|Reading saved views' filters…|Saved Views: the model page's client/.test(line);
     expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual([
       ...expectedLog.filter(line => !finishesMapping(line)), ...expectedLog.filter(finishesMapping),
     ]);

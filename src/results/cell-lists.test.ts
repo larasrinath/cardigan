@@ -206,6 +206,27 @@ describe("What a model's cell lists, item by item, for the drawer", () => {
     // One allowed value is one item.
     expect(bySetting.get("Current Period")).toEqual({});
   });
+
+  it("lists a saved view's filters' line items and the pages that show it, and the context items of a filter of Saved View Filters as Custom View Filters lists them", () => {
+    const usage = file("Module Usage", ["Module", "App", "Page"], [["REV01 Revenue", "Planning, north", "Demand board"], ["REV01 Revenue", "Planning, north", "Supply, weekly"]]);
+    const views = file("Saved Views", ["Name", "Module", "Filter Line Items", "Used on Pages"], [["Open items", "REV01 Revenue", "SYS01 Flags.Active?, 'SYS01 Flags'.'Rate, net'",
+      "Demand board (Planning, north), Supply, weekly (Planning, north)"]]);
+    const filters = file("Saved View Filters", ["Condition line item", "Condition context", "Value"], [["Region", "SCN042:Spring Launch; FY26", "North or South"]]);
+    const model = result("model", usage, views, filters);
+    expect([listed(model, views), listed(model, filters)]).toEqual([[{ "Filter Line Items": ["SYS01 Flags.Active?", "'SYS01 Flags'.'Rate, net'"],
+      "Used on Pages": ["Demand board (Planning, north)", "Supply, weekly (Planning, north)"] }], [{ "Condition context": ["SCN042:Spring Launch", "FY26"] }]]);
+  });
+
+  it("cuts Filtered dimension of Saved View Filters only into the names the saved views' filters give their axes' dimensions", () => {
+    const filters = file("Saved View Filters", ["Condition line item", "Filtered dimension"], [["Active?", "Products, Region, north"], ["Volume", "Products, Unknown"],
+      ["Code", "Time"], ["Flag", ""]]);
+    const model = (dimensions?: string[]): AnalysisResult => ({ ...result("model", filters), savedViewDetails: [{ name: "Open items", module: "REV01 Revenue", read: true,
+      filters: [{ axis: "Rows", ...(dimensions ? { dimensions } : {}), active: true, match: "all", conditions: [] }] }] });
+    // A name that holds a comma stays whole; a cell with a name no filter gives, one name, and an empty cell are not cut.
+    expect(listed(model(["Products", "Region, north", "Time"]), filters)).toEqual([{ "Filtered dimension": ["Products", "Region, north"] }, {}, {}, {}]);
+    // Without the names, as in a result whose filters have none, nothing is known to cut by.
+    expect(listed(model(), filters)).toEqual([{}, {}, {}, {}]);
+  });
 });
 
 describe("What an app's cell lists, item by item, for the drawer: the report's own joins", () => {

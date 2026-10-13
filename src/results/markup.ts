@@ -1,7 +1,7 @@
 import { SOURCES_PATH } from "../map/map-marks.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { SavedViewDetail } from "../result-types.js";
-import { axisHeading, conditionWords, NOT_VALID, SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
+import { axisHeading, conditionWords, NOT_VALID, SAVED_VIEW_FILTERS_FILE, SAVED_VIEWS_FILE } from "../saved-view-filters.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { CalendarTile } from "./calendar-tile.js";
 import type { Items } from "./cell-lists.js";
@@ -239,6 +239,9 @@ export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
   [MODULES_FILE, navIcon('<path d="M8 1.8 13.6 5v6.2L8 14.4 2.4 11.2V5Z"/><path d="M2.4 5 8 8.2 13.6 5M8 8.2v6.2"/>')],
   // Lines that hang from a line: a module's line items.
   [LINE_ITEMS_FILE, navIcon('<path d="M5.3 4H14M8.7 8H14M8.7 12H14M2 4v2.7c0 .7.6 1.3 1.3 1.3h2M2 6.7v4c0 .7.6 1.3 1.3 1.3h2"/>')],
+  // A view, as a grid with its header row and first column, with a bookmark at its corner: a view saved in the model.
+  [SAVED_VIEWS_FILE, navIcon('<path d="M8.4 11.8H3.3a1.5 1.5 0 0 1-1.5-1.5V3.7a1.5 1.5 0 0 1 1.5-1.5h8.4a1.5 1.5 0 0 1 1.5 1.5v3.7"/>'
+    + '<path d="M1.8 5.6h11.4M5.6 5.6v6.2"/><path d="M10.3 9.4h3.9v5l-1.95-1.3-1.95 1.3Z"/>')],
   // A padlock: who may read a cell, and who may write it.
   [ACCESS_FILE, navIcon('<rect x="3" y="7.2" width="10" height="7" rx="1.5"/><path d="M5.5 7.2V5.2a2.5 2.5 0 0 1 5 0v2"/>')],
   // Line items, as Line Items draws them, with a sign of none: the line items nothing uses.
@@ -270,7 +273,7 @@ export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
   // A box on a page: a module where a page shows it.
   [MODULE_USAGE_FILE, navIcon('<path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.6Z"/><path d="M9.2 1.8v3.8H13"/>'
     + '<rect x="5.4" y="8" width="5.2" height="3.8" rx="0.9"/>')],
-  // A view, as a grid with its header row and first column, with a funnel at its corner: a saved view's own filters.
+  // A view, as a grid with its header row and first column, with a funnel at its corner: the saved views' own filters.
   [SAVED_VIEW_FILTERS_FILE, navIcon('<path d="M7.8 11.8H3.3a1.5 1.5 0 0 1-1.5-1.5V3.7a1.5 1.5 0 0 1 1.5-1.5h8.4a1.5 1.5 0 0 1 1.5 1.5v3.5"/>'
     + '<path d="M1.8 5.6h11.4M5.6 5.6v6.2"/><path d="M9 9h5.6l-2.2 2.6v2.6l-1.2.7v-3.3Z"/>')],
   // A funnel beside lines: the filters of a page's cards.
@@ -290,15 +293,17 @@ const entryIcon = (entry: NavEntry): string =>
  * drawings only: nothing of a result. Dimensions, Actions and App Usage each head their tables by sub-group
  * (`navGroupHtml`), in the group's file order. Actions holds the three tables the page shows the Imports file as
  * (import-files.ts) in the file's place, under Imports with Import Data Sources: the file itself stands there where the page
- * shows it as it stands, unsplit. App Usage holds a saved view's own filters and a page card's custom view filters (the
- * Page Filters file) together, under Page Filters. */
+ * shows it as it stands, unsplit. Modules holds every saved view (Saved Views) after Line Items. App Usage holds the
+ * filters of the saved views the pages show and a page card's custom view filters (the Page Filters file) together, under
+ * Page Filters. */
 export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[];
   subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
   { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
     files: [MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv"],
     subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
       { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
-  { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE] },
+  { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules,
+    files: [MODULES_FILE, LINE_ITEMS_FILE, SAVED_VIEWS_FILE, ACCESS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE] },
   { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions,
     files: ["Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"],
     subgroups: [{ label: "Processes", files: ["Processes.csv"] },
@@ -1107,17 +1112,17 @@ export function subsetMembershipHtml(view: SubsetView, modules: readonly (number
       `<div class="d-sec"><h4>${name(group.module, modules[index])}</h4>${itemsHtml(group.items.map(item => item.name), false, group.items.map(item => members[item.index]))}</div>`).join("")) + "</div>";
 }
 
-/** What a saved view's details say where its definition was not read, and where it has no filter. */
+/** What a saved view's details say where its definition was not read. */
 export const VIEW_NOT_READ = "This view's definition was not read, so its filters are not known. The diagnostic log says why.";
-export const VIEW_NO_FILTER = "No filter is saved on this view.";
 
 /** A saved view's filters (saved-view-filters.ts), above a row's All details: each axis's filter under its heading, the axis,
  * Match all or Match any and whether it is off, then each of its conditions on a line of its own, in the filter dialog's
  * words: its line item, which opens its row of Line Items where `opens` gives the number the page knows that row by (by
  * the filter's place and the condition's), the comparison and its values, its context items, and Not valid where Anaplan
- * marks it so. */
+ * marks it so. A view whose definition was not read says so instead. A view without a filter has no such section: its
+ * details are not given one (main.ts `openRowDrawer`). */
 export function savedViewFiltersHtml(view: SavedViewDetail, opens: readonly (readonly (number | undefined)[])[]): string {
-  const body = !view.read ? drawerLine(VIEW_NOT_READ) : !view.filters.length ? drawerLine(VIEW_NO_FILTER) : view.filters.map((filter, at) =>
+  const body = !view.read ? drawerLine(VIEW_NOT_READ) : view.filters.map((filter, at) =>
     `<div class="d-sec"><h4>${esc(axisHeading(filter))}</h4><ul class="cell-list">${filter.conditions.map((condition, place) => {
       const open = opens[at]?.[place];
       const name = open === undefined ? esc(condition.lineItem) : `<button type="button" class="link" data-act="item" data-item="${open}">${esc(condition.lineItem)}</button>`;

@@ -77,10 +77,12 @@ export interface AnalysisResult {
    * finds the model's unused line items with it (model/unused.ts). None in an app's result, in a model's whose pages could
    * not be read, nor in one that an earlier version kept. */
   pageUses?: PageUses;
-  /** The model's saved views that have a filter, and those whose definition was not read, one for each row of the Saved
-   * View Filters table, in its order (model/saved-views.ts): the results page lists each one's filters in its row's
-   * details. Empty for a model with none; none in an app's result, in a model's whose saved views could not be listed,
-   * nor in one that an earlier version kept. */
+  /** The model's saved views, one for each row of the Saved Views table, in its order (model/saved-views.ts): the results
+   * page lists each one's filters in its row's details, and the run makes the Saved View Filters table of those the pages
+   * built on the model show (model-pages.ts). Empty for a model with none; none in an app's result, in a model's whose saved
+   * views could not be listed, nor in one that an earlier version kept. 0.43.0 and 0.44.0 kept only the views with a filter
+   * and those whose definition was not read, one for each row of their table of them, which they called Saved View Filters
+   * (results/saved-view-filters-view.ts `withSavedViews`). */
   savedViewDetails?: SavedViewDetail[];
   /** Each condition of a saved view's filter, as the export read it, for the Model map: the saved view and its module, the
    * axis, and the condition's line item and that line item's module, all by the names Modules and Line Items give them;
@@ -110,7 +112,7 @@ export interface PageUses {
   unnamed: number;
 }
 
-/** A saved view with a filter, or one whose definition was not read, as a row of the Saved View Filters table names it. */
+/** A saved view, as a row of the Saved Views table names it, with its filters where its definition was read. */
 export interface SavedViewDetail {
   /** The view's name, and its module's, as Modules names it. */
   name: string;
@@ -128,8 +130,12 @@ export type ViewAxis = "Rows" | "Columns" | "Pages";
 /** One axis's filter, as the view's definition holds it (`sortAndFilterDefinition`). */
 export interface AxisFilter {
   axis: ViewAxis;
-  /** For a page axis, its dimension, as the model's client names it, where it does. */
+  /** For a page axis, its dimension, as the model's client names it, where it does: several joined with a slash, as the
+   * filter dialog says them. */
   dimension?: string;
+  /** The axis's dimensions, each as the model's client names it, in the axis's order, where it names them: the rows', the
+   * columns' or a page's. None in a result an earlier version kept. */
+  dimensions?: string[];
   /** Whether the filter is on: the dialog's Enable filter (`isActive`). */
   active: boolean;
   /** Whether a row shows where all of the conditions hold, or any (`filterMatchType` ALL or ANY). */
@@ -144,6 +150,9 @@ export interface ViewCondition {
   lineItem: string;
   /** The line item's module, by the name Line Items gives it; none where Line Items has none of the line item's ID. */
   lineItemModule?: string;
+  /** The line item's ID in the model (the entity's long ID, in digits), as the definition gives it, a missing line item's
+   * too; none for a condition on the view's module itself, and none in a result an earlier version kept. */
+  lineItemId?: string;
   /** Anaplan's word for the comparison: EQUALS, NOT_EQUALS, LESS_THAN, IS_BLANK, CONTAINS and the like. */
   operator: string;
   /** Anaplan's word for what is compared (`comparisonDataType`): BOOLEAN, NUMBER, TEXT, DATE, ENTITY or TIME_ENTITY. */

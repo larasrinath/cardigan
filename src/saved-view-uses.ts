@@ -1,15 +1,16 @@
 import { plainRows, textOf } from "./result-plain.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
-import { SAVED_VIEW_FILTERS_FILE, VIEW_FILTER_USES } from "./saved-view-filters.js";
+import { SAVED_VIEWS_FILE, VIEW_FILTER_USES } from "./saved-view-filters.js";
 
 /** What a model's saved views' filters use of its line items, made in the Anaplan tab from the export's result once it has
  * come (content.ts): nothing is read for it. The export read each saved view's filter and named each condition's line item
  * by the Line Items grid (model/saved-views.ts), which the result carries for the Model map (`savedViewFilters`).
  *
  * The Line Items table gets a column, beside the one that counts the custom view filters of the pages built on the model,
- * that counts for each line item the saved views whose filters use it, on or off. A module's own row has none. A line item
- * that no view's filter uses is 0 only where every saved view's definition was read: where one was not, or the saved
- * views could not be listed at all, its filter may use the line item, and the cell is empty. */
+ * that counts for each line item the saved views whose filters use it, on or off, whether a page shows the view or not. A
+ * module's own row has none. A line item that no view's filter uses is 0 only where every saved view's definition was
+ * read: where one was not, or the saved views could not be listed at all, its filter may use the line item, and the cell
+ * is empty. */
 
 const LINE_ITEMS_FILE = "Line Items.csv";
 const MODULE_NAME = "Module Name";
@@ -28,9 +29,9 @@ export function addViewFilterUses(given: AnalysisResult): AnalysisResult {
     viewsOf.add(JSON.stringify([filter.module.trim(), filter.view.trim()]));
     views.set(key(filter.lineItemModule, filter.lineItem), viewsOf);
   }
-  // Every view's definition read: the table lists none it could not read (Definition read says No in such a row).
+  // Every view's definition read: Saved Views lists none it could not read (Definition read says No in such a row).
   const everyViewRead = given.savedViewFilters !== undefined && given.savedViewDetails !== undefined && given.savedViewDetails.every(view => view.read)
-    && given.tables.some(each => each.file === SAVED_VIEW_FILTERS_FILE);
+    && given.tables.some(each => each.file === SAVED_VIEWS_FILE);
   const none: Cell = everyViewRead ? 0 : "";
   const width = table.headers.length;
   const rows = table.rows.map(row => {

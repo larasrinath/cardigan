@@ -4,10 +4,11 @@ import { parseMarkup, type FakeElement } from "./dom.test-support.js";
 import { FILE_ICONS, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, type NavEntry } from "./markup.js";
 
 const DIMENSIONS = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Line Item Subsets"];
-/** App Usage: Module Usage; a saved view's own filters and a page card's custom view filters (the Page Filters file), under
- * Page Filters; and Page Actions. */
+/** App Usage: Module Usage; the filters of the saved views the pages show and a page card's custom view filters (the Page
+ * Filters file), under Page Filters; and Page Actions. */
 const USAGE = ["Module Usage", "Saved View Filters", "Page Filters", "Page Actions"];
-const MODULES = ["Modules", "Line Items", "Dynamic Cell Access"];
+/** Modules: every saved view right after Line Items. */
+const MODULES = ["Modules", "Line Items", "Saved Views", "Dynamic Cell Access"];
 /** Actions as Polaris shows it, its Imports file unsplit. */
 const ACTIONS = ["Processes", "Imports", "Import Data Sources", "Exports", "Other Actions"];
 /** The three tables the page shows a split Imports file as, in its order. */

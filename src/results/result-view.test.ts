@@ -313,16 +313,16 @@ describe("What the results page reads out of a result", () => {
   });
 
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
-    // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it,
-    // followed by the run's two tables of what nothing uses (model/unused.ts). After the settings, the tables of the pages
-    // built on the model, which a model's run adds (model-pages.ts), with the saved views' filters, which the export reads,
-    // before the custom view filters of the pages' cards: last before the map. The three tables the page shows the Imports
-    // file as stand in its place (import-files.ts).
+    // Every saved view, which the export reads, comes right after Line Items. Dynamic Cell Access is no setting of Anaplan's:
+    // the export makes it from Line Items, and it comes after them, followed by the run's two tables of what nothing uses
+    // (model/unused.ts). After the settings, the tables of the pages built on the model, which a model's run adds
+    // (model-pages.ts), with the filters of the saved views the pages show before the custom view filters of the pages'
+    // cards: last before the map. The three tables the page shows the Imports file as stand in its place (import-files.ts).
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
-      "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv", "Processes.csv", "Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv",
+      "Saved Views.csv", "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv", "Processes.csv", "Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv",
       "In-Model Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv", "Module Usage.csv", "Saved View Filters.csv", "Page Filters.csv",
       "Page Actions.csv"]);
-    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 23, ACCESS_FILE]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 2]]).toEqual([MODEL_CALENDAR_FILE, 24, ACCESS_FILE]);
     const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
     /** The files of a result as the page lists them: each one's name and its place in the result. */
     const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);

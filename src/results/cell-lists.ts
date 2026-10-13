@@ -1,9 +1,9 @@
 import { knownNames, knownSequence, type KnownNames } from "../map/graph-names.js";
 import { MODULE_USAGE_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
-import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
+import { SAVED_VIEW_FILTERS_FILE, SAVED_VIEWS_FILE } from "../saved-view-filters.js";
 import { subsetModules } from "../model/line-item-subsets.js";
 import type { TabName } from "../report.js";
-import { readProcessActions } from "../result-plain.js";
+import { readProcessActions, readSavedViewDetails } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { UNUSED_LINE_ITEMS_FILE } from "../unused-files.js";
 import { APP_FILES, columnIndex } from "./columns.js";
@@ -208,7 +208,7 @@ const namesIn = (file: string): ListRule => (_table, result) => {
 };
 const usedInProcesses = namesIn(PROCESSES_FILE);
 
-/** The pages that show a saved view, as Used on Pages of Saved View Filters lists them (model-pages.ts): each page's name
+/** The pages that show a saved view, as Used on Pages of Saved Views lists them (model-pages.ts): each page's name
  * with its app's in brackets, with a comma and a space between them, where a page's name or an app's may hold a comma and a
  * space itself. They are cut only into the pages Module Usage lists by their App and Page, as the run names them: every
  * page that shows a saved view uses the view's module. Without that table, nothing is known to cut by. */
@@ -236,6 +236,19 @@ const processActions: ListRule = (_table, result) => {
   for (const process of readProcessActions(result.processActions) ?? []) {
     for (const step of process.actions) if (step.name !== "") names.add(step.name);
   }
+  if (!names.size) return undefined;
+  const known = knownNames(names);
+  return text => cutKnown(text, known);
+};
+
+/** The dimensions a filter of Saved View Filters filters, as the run writes them (saved-view-filters.ts `viewFilterRows`):
+ * the names the model's client gave the filtered axis's dimensions, with a comma and a space between them, where a name may
+ * hold a comma and a space itself. They are cut only into the names the result's saved views' filters give their axes'
+ * dimensions (result-types.ts `AxisFilter.dimensions`), where the cell reads only one way. Without such names, nothing is
+ * known to cut by. */
+const viewDimensions: ListRule = (_table, result) => {
+  const names = new Set((readSavedViewDetails(result.savedViewDetails) ?? []).flatMap(view => view.filters.flatMap(filter => filter.dimensions ?? []))
+    .filter(name => name !== ""));
   if (!names.size) return undefined;
   const known = knownNames(names);
   return text => cutKnown(text, known);
@@ -278,8 +291,11 @@ const moduleLineItems: ListRule = (_table, result) => {
  * result has no names of their kind to cut by: an action's Used in Dashboards, and a line item's Data Tags. A list's
  * Parent Hierarchy is one name, as are a driver and a format's list. */
 const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
-  // An app's Filters rows with their app (page-files.ts): its cells list as that table's do, column by column.
+  // An app's Filters rows with their app (page-files.ts): its cells list as that table's do, column by column. The filters
+  // of the saved views the pages show (saved-view-filters.ts) are laid out as those rows, and list as they do, and their
+  // dimensions each by its name.
   [PAGE_FILTERS_FILE]: APP_LISTS.Filters,
+  [SAVED_VIEW_FILTERS_FILE]: { ...APP_LISTS.Filters, "Filtered dimension": viewDimensions },
   [LISTS_FILE]: { Subsets: names, Properties: properties, "Referenced in Applies To": names, "Referenced as Format": names, "Referenced in Formula": names },
   "Line Item Subsets.csv": { Modules: (table, result) => {
     const ids = columnIndex(table, "Module IDs");
@@ -300,9 +316,9 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   [EXPORTS_FILE]: { "Used in Processes": usedInProcesses },
   [OTHER_ACTIONS_FILE]: { "Used in Processes": usedInProcesses },
   [CALENDAR_FILE]: { "Allowed values": joinedWith(BAR) },
-  // A saved view's filters (saved-view-filters.ts): its line items written as a cell that names objects writes them, the
+  // A saved view (saved-view-filters.ts): its filters' line items written as a cell that names objects writes them, the
   // imports and the exports that read it without quotes, and the pages that show it with their apps.
-  [SAVED_VIEW_FILTERS_FILE]: { "Filter Line Items": names, "Used on Pages": pagesShown, "Used by Imports": namesIn(IMPORTS_FILE), "Used by Exports": namesIn(EXPORTS_FILE) },
+  [SAVED_VIEWS_FILE]: { "Filter Line Items": names, "Used on Pages": pagesShown, "Used by Imports": namesIn(IMPORTS_FILE), "Used by Exports": namesIn(EXPORTS_FILE) },
 };
 
 /** File name -> header -> rule, for each kind of result. Maps, so that a file or a header with the name of an object's
