@@ -5,16 +5,17 @@ import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog, type ExportedLineItems, type ModelCatalog } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { moduleHeadings } from "./map/graph-names.js";
-import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
+import { CUSTOM_VIEW_FILTERS, FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
 import { missingCards, missingNote, namePlainly, sayMissing } from "./page-missing.js";
 import { mergePageUses, pageUsesOf } from "./page-uses.js";
 import type { EngineDetails, EngineScope } from "./model-engine.js";
 import { describePolarisRead, hasModelMap, polarisResult } from "./polaris.js";
 import { PolarisReader } from "./polaris-read.js";
 import type { Progress } from "./progress.js";
-import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from "./report.js";
+import { buildReport, HEADERS, NONE, PAGE_TYPE, viewName, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, PageUses, ResultTable } from "./result-types.js";
+import { SAVED_VIEW_FILTERS, SAVED_VIEW_FILTERS_FILE } from "./saved-view-filters.js";
 import { getJson, RestError } from "./rest.js";
 import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, seconds, stepTimes, text, type Obj } from "./util.js";
 
@@ -61,29 +62,31 @@ export const PAGE_FILTERS_HEADERS: readonly string[] = ["Condition line item's m
 export const PAGE_ACTIONS_HEADERS: readonly string[] = ["Model action name", "Action type", "App", "Page", "Card #", "Button label", "Runs automatically", "Cancel button",
   "Name source", ...PAGE_PLACE_HEADERS, "Card ID", "Action ID"];
 
-/** The three files, each with the label the page shows it under: its name without the extension, as the export's are. */
+/** The three files, each with the label the page shows it under: its name without the extension, as the export's are. Page
+ * Filters is the file's label, which the results page shows as Custom View Filters (results/result-view.ts `SHOWN_NAMES`). */
 const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Module Usage"], [PAGE_FILTERS_FILE, "Page Filters"], [PAGE_ACTIONS_FILE, "Page Actions"]];
 
-/** How to read the three tables, and what they name Missing, as the overview lists them. */
+/** How to read the three tables, and what they name Missing, as the overview lists them. The row on Page Filters is shown
+ * under the name the page gives the table, Custom View Filters, and says that name, and that of its column of Line Items. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Module Usage", "Not a Model settings grid: the pages built on this model that use each module. One row for each module and page, in the Modules "
     + "table's order, then by app and page. A page uses a module when a card on it that works on this model shows the module, a saved view of it or "
     + "one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, with a dash for its app and its page. "
     + "After them come the modules a page uses that the Modules table does not list: one that reads Missing module, with its ID, is one a card "
     + "still points at that the model no longer has, or that you cannot see. Module, App and Page are shown; page type and IDs start hidden in the column chooser. Only published pages are read, and only those you can open."],
-  ["Page Filters", "The card filters on the pages built on this model, with the columns of an app's Filters table: those of the cards that work on "
+  ["Page Filters", "Under App Usage's Page Filters, beside Saved View Filters: the card filters on the pages built on this model, the filters of a card's custom view, with the columns of an app's Filters table: those of the cards that work on "
     + "this model, sorted by the condition line item's module, then Condition line item, app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
     + "filters, the module, the dimension and the line items the grid shows, then the condition, and then where the filter is: its app, page, card "
     + "and section. Filtered line items reads All line items, or Only or All except with the line items' names, a name that holds a comma in "
     + "single quotes; for sections of different modules that share a filter, each module's in turn. The Model map uses these line items for its page filter arrows. Card and section numbers, page type and IDs start hidden in the column chooser. "
-    + `The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
+    + `The ${CUSTOM_VIEW_FILTERS} column of Line Items counts the rows that have each line item as `
     + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
     + "may be the condition of that filter. A condition line item the model doesn't have is none of them."],
   ["Page Actions", "The action buttons on the pages built on this model, with the columns of an app's Action Buttons table: those of the cards that "
     + "work on this model, sorted by Model action name, then app and page. Each row says first the model's action a button runs, by name and type, then where the button "
     + "is, by app, page and label, and then how it behaves. Card number, Name source, page type and IDs start hidden in the column chooser."],
   ["Missing", "A module, a line item, or an import, export or process that a card on a page built on this model points at, and the model doesn't "
-    + "have: deleted since the page was built, or hidden from you. Module Usage, Page Filters and Page Actions name it Missing, with its ID, such as "
+    + `have: deleted since the page was built, or hidden from you. Module Usage, ${CUSTOM_VIEW_FILTERS} and Page Actions name it Missing, with its ID, such as `
     + "Missing module (ID 102000000556), so a search for the ID finds it. Where a filter's condition line item is missing, nothing says which module "
     + `it was in, and its module reads ${MISSING_LINE_ITEMS_MODULE}. Open the page with the row's App or Page button to fix the card. A dimension or a `
     + "list that no read names shows as its ID."],
@@ -110,7 +113,44 @@ const NO_NAMES = (): Named => ({ catalog: emptyCatalog(), notes: [], failedActio
  * tables, the modules it uses, its cards that point at something the model does not have (page-missing.ts), and what its
  * cards that work on this model use of the model by name (page-uses.ts). */
 interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string>; missing: Map<string, Set<string>>;
-  uses: Omit<PageUses, "unread"> }
+  uses: Omit<PageUses, "unread">; views: { id: string; name?: string; module?: string }[] }
+
+/** A page as Used on Pages of Saved View Filters names it: by its name, with its app's in brackets. */
+const pageLabel = (page: Pick<PageRows, "app" | "page">): string => `${page.page} (${page.app})`;
+
+/** Fills Used on Pages of the Saved View Filters table (saved-view-filters.ts): for each row, the pages read whose cards
+ * that work on this model show the row's saved view, in the pages' order, each once. A card shows a view by the view's ID,
+ * which the export gave for each row (`savedViewIds`, which content.ts takes off its result); a card whose view's ID the
+ * table does not have shows the row's view where the model's names name it by the row's module and name. Without the IDs,
+ * or where they do not fit the table row for row, the column stays empty, and the log says so. The table is copied. */
+function addViewPages(result: AnalysisResult, pages: readonly PageRows[], savedViewIds: readonly string[] | undefined, progress: Progress): void {
+  const at = result.tables.findIndex(table => table.file === SAVED_VIEW_FILTERS_FILE);
+  const table = result.tables[at];
+  const column = table ? table.headers.indexOf("Used on Pages") : -1;
+  if (!table || column < 0) return;
+  if (!savedViewIds || savedViewIds.length !== table.rows.length) {
+    progress.log(`saved views on pages: the export's IDs do not fit its ${SAVED_VIEW_FILTERS} table (${savedViewIds?.length ?? 0} IDs, ${table.rows.length} rows), so no page is named`);
+    return;
+  }
+  const key = (module: string, name: string): string => JSON.stringify([module.trim(), name.trim()]);
+  const [nameAt, moduleAt] = [table.headers.indexOf("Name"), table.headers.indexOf("Module")];
+  const rowOf = new Map(savedViewIds.map((id, row) => [id, row]));
+  const named = new Map<string, number[]>();
+  table.rows.forEach((row, index) => {
+    const known = key(String(row[moduleAt] ?? ""), String(row[nameAt] ?? ""));
+    named.set(known, [...named.get(known) ?? [], index]);
+  });
+  const shown = table.rows.map(() => [] as string[]);
+  for (const page of pages) {
+    for (const view of page.views) {
+      const byName = view.module !== undefined && view.name !== undefined ? named.get(key(view.module, view.name)) : undefined;
+      const row = rowOf.get(view.id) ?? (byName?.length === 1 ? byName[0] : undefined);
+      if (row !== undefined && !shown[row].includes(pageLabel(page))) shown[row].push(pageLabel(page));
+    }
+  }
+  result.tables[at] = { ...table, rows: table.rows.map((row, index) => row.map((cell, place) => (place === column ? shown[index].join(", ") : cell))) };
+  progress.log(`saved views on pages: ${shown.filter(each => each.length).length} of the ${table.rows.length} ${SAVED_VIEW_FILTERS} rows shown on a page read`);
+}
 
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const isObj = (value: unknown): value is Obj => !!value && typeof value === "object" && !Array.isArray(value);
@@ -275,7 +315,7 @@ function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResu
  * of its Line Items table (content.ts takes them off its result): the names the cards use are then read with the line
  * items they make (`exportedLineItems`), and the modules of those are not read again. */
 export async function addModelPages(given: AnalysisResult, customerId: string | undefined, progress: Progress, signal?: AbortSignal,
-  reads: PageReads = LIVE, lineItemIds?: readonly (readonly [string, string])[]): Promise<AnalysisResult> {
+  reads: PageReads = LIVE, lineItemIds?: readonly (readonly [string, string])[], savedViewIds?: readonly string[]): Promise<AnalysisResult> {
   signal?.throwIfAborted();
   const logged: string[] = [];
   const keep = (line: string): void => {
@@ -284,7 +324,7 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
   };
   const step: Progress = { status: text => { keep(text); progress.status(text); }, log: line => { keep(line); progress.log(line); } };
   try {
-    return addLog(await withModelPages(copied(given), customerId, step, signal, reads, lineItemIds), logged);
+    return addLog(await withModelPages(copied(given), customerId, step, signal, reads, lineItemIds, savedViewIds), logged);
   } catch (error) {
     if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
     if (signal?.aborted) throw signal.reason;
@@ -301,7 +341,7 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
 /** What a model's run started of the pages built on the model, before its export came (`startModelPages`). */
 export interface ModelPagesStart {
   /** The model's result with what the pages built on it say, once its export has come, as `addModelPages` gives it. */
-  finish(given: AnalysisResult, lineItemIds?: readonly (readonly [string, string])[]): Promise<AnalysisResult>;
+  finish(given: AnalysisResult, lineItemIds?: readonly (readonly [string, string])[], savedViewIds?: readonly string[]): Promise<AnalysisResult>;
   /** The export failed, or the run was stopped: what was started is given up, and nothing more is read for it. */
   abandon(reason: unknown): void;
 }
@@ -371,7 +411,7 @@ export async function readPolarisModel(ids: EngineScope, engine: EngineDetails, 
  * the pages and the names took, and the run in all. */
 export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?: AbortSignal, reads: PageReads = LIVE): ModelPagesStart {
   const { customerId, workspaceId, modelId } = ids;
-  const after: ModelPagesStart = { finish: (given, lineItemIds) => addModelPages(given, customerId, progress, signal, reads, lineItemIds), abandon: () => undefined };
+  const after: ModelPagesStart = { finish: (given, lineItemIds, savedViewIds) => addModelPages(given, customerId, progress, signal, reads, lineItemIds, savedViewIds), abandon: () => undefined };
   if (!customerId || !SCOPE_ID.test(customerId) || !workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(modelId) || signal?.aborted) return after;
 
   const began = Date.now();
@@ -427,7 +467,7 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
   };
   return {
     abandon,
-    finish: async (given, lineItemIds) => {
+    finish: async (given, lineItemIds, savedViewIds) => {
       const exportMs = Date.now() - began;
       shown = true;
       if (held !== undefined) progress.status(held);
@@ -435,7 +475,7 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
       const [itsWorkspace, itsModel] = [modelDetail(given, "Workspace ID") ?? "", given.id];
       if (itsWorkspace.toLowerCase() !== workspaceId.toLowerCase() || itsModel.toLowerCase() !== modelId.toLowerCase()) {
         abandon(new Error("the export is of another workspace or model than the tab's address names"));
-        return after.finish(given, lineItemIds);
+        return after.finish(given, lineItemIds, savedViewIds);
       }
       scope.modelName = given.name;
       came({ given, ...(lineItemIds ? { lineItemIds } : {}) });
@@ -445,7 +485,7 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
         if ("left" in read) return addLog(leftOut(result, read.left), logged);
         const named = await namesWork;
         signal?.throwIfAborted();
-        const built = tablesOf(result, read, named, step, time, [given.name, UNTIL_NAMED]);
+        const built = tablesOf(result, read, named, step, time, [given.name, UNTIL_NAMED], savedViewIds);
         step.log(`Run: export ${seconds(exportMs)}, pages ${seconds(pagesMs)}, names ${seconds(namesMs)}, overlapped; in all ${seconds(Date.now() - began)}`);
         return addLog(built, logged);
       } catch (error) {
@@ -466,7 +506,7 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
 }
 
 async function withModelPages(result: AnalysisResult, customerId: string | undefined, progress: Progress, signal: AbortSignal | undefined,
-  reads: PageReads, lineItemIds: readonly (readonly [string, string])[] | undefined): Promise<AnalysisResult> {
+  reads: PageReads, lineItemIds: readonly (readonly [string, string])[] | undefined, savedViewIds?: readonly string[]): Promise<AnalysisResult> {
   const workspaceId = modelDetail(result, "Workspace ID");
   if (!customerId || !SCOPE_ID.test(customerId)) return leftOut(result, NO_CUSTOMER);
   if (!workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(result.id)) return leftOut(result, "the model's workspace or model ID could not be read");
@@ -484,7 +524,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
     ? await time.step("names", () => reads.loadCatalog(scope, read.pages.map(page => page.details), pageNamesOf(read), progress, signal, exported, MODEL_NAMES))
     : NO_NAMES();
   signal?.throwIfAborted();
-  return tablesOf(result, read, named, progress, time, [result.name]);
+  return tablesOf(result, read, named, progress, time, [result.name], savedViewIds);
 }
 
 /** The pages' names by their IDs, as the catalog names a page. */
@@ -564,7 +604,8 @@ async function readPagesOf(customerId: string, modelId: string, progress: Progre
  * model. The export read every module's name and ID from the model itself: a module the model data service did not name
  * is named by them. A note of the name reads that begins with the model's name (any of `names`, as the reads called it)
  * loses it here, where the model is the one the notes are about. */
-function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progress: Progress, time: ReturnType<typeof stepTimes>, names: readonly string[]): AnalysisResult {
+function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progress: Progress, time: ReturnType<typeof stepTimes>, names: readonly string[],
+  savedViewIds?: readonly string[]): AnalysisResult {
   const { entries, items, pages, unread, unpublished, appGuids, appNames, appsUnread } = read;
   const appName = (guid: string): string => appNames.get(guid.toLowerCase()) ?? guid;
   for (const [module, id] of result.moduleIds ?? []) if (!named.catalog.modules.has(id)) named.catalog.modules.set(id, module);
@@ -610,11 +651,16 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
       const module = String(kind === "Module" ? row[nameAt] : kind === "Saved view" || kind === "Line item" ? row[moduleAt] : NONE).trim();
       if (module !== "" && module !== NONE) modules.add(module);
     }
+    // The saved views its cards that work on this model show, each by the card's own reference to it (card-details.ts: a
+    // CLASSIC source that names no module), and by its module's name and its own where the model's names give them.
+    const views = (input.details?.cards ?? []).filter(card => ours.has(card.id)).flatMap(card => (card.sources ?? []).flatMap(source => (source.view
+      ? [{ id: source.view.id, ...(source.view.name && source.view.moduleName ? { name: viewName(source.view), module: source.view.moduleName } : {}) }] : [])));
     return { app, page, place, filters: kept(PAGE_FILTERS_HEADERS, HEADERS.Filters, report.Filters.rows), actions: kept(PAGE_ACTIONS_HEADERS, HEADERS.Actions, report.Actions.rows), modules,
-      missing: missingCards(report, ours), uses: pageUsesOf((input.details?.cards ?? []).filter(card => ours.has(card.id))) };
+      missing: missingCards(report, ours), uses: pageUsesOf((input.details?.cards ?? []).filter(card => ours.has(card.id))), views };
   }).sort((a, b) => byText(a.app, b.app) || byText(a.page, b.page));
   // What the pages that were read use of the model by name, for the run's tables of what nothing uses (model/unused.ts).
   result.pageUses = mergePageUses(built.map(page => page.uses), unread.length);
+  addViewPages(result, built, savedViewIds, progress);
 
   const usage = moduleUsageRows(exportedModules(result), built);
   const filters = built.flatMap(page => page.filters);
@@ -641,7 +687,7 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
     files: FILES.map(([file]): DetailRow => ["Files", file, rows(counted[file].length)]),
     notes: notes.map((note): DetailRow => ["Notes", ABOUT, note]),
     howToRead: HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail,
-      result.engine === "polaris" && !result.tables.some(table => table.file === "Line Items.csv") && detail === "Page Filters" ? value.split(`The ${FILTER_USES} column of Line Items`)[0].trimEnd() : value]),
+      result.engine === "polaris" && !result.tables.some(table => table.file === "Line Items.csv") && detail === "Page Filters" ? value.split(`The ${CUSTOM_VIEW_FILTERS} column of Line Items`)[0].trimEnd() : value]),
     ...(entries.length === 0 ? { apps: NO_APPS } : apps.length ? { apps: apps.join("\n") } : {}),
   });
   progress.log(`pages built on the model: ${pages.length} read, ${unpublished} unpublished, ${unread.length} not read; ${apps.length} apps; `

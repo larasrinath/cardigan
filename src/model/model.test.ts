@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
-import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, UNUSED_ROWS, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, SAVED_VIEW_ROWS, UNUSED_ROWS, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED,
-  LIST_IDS_ADDED, SUBSETS_READ_ADDED, MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
+  LIST_IDS_ADDED, SUBSETS_READ_ADDED, MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, SAVED_VIEWS_READ_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { engineFromColumns } from "../model-engine.js";
@@ -679,9 +679,10 @@ describe("Model export: Model settings grids to tables", () => {
     const { [LISTS]: _lists, ...withoutLists } = grids;
     const without = await exportGoldenModel(withoutLists);
     expect(csv(without, "Line Items.csv")).toEqual(csv(result, "Line Items.csv").map((row, index) => (index === 0 ? row : [...row.slice(0, 5), ""])));
-    expect([without.tables.map(table => table.file).slice(0, 4), without.summary.slice(0, 2), without.summary.slice(-3)]).toEqual([
+    expect([without.tables.map(table => table.file).slice(0, 4), without.summary.slice(0, 2), without.summary.slice(-4)]).toEqual([
       ["Model Details.csv", "Line Items.csv", "Modules.csv", "Processes.csv"], ["Line Items: 5 rows", "Modules: 2 rows"],
-      ["General Lists: not exported (The model rejected the read: no such grid.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+      ["General Lists: not exported (The model rejected the read: no such grid.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
+        "Saved View Filters: not exported (the model page's client does not list its saved views)."]]);
     expect(details(without)).toEqual(details(result).map(row => (row[1] === "General Lists.csv" ? ["Files", "General Lists.csv", "Not exported: The model rejected the read: no such grid."] : row)));
   });
 
@@ -780,11 +781,11 @@ describe("Model export: Model settings grids to tables", () => {
     // has none, and the "How to read" row stands after the one on Line Items. The "How to read" row on Source Models is
     // the last of those rows, after the one on the calendar.
     const [details, detailsBefore] = [parseCsv(written.get(MODEL_ROW_REWORDED.file)!), parseCsv(before.get(MODEL_ROW_REWORDED.file)!)];
-    const added = [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS].map(row => ({ after: parseCsv(row.after)[0], row: parseCsv(row.line)[0] }));
+    const added = [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS, SAVED_VIEW_ROWS.files, SAVED_VIEW_ROWS.howToRead].map(row => ({ after: parseCsv(row.after)[0], row: parseCsv(row.line)[0] }));
     const places = added.map(({ row }) => details.findIndex(each => each.join("\n") === row.join("\n")));
     expect(places.map(place => details[place - 1])).toEqual(added.map(({ after }) => after));
     expect(added.map(({ row }) => row.slice(0, 2))).toEqual([["Files", MODEL_FILE_ADDED.file], ["How to read", "Dynamic Cell Access"], ["How to read", "Source Models"], ["Files", "Line Item Subsets.csv"], ["How to read", "Time Ranges and Versions"], ["How to read", "General Lists"], ["How to read", "Line Item Subsets"], ["How to read", "Modules"],
-      ["How to read", "Unused Line Items"], ["How to read", "Unused Modules"]]);
+      ["How to read", "Unused Line Items"], ["How to read", "Unused Modules"], ["Files", "Saved View Filters.csv"], ["How to read", "Saved View Filters"]]);
     expect(added[0].row[2]).toBe("Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns.");
     const kept = details.filter((_, index) => !places.includes(index));
     expect(kept.length).toBe(detailsBefore.length);
@@ -805,7 +806,7 @@ describe("Model export: Model settings grids to tables", () => {
     // these rows as they are. (Anaplan's own export of a grid, which the layout is said by, is Anaplan's; and File Imports,
     // the page's table of imports of uploaded data, names what an import reads, as the owner named it.)
     const said = details.filter(row => row[0] === "How to read").map(row => row[2]);
-    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text.replace(/\bFile Imports\b/g, "")))]).toEqual([14, []]);
+    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text.replace(/\bFile Imports\b/g, "")))]).toEqual([15, []]);
     // Then every byte. The zip holds the twelve files it held, and no Dynamic Cell Access.csv; only those three have other
     // bytes than 0.6.1's.
     const [files, golden] = [zipEntries(zip), zipEntries(MODEL_ZIP_0_6_1)];
@@ -824,10 +825,11 @@ describe("Model export: Model settings grids to tables", () => {
     expect(result.summary).toEqual(["Line Items: 4 rows", "Modules: 2 rows", "General Lists: 2 rows", "Processes: 1 rows",
       "Imports: 3 rows (2 matched in the Actions list)", "Import Data Sources: 1 rows", "Exports: 1 rows", "Other Actions: 1 rows", "Time Ranges: 1 rows",
       "Versions: 2 rows", "Model Calendar: 31 rows", "Dynamic Cell Access: not exported (Line Items has no Module Name, Read Access Driver and Write Access Driver columns.).",
-      "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+      "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
+      "Saved View Filters: not exported (the model page's client does not list its saved views)."]);
     // Only Model Details.csv guards formula-like cells: a grid is written exactly as Anaplan's own export writes it.
     expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
-      ["Model Details.csv", "Model Details", true, true, 37], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
+      ["Model Details.csv", "Model Details", true, true, 39], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
       ["General Lists.csv", "General Lists", false, undefined, 2], ["Processes.csv", "Processes", false, undefined, 1], ["Imports.csv", "Imports", false, undefined, 3],
       ["Import Data Sources.csv", "Import Data Sources", false, undefined, 1], ["Exports.csv", "Exports", false, undefined, 1],
       ["Other Actions.csv", "Other Actions", false, undefined, 1], ["Time Ranges.csv", "Time Ranges", false, undefined, 1], ["Versions.csv", "Versions", false, undefined, 2],
@@ -849,6 +851,7 @@ describe("Model export: Model settings grids to tables", () => {
     const REJECTED = "The model rejected the read: no such grid.";
     const NO_SUBSETS = "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).";
     const NO_SOURCE_MODELS = "Source Models: not exported (This model page has no REMOTE_MODEL axis.).";
+    const NO_SAVED_VIEWS = "Saved View Filters: not exported (the model page's client does not list its saved views).";
     // Dynamic Cell Access is made from Line Items, and is no grid: nothing is read for it. This model gets none: its
     // Line Items grid has none of the three columns the file is made from, and without Line Items there is nothing to
     // make it from. The file's row of the Details file and its note stand right after those of Line Items all the same,
@@ -872,39 +875,39 @@ describe("Model export: Model settings grids to tables", () => {
       reads: ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333"],
       zip: ["Model Details.csv", "Line Items.csv", "Modules.csv", "General Lists.csv"],
       files: ["Line Items.csv: 4 rows", `Dynamic Cell Access.csv: Not exported: ${NO_DRIVER_COLUMNS}`, "Modules.csv: 2 rows", "General Lists.csv: 2 rows"],
-      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, NO_SUBSETS, NO_SOURCE_MODELS] });
+      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, NO_SUBSETS, NO_SOURCE_MODELS, NO_SAVED_VIEWS] });
     // A grid that cannot be read is tried in its turn, its row of the Details file stands where its file would, and the
     // other two files are exported, Line Items first whenever it was read.
     expect(await exported(LISTS)).toEqual({
       reads: ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333"],
       zip: ["Model Details.csv", "Line Items.csv", "Modules.csv", "Processes.csv"],
       files: ["Line Items.csv: 4 rows", `Dynamic Cell Access.csv: Not exported: ${NO_DRIVER_COLUMNS}`, "Modules.csv: 2 rows", `General Lists.csv: Not exported: ${REJECTED}`],
-      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, `General Lists: not exported (${REJECTED}).`, NO_SUBSETS, NO_SOURCE_MODELS] });
+      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, `General Lists: not exported (${REJECTED}).`, NO_SUBSETS, NO_SOURCE_MODELS, NO_SAVED_VIEWS] });
     expect(await exported(MODULES)).toEqual({
       reads: ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333"],
       zip: ["Model Details.csv", "Line Items.csv", "General Lists.csv", "Processes.csv"],
       files: ["Line Items.csv: 4 rows", `Dynamic Cell Access.csv: Not exported: ${NO_DRIVER_COLUMNS}`, `Modules.csv: Not exported: ${REJECTED}`, "General Lists.csv: 2 rows"],
-      summary: ["Line Items: 4 rows", "General Lists: 2 rows"], notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, `Modules: not exported (${REJECTED}).`, NO_SUBSETS, NO_SOURCE_MODELS] });
+      summary: ["Line Items: 4 rows", "General Lists: 2 rows"], notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, `Modules: not exported (${REJECTED}).`, NO_SUBSETS, NO_SOURCE_MODELS, NO_SAVED_VIEWS] });
     expect(await exported(MODULES, LISTS)).toEqual({
       reads: ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333"],
       zip: ["Model Details.csv", "Line Items.csv", "Processes.csv", "Imports.csv"],
       files: ["Line Items.csv: 4 rows", `Dynamic Cell Access.csv: Not exported: ${NO_DRIVER_COLUMNS}`, `Modules.csv: Not exported: ${REJECTED}`, `General Lists.csv: Not exported: ${REJECTED}`],
       summary: ["Line Items: 4 rows", "Processes: 1 rows"],
-      notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, `Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`, NO_SUBSETS, NO_SOURCE_MODELS] });
+      notes: [`Dynamic Cell Access: not exported (${NO_DRIVER_COLUMNS}).`, `Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`, NO_SUBSETS, NO_SOURCE_MODELS, NO_SAVED_VIEWS] });
     // Without Line Items the file says so, after the row and the note that say why Line Items was not exported.
     expect(await exported(LINE_ITEMS)).toEqual({
       reads: ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333"],
       zip: ["Model Details.csv", "Modules.csv", "General Lists.csv", "Processes.csv"],
       files: [`Line Items.csv: Not exported: ${REJECTED}`, `Dynamic Cell Access.csv: Not exported: ${NO_LINE_ITEMS}`, "Modules.csv: 2 rows", "General Lists.csv: 2 rows"],
       summary: ["Modules: 2 rows", "General Lists: 2 rows"],
-      notes: [`Line Items: not exported (${REJECTED}).`, `Dynamic Cell Access: not exported (${NO_LINE_ITEMS}).`, NO_SUBSETS, NO_SOURCE_MODELS] });
+      notes: [`Line Items: not exported (${REJECTED}).`, `Dynamic Cell Access: not exported (${NO_LINE_ITEMS}).`, NO_SUBSETS, NO_SOURCE_MODELS, NO_SAVED_VIEWS] });
     expect(await exported(LINE_ITEMS, MODULES, LISTS)).toEqual({
       reads: ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333"],
       zip: ["Model Details.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv"],
       files: [`Line Items.csv: Not exported: ${REJECTED}`, `Dynamic Cell Access.csv: Not exported: ${NO_LINE_ITEMS}`, `Modules.csv: Not exported: ${REJECTED}`, `General Lists.csv: Not exported: ${REJECTED}`],
       summary: ["Processes: 1 rows", "Imports: 3 rows (2 matched in the Actions list)"],
       notes: [`Line Items: not exported (${REJECTED}).`, `Dynamic Cell Access: not exported (${NO_LINE_ITEMS}).`, `Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`,
-        NO_SUBSETS, NO_SOURCE_MODELS] });
+        NO_SUBSETS, NO_SOURCE_MODELS, NO_SAVED_VIEWS] });
   });
 
   it("says in a note which of its columns the Actions list came without, and that the diagnostic log lists the columns it had", async () => {
@@ -939,15 +942,17 @@ describe("Model export: Model settings grids to tables", () => {
     // right after it.
     expect(result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 4).map(row => `${row[1]}: ${row[2]}`))
       .toEqual(["Line Items.csv: Not exported: no table", "Dynamic Cell Access.csv: Not exported: Line Items was not exported.", "Modules.csv: 2 rows", "General Lists.csv: 2 rows"]);
-    expect([result.summary.slice(0, 2), result.summary.slice(-4)]).toEqual([["Modules: 2 rows", "General Lists: 2 rows"],
-      ["Line Items: not exported (no table).", "Dynamic Cell Access: not exported (Line Items was not exported.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+    expect([result.summary.slice(0, 2), result.summary.slice(-5)]).toEqual([["Modules: 2 rows", "General Lists: 2 rows"],
+      ["Line Items: not exported (no table).", "Dynamic Cell Access: not exported (Line Items was not exported.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
+        "Saved View Filters: not exported (the model page's client does not list its saved views)."]]);
     // Its note stands first too, before the note of a file that could not be read after it.
     const { "MODULES × MODULE PROPERTIES": _modules, ...withoutModules } = GOLDEN_GRIDS;
     const both = await exportGoldenModel(withoutModules);
     expect(both.tables[0].rows.filter(row => row[0] === "Files").slice(0, 4).map(row => `${row[1]}: ${row[2]}`)).toEqual(["Line Items.csv: Not exported: no table",
       "Dynamic Cell Access.csv: Not exported: Line Items was not exported.", "Modules.csv: Not exported: The model rejected the read: no such grid.", "General Lists.csv: 2 rows"]);
     expect(both.summary.filter(line => line.includes("not exported"))).toEqual(["Line Items: not exported (no table).", "Dynamic Cell Access: not exported (Line Items was not exported.).",
-      "Modules: not exported (The model rejected the read: no such grid.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+      "Modules: not exported (The model rejected the read: no such grid.).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
+      "Saved View Filters: not exported (the model page's client does not list its saved views)."]);
   });
 
   it("writes Dynamic Cell Access.csv right after Line Items.csv for a model that drives access, and otherwise the zip 0.8.1 wrote for the same model, byte for byte but for the Action List column of Other Actions.csv and the rows of Model Details.csv that are named", async () => {
@@ -972,9 +977,9 @@ describe("Model export: Model settings grids to tables", () => {
     // three lines more, and the file in its place with the text it is to have.
     const [written, before] = [unzipText(zip), unzipText(ACCESS_ZIP_0_8_1)];
     // Names now finish after the existing calendar read supplies its period choices. Only these seven log lines move: each
-    // import's three, and the count of what was read.
+    // import's three, and the count of what was read. The saved views' step comes after them, last (SAVED_VIEWS_READ_ADDED).
     const afterCalendar = (lines: string[]): string[] => {
-      const finishesMapping = (line: string) => /Import mapping 11200000000[12]:|Import mappings: 2 of 2 read;/.test(line);
+      const finishesMapping = (line: string) => /Import mapping 11200000000[12]:|Import mappings: 2 of 2 read;|Reading saved views' filters…|Saved View Filters: the model page's client/.test(line);
       return [...lines.filter(line => !finishesMapping(line)), ...lines.filter(finishesMapping)];
     };
     const calendarCsv = (csv: string): string => afterCalendar(csv.trimEnd().split("\r\n")).join("\r\n") + "\r\n";
@@ -991,9 +996,9 @@ describe("Model export: Model settings grids to tables", () => {
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
     const paged = details.filter(row => row.startsWith("Diagnostics\n") && PAGE_TIME.test(row.split("\n")[2] ?? ""));
     const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, MAPPINGS_ADDED.rows,
-      PROCESSES_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
+      PROCESSES_ADDED.rows, SAVED_VIEW_ROWS.files, SAVED_VIEW_ROWS.howToRead, SAVED_VIEWS_READ_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 40, detailsBefore.length, 40, 11]);
+    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 44, detailsBefore.length, 44, 11]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
@@ -1064,9 +1069,10 @@ describe("Model export: Model settings grids to tables", () => {
      * summary says of the file, and how many steps and lines the export reported. A file that is written is held against
      * the model map of the result's tables on the way: its rows are that map's access links, and what it could not match. */
     /** How many steps and lines the export reports of this model: 0.8.1's, those on the modules' and the lists' IDs, on the
-     * imports' definitions and on the processes' definitions, and one on the time it took after each of the eleven grids
-     * with rows, each of them one page. */
-    const STEPS = 23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + SUBSETS_READ_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11;
+     * imports' definitions, on the processes' definitions and on the saved views' filters, and one on the time it took after
+     * each of the eleven grids with rows, each of them one page. */
+    const STEPS = 23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + SUBSETS_READ_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length
+      + SAVED_VIEWS_READ_ADDED.said.length + 11;
     const exported = async (lineItems: FakeGrid) => {
       const said: string[] = [];
       const result = await exportGoldenModel({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS, [LINE_ITEMS]: lineItems }, [], said);
@@ -1203,8 +1209,9 @@ describe("Model export: Model settings grids to tables", () => {
     expect(result.tables.map(table => table.file)).toEqual(whole.tables.map(table => table.file).filter(name => name !== "Dynamic Cell Access.csv"));
     expect(result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`))
       .toEqual(["Line Items.csv: 16 rows", "Dynamic Cell Access.csv: Not exported: no table", "Modules.csv: 5 rows"]);
-    expect([result.summary.slice(0, 2), result.summary.slice(-3)]).toEqual([["Line Items: 16 rows", "Modules: 5 rows"],
-      ["Dynamic Cell Access: not exported (no table).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+    expect([result.summary.slice(0, 2), result.summary.slice(-4)]).toEqual([["Line Items: 16 rows", "Modules: 5 rows"],
+      ["Dynamic Cell Access: not exported (no table).", "Line Item Subsets: not exported (This model page has no LINE_ITEM_SUBSET axis.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
+        "Saved View Filters: not exported (the model page's client does not list its saved views)."]]);
     // Every other file is the one the export writes when the table is made, cell for cell: no file depends on this one.
     for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(whole.tables.find(other => other.file === table.file));
     // The reason is in the Details file's row and, as any other file's failure is, in the log: one line more, after
@@ -1212,7 +1219,8 @@ describe("Model export: Model settings grids to tables", () => {
     // The steps and lines are 0.8.1's, with those on the modules' and the lists' IDs (MODULE_IDS_ADDED, LIST_IDS_ADDED), on
     // the imports' definitions (MAPPINGS_ADDED) and on the processes' definitions (PROCESSES_ADDED), and after each grid's
     // line that of the time its one page took, eleven in all.
-    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + SUBSETS_READ_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11,
+    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + SUBSETS_READ_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length
+      + SAVED_VIEWS_READ_ADDED.said.length + 11,
       [...said, "12:30:10 Dynamic Cell Access: no table"]]);
     expect([said.filter(line => PAGE_TIME.test(line)).length, withPageTimes(said.filter(line => !PAGE_TIME.test(line)))]).toEqual([11, said]);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics").at(-1)).toEqual(["Diagnostics", "12:30:10", "Dynamic Cell Access: no table"]);
@@ -1289,12 +1297,23 @@ const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS
  * each stamped as it is said, a step as a line, and all of them together the log the export is given for its Details file.
  * `client` can keep every request the page's client is given to send (`posted`), and make the requests its generator
  * makes (`request`), where they are not the reads it makes otherwise. `refuse` is given each read as `reads` is, and
- * where it gives an answer, the model answers that read with it instead. */
+ * where it gives an answer, the model answers that read with it instead. The page's client can hold more in its cache
+ * (`cache`), as its saved views; a read of a saved view's definition, by its reference, is answered by `views`, and is
+ * one of `reads` as "VIEW" and its ID. `dirty` says, before each read, whether the page has requests of its own in flight,
+ * given the reads so far: a test that says so moves the clock past the page's wait. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = [], said?: string[], client: { posted?: any[]; request?: (params: any) => unknown; refuse?: (read: string) => unknown } = {}) {
+async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = [], said?: string[], client: { posted?: any[]; request?: (params: any) => unknown;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
+  refuse?: (read: string) => unknown; cache?: Record<string, unknown>; views?: (id: number) => any; dirty?: (reads: readonly string[]) => boolean } = {}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aggregator = { isDirty: () => client.dirty?.(reads) ?? false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
     client.posted?.push(request);
+    const reference = request.viewRequests?.[0]?.viewReference?.entityDefaultViewEntityLongId;
+    if (reference !== undefined) {
+      reads.push(`VIEW ${reference}`);
+      queueMicrotask(() => ok(client.views?.(reference) ?? { error: "no such view" }));
+      return true;
+    }
     const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
     reads.push(`${viewDefinition.rowAxis} ${startRow}+${rowCount}`);
     const refusal = client.refuse?.(reads.at(-1)!);
@@ -1318,13 +1337,17 @@ async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS,
   } };
   const cache = { getModelName: () => "Demand: plan", getAllCurrenciesLabelPage: () => undefined,
     getActionInfo: (id: number) => (Math.floor(id / 1e9) === 31 ? null : { id }), getTimescaleInfo: () => ({ calendarTypeEntityIndex: 3 }),
-    getApplicationPropertyEnabledOrNotSet: () => true };
+    getApplicationPropertyEnabledOrNotSet: () => true, ...client.cache };
   const helper = { getAxesForViewDefinition: (rowAxes: string[], columnAxes: string[]) => ({ rowAxis: rowAxes[0], columnAxis: columnAxes[0] }) };
   const constants = { ...Object.fromEntries(Object.entries(GOLDEN_AXES).map(([name, value]) => [`SYSTEM_AXIS_IDENTIFIER_${name}_IDENTIFIER`, value])),
     CALENDAR_TYPE_WEEKS_GENERAL_ENTITY_INDEX: 1, CALENDAR_TYPE_THIRTEEN_FOUR_WEEK_PERIODS_ENTITY_INDEX: 2, FEATURE_FLAGS: { TIME_SUMMARY: "timeSummary" } };
   const axisHelper = { getModuleSystemAxisIdentifier: () => "MODULE PROPERTIES", getHierarchySystemAxisIdentifier: () => "LIST PROPERTIES",
     getActionSystemAxisIdentifier: () => "ACTION PROPERTIES" };
-  class RequestGenerator { getRequest(params: unknown) { return client.request?.(params) ?? { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
+  // A read of a saved view's definition is made as the client's generator makes it: one view request, of empty page lists.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const viewRequests = (params: any) => (params?.viewReference ? { viewRequests: [{ dataPageRequests: [], rowLabelPageRequests: [], columnLabelPageRequests: [],
+    cellSelectorLabelsRequired: params.cellSelectorLabelsRequired, viewReference: params.viewReference }] } : {});
+  class RequestGenerator { getRequest(params: unknown) { return client.request?.(params) ?? { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params, ...viewRequests(params) }; } }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   class DataPage extends FakePage { constructor({ page }: any) { super(page); } }
   vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", workspaceName: "Workspace one", modelId: "FEDCBA9876543210FEDCBA9876543210",
@@ -1841,5 +1864,117 @@ describe("A grid the model refuses part of", () => {
     expect(result.listIds).toHaveLength(1399);
     // Line Items was read whole: the result says no rows of it were refused.
     expect([Object.hasOwn(result, "lineItemsRefused"), result.lineItemColumns]).toEqual([false, ["Formula", "Summary", "Notes"]]);
+  });
+});
+
+describe("The saved views' filters, read after every grid", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  /** Two saved views of the golden model's Profitability module, in the page's cache: one with a filter on its rows, one
+   * without. */
+  const VIEWS = { getViewsLabelPage: () => ({ start: 0, count: 2, entityLongIds: [[105000000001, 105000000002]], labels: [["High margin", "Everything"]] }),
+    getViewsInfo: () => ({ moduleEntityLongIds: [102000000001, 102000000001] }) };
+  const filtered = { rowAxisSpecification: { axisDefinition: { sortAndFilterDefinition: { isActive: true, filterMatchType: "ALL",
+    filterConditions: [{ lineItemIdentifier: "_1901000000003_", contextIdentifiers: [], comparisonOperator: "GREATER_THAN", comparisonValue: "0.2", comparisonMultiValueOR: null,
+      comparisonDataType: "NUMBER" }],
+    filterConditionInfos: [{ lineItemLabelPage: { count: 1, entityLongIds: [[1901000000003]], labels: [["Margin %"]] }, contextLabelPage: { count: 0, labels: [[]] },
+      comparisonValuesLabelPage: { count: 0, labels: [[]] } }] } } }, columnAxisSpecification: { axisDefinition: {} }, pageAxisSpecifications: [] };
+  const answer = (id: number) => ({ result: { viewRequestResults: [{ pageInfo: id === 105000000001 ? filtered : { rowAxisSpecification: {}, columnAxisSpecification: {} },
+    viewDefinition: {}, rowCount: 3, columnCount: 2, dataPages: [], rowLabelPages: [], columnLabelPages: [] }] } });
+
+  it("are a step of their own, once every grid is read: one view's definition at a time, asking for no page, and the result carries the table, its details and the map's conditions", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [reads, said, posted]: [string[], string[], any[]] = [[], [], []];
+    const result = await exportGoldenModel(GOLDEN_GRIDS, reads, said, { cache: VIEWS, views: answer, posted });
+    // After every grid, the calendar the last of them, each view in the page's order.
+    expect(reads.slice(-3)).toEqual(["CALENDAR 0+1333", "VIEW 105000000001", "VIEW 105000000002"]);
+    const views = posted.filter(request => request.viewRequests);
+    expect(views.map(request => [request.viewRequests.length, request.viewRequests[0].dataPageRequests, request.viewRequests[0].rowLabelPageRequests,
+      request.viewRequests[0].columnLabelPageRequests, request.params.pageRequests])).toEqual([[1, [], [], [], []], [1, [], [], [], []]]);
+    // The step, its line on the views, and nothing more said of it.
+    const step = said.findIndex(line => line.endsWith("Reading saved views' filters…"));
+    expect(said.slice(step).map(line => line.slice(9))).toEqual(["Reading saved views' filters…", "Saved views: 2; filters read for 2, 1 with a filter; 0 refused; in 0.00 s"]);
+    const table = result.tables.find(each => each.file === "Saved View Filters.csv");
+    expect([table?.label, table?.headers, table?.rows]).toEqual(["Saved View Filters",
+      ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"],
+      [["High margin", "Profitability", "Rows: Margin % > 0.2", "Profitability.Margin %", "", "", "", "Yes"]]]);
+    expect([result.summary.includes("Saved View Filters: 1 rows"), result.tables[0].rows.find(row => row[1] === "Saved View Filters.csv")])
+      .toEqual([true, ["Files", "Saved View Filters.csv", "1 rows"]]);
+    expect([result.savedViewIds, result.savedViewFilters, result.savedViewDetails?.map(view => [view.name, view.read, view.filters.length])]).toEqual([["105000000001"],
+      [{ view: "High margin", module: "Profitability", axis: "Rows", lineItem: "Margin %", lineItemModule: "Profitability", active: true, valid: true }], [["High margin", true, 1]]]);
+    // They come through the trip to the content script as plain data.
+    const plain = plainResult(JSON.parse(JSON.stringify(result)));
+    expect([plain?.savedViewIds, plain?.savedViewFilters, plain?.savedViewDetails]).toEqual([result.savedViewIds, result.savedViewFilters, result.savedViewDetails]);
+  });
+
+  it("are listed as not read, the table kept, where the model refuses a view; and not exported, with why, where the page's client lists none", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const said: string[] = [];
+    const refused = await exportGoldenModel(GOLDEN_GRIDS, [], said, { cache: VIEWS, views: id => (id === 105000000001 ? { error: "View not available" } : answer(id)) });
+    expect(refused.tables.find(each => each.file === "Saved View Filters.csv")?.rows.map(row => [row[0], row[2], row[7]])).toEqual([["High margin", "", "No"]]);
+    expect(said.map(line => line.slice(9)).filter(line => line.startsWith("Saved view"))).toEqual(["Saved view 105000000001: refused (View not available)",
+      "Saved views: 2; filters read for 1, 0 with a filter; 1 refused; in 0.00 s"]);
+    expect(refused.summary).toContain("Saved View Filters: 1 of the 2 saved views could not be read, so their filters are not known: Definition read says No in their rows, and the diagnostic log says why.");
+    const unlisted = await exportGoldenModel(GOLDEN_GRIDS, [], [], { cache: { getViewsLabelPage: "not a function" } });
+    expect([unlisted.tables.some(each => each.file === "Saved View Filters.csv"), Object.hasOwn(unlisted, "savedViewDetails"),
+      unlisted.tables[0].rows.find(row => row[1] === "Saved View Filters.csv")]).toEqual([false, false,
+      ["Files", "Saved View Filters.csv", "Not exported: the model page's client does not list its saved views"]]);
+  });
+});
+
+describe("A grid the page is too busy to read", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  const BUSY_LINE = "Line Items: the model page was busy; reading it again after the other tables";
+  const BUSY = "The model page is busy; try again when it is idle.";
+  /** The page has requests of its own in flight before the first read of all, Line Items', and, with `again`, once every
+   * other grid is read: each time past the page's wait of 15 seconds, which the clock moves on by. */
+  const dirty = (again: boolean) => {
+    let first = true;
+    return (reads: readonly string[]): boolean => {
+      const busy = (first && reads.length === 0) || (again && reads.at(-1) === "CALENDAR 0+1333");
+      first = false;
+      if (busy) vi.setSystemTime(Date.now() + 16_000);
+      return busy;
+    };
+  };
+
+  it("is read once more once the others are read, and its file keeps its place: Line Items first, with what is made of it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [reads, said]: string[][] = [[], []];
+    const result = await exportGoldenModel(GOLDEN_GRIDS, reads, said, { dirty: dirty(false) });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const golden = await exportGoldenModel();
+    // Not read at first, and read once more after the calendar, the last grid.
+    expect([reads[0], reads.filter(read => read.startsWith("LINE ITEMS")), reads.at(-1)]).toEqual(["MODULES 0+1333", ["LINE ITEMS 0+1333"], "LINE ITEMS 0+1333"]);
+    const lines = said.map(line => line.slice(9));
+    expect(lines.slice(2, 4)).toEqual(["Reading Line Items…", BUSY_LINE]);
+    const again = lines.lastIndexOf("Reading Line Items…");
+    expect(lines.slice(again, again + 2)).toEqual(["Reading Line Items…", "Line Items: 4 rows × 3 columns; columns: Formula | Summary | Notes"]);
+    // The result is the one a page that was never busy gives, file for file, its Line Items first; and so are the modules'
+    // IDs, which Line Items' rows give with the Modules grid, and the IDs of its rows.
+    expect(result.tables.map(table => table.file)).toEqual(golden.tables.map(table => table.file));
+    for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(golden.tables.find(other => other.file === table.file));
+    expect([result.summary, result.moduleIds, result.lineItemIds, result.lineItemColumns]).toEqual([golden.summary, golden.moduleIds, golden.lineItemIds, golden.lineItemColumns]);
+    expect(result.tables[0].rows.filter(row => row[0] === "Files")).toEqual(golden.tables[0].rows.filter(row => row[0] === "Files"));
+  });
+
+  it("fails as any grid does where the page is busy again, in its own place, and a refusal by the model is not read again", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [reads, said]: string[][] = [[], []];
+    const busy = await exportGoldenModel(GOLDEN_GRIDS, reads, said, { dirty: dirty(true) });
+    expect(reads.filter(read => read.startsWith("LINE ITEMS"))).toEqual([]);
+    expect(said.map(line => line.slice(9)).filter(line => line.startsWith("Line Items"))).toEqual([BUSY_LINE, `Line Items: ${BUSY}`]);
+    expect(busy.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`))
+      .toEqual([`Line Items.csv: Not exported: ${BUSY}`, "Dynamic Cell Access.csv: Not exported: Line Items was not exported.", "Modules.csv: 2 rows"]);
+    expect(busy.summary.filter(line => line.includes("not exported")).slice(0, 2)).toEqual([`Line Items: not exported (${BUSY}).`, "Dynamic Cell Access: not exported (Line Items was not exported.)."]);
+    // A refusal is the grid's failure at once: one read, and nothing said of a busy page.
+    const [refusedReads, refusedSaid]: string[][] = [[], []];
+    const refused = await exportGoldenModel(GOLDEN_GRIDS, refusedReads, refusedSaid, { refuse: read => (read.startsWith("LINE ITEMS") ? { error: "No access" } : undefined) });
+    expect([refusedReads.filter(read => read.startsWith("LINE ITEMS")), refusedSaid.some(line => line.endsWith(BUSY_LINE)), refused.summary.find(line => line.startsWith("Line Items"))])
+      .toEqual([["LINE ITEMS 0+1333"], false, "Line Items: not exported (The model rejected the read: No access.)."]);
   });
 });

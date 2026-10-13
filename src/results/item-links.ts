@@ -1,6 +1,7 @@
 import { splitOutside, unquote } from "../map/graph-names.js";
 import { missingIn, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { ResultTable } from "../result-types.js";
+import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { Items } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
@@ -89,6 +90,13 @@ const objectNamed: Resolver = (item, row, table, tables) => {
   return module && sibling ? undefined : module ?? sibling;
 };
 
+/** A line item, by its module's name and its own, behind a dot, as Filter Line Items of Saved View Filters writes one; a
+ * name alone is a line item whose module is not known, which names no row. */
+const lineItemNamed: Resolver = (item, _row, _table, tables) => {
+  const parts = splitOutside(item, ".").map(unquote);
+  return parts.length === 2 ? oneRow(tables, LINE_ITEMS_FILE, parts[1], parts[0]) : undefined;
+};
+
 /** A module's own line item, by its name alone: the row's module is the module the details are of. */
 const ownLineItem: Resolver = (item, row, _table, tables) => oneRow(tables, LINE_ITEMS_FILE, item, cellText(row[0]));
 
@@ -148,6 +156,7 @@ const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Ob
   [PAGE_FILTERS_FILE]: { "Condition line item's module": rowNamed(MODULES_FILE), "Condition line item": lineItemIn("Condition line item's module"),
     "Filtered module": rowNamed(MODULES_FILE), "Filtered dimension": rowNamed(LISTS_FILE) },
   [PAGE_ACTIONS_FILE]: { "Model action name": pageAction },
+  [SAVED_VIEW_FILTERS_FILE]: { Module: rowNamed(MODULES_FILE), "Filter Line Items": lineItemNamed, "Used by Imports": rowNamed(IMPORTS_FILE), "Used by Exports": rowNamed("Exports.csv") },
 }).map(([file, columns]) => [file, new Map(Object.entries(columns))]));
 
 /** For each item of a cell of `row`, in the cell's order, the row it names, or nothing for an item that is no row the

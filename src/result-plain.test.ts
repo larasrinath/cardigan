@@ -111,6 +111,30 @@ describe("A result as plain data", () => {
     expect(plainResult(model)).toEqual(model);
   });
 
+  it("keeps a model's saved views' filters, their conditions for the map and their IDs, every field checked, and leaves each out whole where anything is not as it should be", () => {
+    const model = { ...result, kind: "model" as const };
+    const condition = { lineItem: "Active?", lineItemModule: "SYS01 Flags", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: ["SCN042:Spring Launch"], valid: true };
+    const savedViewDetails = [{ name: "Open items", module: "REV01 Revenue", read: true, filters: [{ axis: "Pages", dimension: "Version", active: false, match: "any",
+      conditions: [condition, { ...condition, lineItemModule: undefined, lineItem: "Missing line item (ID 2000000099)", valid: false }] }] },
+    { name: "Refused", module: "REV01 Revenue", read: false, filters: [] }];
+    const savedViewFilters = [{ view: "Open items", module: "REV01 Revenue", axis: "Pages", lineItem: "Active?", lineItemModule: "SYS01 Flags", active: false, valid: true }];
+    const savedViewIds = ["105000000001", "105000000002"];
+    const read = plainResult(JSON.parse(JSON.stringify({ ...model, savedViewDetails: savedViewDetails.map(view => ({ ...view, extra: "<b>" })), savedViewFilters, savedViewIds })));
+    expect(read).toEqual({ ...model, savedViewDetails: JSON.parse(JSON.stringify(savedViewDetails)), savedViewFilters, savedViewIds });
+    // Each field is checked on its own: anything amiss leaves that field out, and the result is read all the same.
+    for (const odd of [[{ ...savedViewDetails[0], read: "yes" }], [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], axis: "Diagonal" }] }],
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], match: "some" }] }],
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], conditions: [{ ...condition, values: [1] }] }] }], "Open items", null]) {
+      expect(plainResult({ ...model, savedViewDetails: odd, savedViewFilters, savedViewIds }), JSON.stringify(odd)).toEqual({ ...model, savedViewFilters, savedViewIds });
+    }
+    for (const odd of [[{ ...savedViewFilters[0], axis: "rows" }], [{ ...savedViewFilters[0], lineItemModule: undefined }], [{ ...savedViewFilters[0], active: 1 }], {}]) {
+      expect(plainResult({ ...model, savedViewFilters: odd }), JSON.stringify(odd)).toEqual(model);
+    }
+    for (const odd of [["105000000001", "x1"], [105000000001], "105000000001"]) expect(plainResult({ ...model, savedViewIds: odd }), JSON.stringify(odd)).toEqual(model);
+    // An app's result has none; a model's that an earlier version kept has none either, and is read all the same.
+    expect(plainResult({ ...result, savedViewDetails, savedViewFilters, savedViewIds })).toEqual(result);
+  });
+
   it("keeps a model's mappings of its imports from a file, every field checked, and leaves them out whole where anything is not as it should be", () => {
     const importMappings = [
       { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1, text: "Division Name" },

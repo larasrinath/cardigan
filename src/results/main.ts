@@ -34,6 +34,8 @@ import {
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, lineItemsView, MODULE_NAME } from "./line-items-view.js";
 import { subsetOfRow } from "./line-item-subsets-view.js";
+import { savedViewOfRow } from "./saved-view-filters-view.js";
+import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
 import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, startColumns, startText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type StartColumns,
@@ -1343,13 +1345,31 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = t
     drawerItems.push(to);
     return drawerItems.length - 1;
   });
+  // A saved view's filters: each condition's line item opens its row of Line Items, where the page has one.
+  const view = savedViewOfRow(result, entry.table, row);
+  const filterOpens = view?.filters.map(filter => filter.conditions.map(condition => {
+    const to = condition.lineItemModule === undefined ? undefined : rowOfLineItem(condition.lineItemModule, condition.lineItem);
+    if (!to) return undefined;
+    drawerItems.push(to);
+    return drawerItems.length - 1;
+  }));
   const source = sourceModelOfRow(result, entry.table, row);
   if (!source) noteNoSources(entry.table, row);
   const columns = entry.columns.map(column => ({ ...column, hidden: entry.hidden.has(column.index) }));
   openDrawer(name, rowDrawerSubHtml(tableLabel(entry.table)),
     rowDrawerHtml(columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
       process && { view: process, opens: drawerSteps.map(Boolean) }, opens, source && sourceOpens(source),
-      subset && { view: subset, modules: subsetModules!, members: opens.get(subset.namesColumn) ?? [] }), opener);
+      subset && { view: subset, modules: subsetModules!, members: opens.get(subset.namesColumn) ?? [] }, view && { view, opens: filterOpens ?? [] }), opener);
+}
+/** The one row of the page's Line Items table of a line item, by its module's name and its own; none where no row, or more
+ * than one, has them. */
+function rowOfLineItem(module: string, name: string): { entry: Shown; row: Row } | undefined {
+  const entry = shownOf(LINE_ITEMS_FILE);
+  const moduleAt = entry && columnIndex(entry.table, MODULE_NAME);
+  if (!entry || moduleAt === undefined) return undefined;
+  const named = rowNameIndex(entry.table) ?? 0;
+  const found = entry.table.rows.filter(row => cellText(row[named]).trim() === name.trim() && cellText(row[moduleAt]).trim() === module.trim());
+  return found.length === 1 ? { entry, row: found[0] } : undefined;
 }
 /** What a source model's details link to: each of its objects, its own row of Import Data Sources, by its place there,
  * which the page's table keeps; each import, the one row of Imports of its name. Each is kept in `drawerItems` after
@@ -1678,7 +1698,7 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   };
   if (file === LINE_ITEMS_FILE) inModel("module", cell(MODULE_NAME), "Model");
   if (file === MODULES_FILE || file === MODULE_USAGE_FILE) inModel("module", cellText(row[0]).trim(), "Model");
-  if (file === UNUSED_LINE_ITEMS_FILE || file === UNUSED_MODULES_FILE) inModel("module", cell("Module"), "Model");
+  if (file === UNUSED_LINE_ITEMS_FILE || file === UNUSED_MODULES_FILE || file === SAVED_VIEW_FILTERS_FILE) inModel("module", cell("Module"), "Model");
   if (file === LISTS_FILE) inModel("list", cellText(row[0]).trim(), "Model");
   if (file === PAGE_FILTERS_FILE) {
     const [condition, filtered] = [cell("Condition line item's module"), cell("Filtered module")];

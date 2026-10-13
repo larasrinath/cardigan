@@ -1,5 +1,6 @@
 import { knownNames, knownSequence, type KnownNames } from "../map/graph-names.js";
-import { PAGE_FILTERS_FILE } from "../page-files.js";
+import { MODULE_USAGE_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
 import { subsetModules } from "../model/line-item-subsets.js";
 import type { TabName } from "../report.js";
 import { readProcessActions } from "../result-plain.js";
@@ -207,6 +208,18 @@ const namesIn = (file: string): ListRule => (_table, result) => {
 };
 const usedInProcesses = namesIn(PROCESSES_FILE);
 
+/** The pages that show a saved view, as Used on Pages of Saved View Filters lists them (model-pages.ts): each page's name
+ * with its app's in brackets, with a comma and a space between them, where a page's name or an app's may hold a comma and a
+ * space itself. They are cut only into the pages Module Usage lists by their App and Page, as the run names them: every
+ * page that shows a saved view uses the view's module. Without that table, nothing is known to cut by. */
+const pagesShown: ListRule = (_table, result) => {
+  const usage = result.tables.find(table => table.file === MODULE_USAGE_FILE);
+  const [app, page] = usage ? [columnIndex(usage, "App"), columnIndex(usage, "Page")] : [undefined, undefined];
+  if (!usage || app === undefined || page === undefined) return undefined;
+  const known = knownNames(new Set(usage.rows.map(row => `${cellText(row[page])} (${cellText(row[app])})`)));
+  return text => cutKnown(text, known);
+};
+
 /** A process's actions, as the page lists them after its name in the Processes table (result-view.ts `processesRule`):
  * the actions' names without quotes, with a comma and a space between them, where a name may hold a comma and a space
  * itself. They are cut only into names the result has for actions: the names of the rows of Imports, Exports and Other
@@ -287,6 +300,9 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   [EXPORTS_FILE]: { "Used in Processes": usedInProcesses },
   [OTHER_ACTIONS_FILE]: { "Used in Processes": usedInProcesses },
   [CALENDAR_FILE]: { "Allowed values": joinedWith(BAR) },
+  // A saved view's filters (saved-view-filters.ts): its line items written as a cell that names objects writes them, the
+  // imports and the exports that read it without quotes, and the pages that show it with their apps.
+  [SAVED_VIEW_FILTERS_FILE]: { "Filter Line Items": names, "Used on Pages": pagesShown, "Used by Imports": namesIn(IMPORTS_FILE), "Used by Exports": namesIn(EXPORTS_FILE) },
 };
 
 /** File name -> header -> rule, for each kind of result. Maps, so that a file or a header with the name of an object's

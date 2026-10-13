@@ -1,5 +1,7 @@
 import { SOURCES_PATH } from "../map/map-marks.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import type { SavedViewDetail } from "../result-types.js";
+import { axisHeading, conditionWords, NOT_VALID, SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import type { CalendarTile } from "./calendar-tile.js";
 import type { Items } from "./cell-lists.js";
@@ -268,6 +270,9 @@ export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
   // A box on a page: a module where a page shows it.
   [MODULE_USAGE_FILE, navIcon('<path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.6Z"/><path d="M9.2 1.8v3.8H13"/>'
     + '<rect x="5.4" y="8" width="5.2" height="3.8" rx="0.9"/>')],
+  // A view, as a grid with its header row and first column, with a funnel at its corner: a saved view's own filters.
+  [SAVED_VIEW_FILTERS_FILE, navIcon('<path d="M7.8 11.8H3.3a1.5 1.5 0 0 1-1.5-1.5V3.7a1.5 1.5 0 0 1 1.5-1.5h8.4a1.5 1.5 0 0 1 1.5 1.5v3.5"/>'
+    + '<path d="M1.8 5.6h11.4M5.6 5.6v6.2"/><path d="M9 9h5.6l-2.2 2.6v2.6l-1.2.7v-3.3Z"/>')],
   // A funnel beside lines: the filters of a page's cards.
   [PAGE_FILTERS_FILE, navIcon('<path d="M1.8 3h7.4L6.4 6.6v4.6l-1.8 1.4v-6Z"/><path d="M11.4 4h2.8M11.4 8h2.8M11.4 12h2.8"/>')],
   // A button that a pointer clicks: the buttons of a page's cards.
@@ -282,10 +287,11 @@ const entryIcon = (entry: NavEntry): string =>
  * order of Anaplan's Model settings (result-view.ts `MODEL_FILE_ORDER`), each group by the names the analysis writes its
  * files under, never by a table's words. Source Models stands in the bar on its own,
  * as does a file that no group names: none is left out. Each group's ID is the ID of its menu. The page's own words and
- * drawings only: nothing of a result. Dimensions and Actions each head their tables by sub-group (`navGroupHtml`), in
- * the group's file order. Actions holds the three tables the page shows the Imports file as (import-files.ts) in the
- * file's place, under Imports with Import Data Sources: the file itself stands there where the page shows it as it
- * stands, unsplit. */
+ * drawings only: nothing of a result. Dimensions, Actions and App Usage each head their tables by sub-group
+ * (`navGroupHtml`), in the group's file order. Actions holds the three tables the page shows the Imports file as
+ * (import-files.ts) in the file's place, under Imports with Import Data Sources: the file itself stands there where the page
+ * shows it as it stands, unsplit. App Usage holds a saved view's own filters and a page card's custom view filters (the
+ * Page Filters file) together, under Page Filters. */
 export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[];
   subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
   { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
@@ -298,7 +304,9 @@ export const NAV_GROUPS: readonly { id: string; label: string; icon: string; fil
     subgroups: [{ label: "Processes", files: ["Processes.csv"] },
       { label: "Imports", files: [IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv"] },
       { label: "Exports", files: ["Exports.csv"] }, { label: "Other Actions", files: ["Other Actions.csv"] }] },
-  { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
+  { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, SAVED_VIEW_FILTERS_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE],
+    subgroups: [{ label: "Module Usage", files: [MODULE_USAGE_FILE] }, { label: "Page Filters", files: [SAVED_VIEW_FILTERS_FILE, PAGE_FILTERS_FILE] },
+      { label: "Page Actions", files: [PAGE_ACTIONS_FILE] }] },
 ];
 
 /** A group of a model's navigation, with the entries of the tables it holds, in their order. */
@@ -1099,25 +1107,47 @@ export function subsetMembershipHtml(view: SubsetView, modules: readonly (number
       `<div class="d-sec"><h4>${name(group.module, modules[index])}</h4>${itemsHtml(group.items.map(item => item.name), false, group.items.map(item => members[item.index]))}</div>`).join("")) + "</div>";
 }
 
+/** What a saved view's details say where its definition was not read, and where it has no filter. */
+export const VIEW_NOT_READ = "This view's definition was not read, so its filters are not known. The diagnostic log says why.";
+export const VIEW_NO_FILTER = "No filter is saved on this view.";
+
+/** A saved view's filters (saved-view-filters.ts), above a row's All details: each axis's filter under its heading, the axis,
+ * Match all or Match any and whether it is off, then each of its conditions on a line of its own, in the filter dialog's
+ * words: its line item, which opens its row of Line Items where `opens` gives the number the page knows that row by (by
+ * the filter's place and the condition's), the comparison and its values, its context items, and Not valid where Anaplan
+ * marks it so. */
+export function savedViewFiltersHtml(view: SavedViewDetail, opens: readonly (readonly (number | undefined)[])[]): string {
+  const body = !view.read ? drawerLine(VIEW_NOT_READ) : !view.filters.length ? drawerLine(VIEW_NO_FILTER) : view.filters.map((filter, at) =>
+    `<div class="d-sec"><h4>${esc(axisHeading(filter))}</h4><ul class="cell-list">${filter.conditions.map((condition, place) => {
+      const open = opens[at]?.[place];
+      const name = open === undefined ? esc(condition.lineItem) : `<button type="button" class="link" data-act="item" data-item="${open}">${esc(condition.lineItem)}</button>`;
+      const more = [...(condition.contexts.length ? [`Context: ${condition.contexts.join(", ")}`] : []), ...(condition.valid ? [] : [NOT_VALID.details])];
+      return `<li><span class="cell-t">${name} ${esc(conditionWords(condition))}${more.map(text => ` · ${esc(text)}`).join("")}</span></li>`;
+    }).join("")}</ul></div>`).join("");
+  return `<div class="d-sec" id="drawerFilters"><h3>Filters</h3>${body}</div>`;
+}
+
 /** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
  * for each cell that lists several items those items, one to a line, with how many there are beside the column's name
  * (`items`); an item that names a row the page can open is a link to that row's details (`itemOpens`, by the column's
  * place and the item's, item-links.ts). An action's start is said as the table says it, its Start Date and its Start
  * Time in the zone the page shows times in, and nothing of the other zone; the text Anaplan wrote is under As read.
- * Mapping, Actions, or Sources and Imports come first, followed by All details without those repeated, then the folded
- * raw values. */
+ * Mapping, Actions, Filters, or Sources and Imports come first, followed by All details without those repeated, then the
+ * folded raw values. */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
   readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] },
   itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>,
   source?: { view: SourceModelView; sources: readonly (number | undefined)[]; imports: readonly (number | undefined)[] },
-  subset?: { view: SubsetView; modules: readonly (number | undefined)[]; members: readonly (number | undefined)[] }): string {
+  subset?: { view: SubsetView; modules: readonly (number | undefined)[]; members: readonly (number | undefined)[] },
+  filters?: { view: SavedViewDetail; opens: readonly (readonly (number | undefined)[])[] }): string {
   const omitted = new Set<string>();
   if (process) omitted.add("Actions");
   if (source?.view.sources.length) omitted.add("Sources");
   if (source?.view.imports.length) omitted.add("Imports");
   if (subset) ["Line Items", LINE_ITEM_NAMES, "Membership read"].forEach(label => omitted.add(label));
-  return `${subset ? subsetMembershipHtml(subset.view, subset.modules, subset.members) : ""}${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All details</h3>
+  if (filters) omitted.add("Filters");
+  return `${subset ? subsetMembershipHtml(subset.view, subset.modules, subset.members) : ""}${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${filters ? savedViewFiltersHtml(filters.view, filters.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All details</h3>
     ${allColumns(columns, row, links, items, itemOpens, omitted)}</div>${asReadHtml(columns, exported, readUnder)}`;
 }
 

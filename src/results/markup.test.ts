@@ -893,8 +893,9 @@ describe("A result whose every text is hostile, through every view of the page",
     const items = navItems(entries, true);
     // Dimensions gathers Time, Versions and Lists; Modules gathers Modules, Line Items, DCA and the two tables of what nothing
     // uses; Actions the Actions list's tables, with the three the Imports file is shown as in its place, which a result has
-    // in the file's stead (import-tables.ts); App Usage gathers the tables of the pages built on the model.
-    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Dimensions: 5", "Modules: 5", "Actions: 8", "Source Models", "App Usage: 3"]);
+    // in the file's stead (import-tables.ts); App Usage gathers the tables of the pages built on the model, and the saved
+    // views' own filters beside their cards' custom view filters.
+    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Dimensions: 5", "Modules: 5", "Actions: 8", "Source Models", "App Usage: 4"]);
     expect(NAV_GROUPS.find(group => group.label === "Modules")?.files).toEqual(["Modules.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Unused Line Items.csv", "Unused Modules.csv"]);
     // The three tables of imports stand in the Imports file's place among the Actions list's other tables. Actions heads them
     // as Dimensions heads its own: the file, the three and Import Data Sources under Imports, and each other table under one

@@ -1,4 +1,4 @@
-import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, UNUSED_ROWS, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { DATA_SOURCES_ROW_REWORDED, MODEL_LAYOUT_ROWS, IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, SAVED_VIEW_ROWS, UNUSED_ROWS, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** A made-up model whose line items drive who may read and write one another, and the zip exactly as version 0.8.1
@@ -353,6 +353,19 @@ export const SUBSETS_READ_ADDED = {
   },
 } as const;
 
+/** What the export says that 0.8.1 did not, for any model, once every grid is read and the imports' mappings are made:
+ * the step of the saved views' filters (model/saved-views.ts), and why its table is not made for this model, whose page's
+ * client lists no saved views (`said`, after the line `saidAfter`, the last of the mappings'). Model Details.csv has them
+ * as Diagnostics rows (`rows`). Nothing is read for them. */
+export const SAVED_VIEWS_READ_ADDED = {
+  saidAfter: "Import mappings: 2 of 2 read; 2 found in the grid of definitions",
+  said: ["Reading saved views' filters…", "Saved View Filters: the model page's client does not list its saved views"],
+  rows: {
+    after: "Diagnostics,12:30:10,Import mappings: 2 of 2 read; 2 found in the grid of definitions\r\n",
+    line: "Diagnostics,12:30:10,Reading saved views' filters…\r\nDiagnostics,12:30:10,Saved View Filters: the model page's client does not list its saved views\r\n",
+  },
+} as const;
+
 function withSaid(lines: readonly string[], added: { saidAfter: string; said: readonly string[] }): string[] {
   const at = lines.findIndex(line => line === added.saidAfter || line.endsWith(` ${added.saidAfter}`));
   if (at < 0) throw new Error(`The log does not hold the line ${added.saidAfter}.`);
@@ -392,7 +405,7 @@ export function withPageTimeRows(csv: string): string {
  * imports' definitions (`MAPPINGS_ADDED`), and on the time each grid's page took (`withPageTimes`), each where the export
  * says them. */
 export const withLinesSaid = (lines: readonly string[]): string[] =>
-  withPageTimes(withSaid(withSaid(withSaid(withSaid(withSaid(lines, MODULE_IDS_ADDED), LIST_IDS_ADDED), SUBSETS_READ_ADDED), PROCESSES_ADDED), MAPPINGS_ADDED));
+  withPageTimes(withSaid(withSaid(withSaid(withSaid(withSaid(withSaid(lines, MODULE_IDS_ADDED), LIST_IDS_ADDED), SUBSETS_READ_ADDED), PROCESSES_ADDED), MAPPINGS_ADDED), SAVED_VIEWS_READ_ADDED));
 
 /** What is deliberately not what 0.8.1 wrote for this model because the export has gained a file: the file itself, which
  * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
@@ -439,7 +452,7 @@ export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FO
  * each grid's page took (`withPageTimeRows`). */
 export const withAccessRows = (csv: string): string =>
   withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, ...UNUSED_ROWS, MODULE_IDS_ADDED.rows,
-    LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
+    LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows, SAVED_VIEW_ROWS.files, SAVED_VIEW_ROWS.howToRead, SAVED_VIEWS_READ_ADDED.rows]));
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
  * of Model Details.csv replaced and nine added (three rows of the file's own, a Diagnostics row on the modules' IDs and

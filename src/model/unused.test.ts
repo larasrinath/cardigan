@@ -61,7 +61,7 @@ function model(tables: ResultTable[], more: Partial<AnalysisResult> = {}): Analy
   const empty = [file("Line Item Subsets", SUBSET_HEADERS, []), file("Imports", IMPORT_HEADERS, []), file("Exports", ACTION_HEADERS, []), file("Other Actions", ACTION_HEADERS, [])]
     .filter(table => !given.has(table.file));
   return { kind: "model", name: "Bike plan", id: "0123456789ABCDEF0123456789ABCDEF", zipName: "Bike plan - Model Export - 2026-10-12.zip", summary: ["Line Items: 3 rows"],
-    tables: [details(), ...tables, ...empty], importMappings: [], pageUses: NO_USES, ...more };
+    tables: [details(), ...tables, ...empty], importMappings: [], pageUses: NO_USES, savedViewDetails: [], savedViewFilters: [], ...more };
 }
 
 /** What the run makes of a result: the two tables' rows by name and why, its notes, and what it logs. */
@@ -87,6 +87,23 @@ describe("The tables of what nothing in a model uses", () => {
     // Total is on a page; Revenue feeds it, and Units and Price feed Revenue. Average Price reads Price, and nothing reads it.
     expect(items).toEqual(["REV01 Revenue / Old Rate: Read by nothing", "REP01 Report / Average Price: Read by nothing"]);
     expect(listed).toEqual([]);
+  });
+
+  it("counts a line item a saved view's filter uses as used, whether the filter is on or off, and says what it could not see of the saved views", () => {
+    const rows = lineItems(own("SYS01 Flags"), item("SYS01 Flags", "Active?", { Format: BOOLEAN }), item("SYS01 Flags", "Retired?", { Format: BOOLEAN }),
+      item("SYS01 Flags", "Spare?", { Format: BOOLEAN }));
+    const filter = (lineItem: string, active: boolean) => ({ view: "Open items", module: "REV01 Revenue", axis: "Rows" as const, lineItem, lineItemModule: "SYS01 Flags", active, valid: true });
+    const read = unused(model([rows], { savedViewDetails: [{ name: "Open items", module: "REV01 Revenue", read: true, filters: [] }],
+      savedViewFilters: [filter("Active?", true), filter("Retired?", false), { ...filter("Gone", true), lineItem: "Gone" }] }));
+    expect([read.items, read.notes]).toEqual([["SYS01 Flags / Spare?: Read by nothing"], []]);
+    // The log counts the conditions found among Line Items, and those not.
+    expect(read.lines[1]).toContain("saved view filter conditions 2,");
+    expect(read.lines[1]).toMatch(/saved view filter line items 1$/);
+    // A view whose definition was not read may use any line item; saved views not listed at all, likewise.
+    const unread = unused(model([rows], { savedViewDetails: [{ name: "Refused", module: "REV01 Revenue", read: false, filters: [] }], savedViewFilters: [] }));
+    expect(unread.notes).toEqual(["1 saved view's filters could not be read, so some line items may be used by it after all."]);
+    const unlisted = unused(model([rows], { savedViewDetails: undefined, savedViewFilters: undefined }));
+    expect(unlisted.notes).toEqual(["The saved views' filters could not be read, so some line items may be used by a saved view's filter after all."]);
   });
 
   it("does not count a line item's reference to itself as a use", () => {

@@ -23,8 +23,13 @@ export const PAGE_ROUTES: ReadonlyMap<string, string> = new Map([["Board", "boar
 
 export const MODULE_USAGE_HEADERS: readonly string[] = ["Module", "App", "Page", ...PAGE_PLACE_HEADERS];
 
-/** The column added to a model's Line Items: how many of the Page Filters rows have the line item as their condition. */
+/** The column added to a model's Line Items: how many of the Page Filters rows have the line item as their condition. The
+ * results page shows it, as it shows the Page Filters table, as Custom View Filters (`CUSTOM_VIEW_FILTERS`): the column and
+ * the file keep their names, by which a result kept earlier and the view kept for it are read. */
 export const FILTER_USES = "Page Filters";
+/** What the results page calls the Page Filters table, and its column of Line Items: the filters of a card's custom view on
+ * the pages built on the model, as against a saved view's own filters (Saved View Filters). */
+export const CUSTOM_VIEW_FILTERS = "Custom View Filters";
 
 /** What a card on a page can point at that the model does not have: a module, a line item, or a model's action. */
 export type MissingKind = "module" | "line item" | "import" | "export" | "process";
