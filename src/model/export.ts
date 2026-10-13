@@ -13,7 +13,7 @@ import { LINE_ITEM_SUBSETS, readLineItemSubsets } from "./line-item-subsets.js";
 import { axis, GridFailure, isBusy, loadNative, readGrid, typeIndex, type Native } from "./native.js";
 import { PROCESS_DEFINITION, processActions, processesLine } from "./process-actions.js";
 import { listSavedViews, readSavedViews, type SavedViewsRead } from "./saved-views.js";
-import { SAVED_VIEW_FILTERS } from "../saved-view-filters.js";
+import { SAVED_VIEWS } from "../saved-view-filters.js";
 
 /** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
@@ -21,8 +21,8 @@ import { SAVED_VIEW_FILTERS } from "../saved-view-filters.js";
  * grid's: Dynamic Cell Access.csv, made from the tables of the others (access.ts). Two grids are read for no table: the
  * imports' definitions, for the mapping of each import, and the data sources' definitions, for what each import's source
  * says of how it is read, which the result carries beside its tables (import-mappings.ts). Last, each saved view's
- * definition is read, one view at a time and with no cells or labels, for the filters saved on it: Saved View Filters.csv,
- * which the results page shows under App Usage (saved-views.ts). A grid the page is too busy to read is read once more once
+ * definition is read, one view at a time and with no cells or labels, for the filters saved on it: Saved Views.csv, every
+ * view, which the results page shows under Modules (saved-views.ts). A grid the page is too busy to read is read once more once
  * the others are read, and its file keeps its place. A table is named as the CSV file it once was written to: the results
  * page shows it under its label, and makes no file.
  * Evidence for each grid's axes: the classic client's settings tabs (anaplan/settings/*.js, tabs/Settings.js). */
@@ -52,7 +52,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Import Data Sources", "Name, Source Type (Type where the grid calls it that), Source Model, Source Object Name and Imports (Used in Imports in some models), all shown."],
   ["Model Calendar", "Setting and Value are shown; Section and Allowed values start hidden. The rows about the model are left out; the Overview names the workspace and model under About this export. Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."],
   ["Source Models", "Name, Mapped Workspace, Mapped Model, Sources and Imports are shown in that order. Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details list Sources and Imports before All details, without repeating their counts, and keep Mapped To under As read, folded at first. A Mapped To that cannot be read stands as it is under Mapped Workspace."],
-  [SAVED_VIEW_FILTERS, "Under App Usage's Page Filters, beside Custom View Filters, for models read through Model Building: each saved view of the model with a filter on its rows, columns or pages, on or off, in Model Building's order. Name, Module, Filters, Filter Line Items, Used on Pages, Used by Imports and Used by Exports are shown; Definition read starts hidden. A view's definition is read as Model Building opens the view, one view at a time, with no cells or labels. Filters gives each axis's filter in short: Rows, Columns or Pages, with a page's dimension and (off) where the filter is not on, then Match any where any condition is enough, and each condition: its line item, with its context items in brackets, the comparison and its values, and (not valid) where Anaplan marks it so. A row's details give each axis's filter under its heading, Match all or Match any, and each condition in the filter dialog's words, with its values by their labels and its context items. Filter Line Items lists the line items the conditions use, each opening its row of Line Items, whose Saved View Filters column counts the views whose filters use each line item; that count is empty, not 0, where a view's definition was not read. Used on Pages names the pages built on the model whose cards show the view, each with its app in brackets; it is empty where the pages could not be read. Used by Imports names the imports of this model that read the view, by their data source or their Source Object; Used by Exports the exports from it, by their definition or the Actions list's words. A view whose definition was not read is listed with Definition read No, and the log says why. Sorts and hidden items are not read."],
+  [SAVED_VIEWS, "Under Modules, after Line Items, for models read through Model Building: every saved view of the model, with a filter on its rows, columns or pages or without one, in Model Building's order. Name, Module, Filters, Filter Line Items, Used on Pages, Used by Imports and Used by Exports are shown; Definition read starts hidden. A view's definition is read as Model Building opens the view, one view at a time, with no cells or labels. Filters gives each axis's filter in short, on or off: Rows, Columns or Pages, with a page's dimension and (off) where the filter is not on, then Match any where any condition is enough, and each condition: its line item, with its context items in brackets, the comparison and its values, and (not valid) where Anaplan marks it so. It is empty for a view without a filter. A row's details give each axis's filter under its heading, Match all or Match any, and each condition in the filter dialog's words, with its values by their labels and its context items; a view without a filter has no Filters there. Filter Line Items lists the line items the conditions use, each opening its row of Line Items, whose Saved View Filters column counts the views whose filters use each line item, whether a page shows the view or not; that count is empty, not 0, where a view's definition was not read. Used on Pages names the pages built on the model whose cards show the view, each with its app in brackets; it is empty where the pages could not be read. App Usage's Saved View Filters lists the filters of the views those pages show, card by card. Used by Imports names the imports of this model that read the view, by their data source or their Source Object; Used by Exports the exports from it, by their definition or the Actions list's words. A view whose definition was not read is listed with Definition read No, and the log says why. Sorts and hidden items are not read."],
 ];
 
 /** What the user is told when not one grid could be read (progress.ts `Failure`); why each could not is the detail. */
@@ -428,10 +428,10 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
       importSources && { grid: importSources, column: typeof sourceColumn === "number" ? sourceColumn : SOURCE_DEFINITION, model: native.modelId }) : undefined;
     savedViews = await readSavedViews(native, listed, { lineItems, moduleIds, model, imports, mappings, sourceObjects,
       exports: actions && { columns: actions.columns, rows: actions.rows.filter(ofKind("export")) } }, log, stop);
-    add(SAVED_VIEW_FILTERS, savedViews.table);
-    for (const said of savedViews.notes) note(SAVED_VIEW_FILTERS, said);
+    add(SAVED_VIEWS, savedViews.table);
+    for (const said of savedViews.notes) note(SAVED_VIEWS, said);
   } catch (error) {
-    fail(SAVED_VIEW_FILTERS, error);
+    fail(SAVED_VIEWS, error);
   }
 
   // Dynamic Cell Access is no grid's. It is the driver cells of Line Items listed from the driver's side, each read as the

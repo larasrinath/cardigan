@@ -43,8 +43,9 @@ The menu bar groups the model's tables:
     <tr><td>Versions</td><td>Versions and their settings.</td></tr>
     <tr><td>General Lists</td><td>Lists, hierarchies, properties and subsets.</td></tr>
     <tr><td>Line Item Subsets</td><td>Subsets, their modules and member counts.</td></tr>
-    <tr><td rowspan="5"><b>Modules</b></td><td>Modules</td><td>Modules, dimensions, functional areas and settings.</td></tr>
+    <tr><td rowspan="6"><b>Modules</b></td><td>Modules</td><td>Modules, dimensions, functional areas and settings.</td></tr>
     <tr><td>Line Items</td><td>Line items, formulas, formats and dimensions.</td></tr>
+    <tr><td>Saved Views</td><td>Every saved view, its filters, and the pages, imports and exports that use it.</td></tr>
     <tr><td>DCA (Dynamic Cell Access)</td><td>Read and write access drivers and what they control.</td></tr>
     <tr><td>Unused Line Items</td><td>Line items nothing Cardigan can see uses, each with why.</td></tr>
     <tr><td>Unused Modules</td><td>Modules that are empty, or whose line items are all unused.</td></tr>
@@ -57,7 +58,7 @@ The menu bar groups the model's tables:
     <tr><td>Other Actions</td><td>Other model actions, such as deleting or ordering list items.</td></tr>
     <tr><td><b>Source Models</b></td><td>Source Models</td><td>Source model mappings and their sources and imports.</td></tr>
     <tr><td rowspan="4"><b>App Usage</b></td><td>Module Usage</td><td>Where published pages use the model's modules.</td></tr>
-    <tr><td>Saved View Filters</td><td>Saved views' own filters, and the pages, imports and exports that use each view.</td></tr>
+    <tr><td>Saved View Filters</td><td>Filters of saved views shown on pages, in Custom View Filters' columns.</td></tr>
     <tr><td>Custom View Filters</td><td>Card filters on pages built on the model.</td></tr>
     <tr><td>Page Actions</td><td>Action buttons on pages built on the model.</td></tr>
   </tbody>

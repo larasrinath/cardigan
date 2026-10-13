@@ -113,9 +113,14 @@ describe("A result as plain data", () => {
 
   it("keeps a model's saved views' filters, their conditions for the map and their IDs, every field checked, and leaves each out whole where anything is not as it should be", () => {
     const model = { ...result, kind: "model" as const };
-    const condition = { lineItem: "Active?", lineItemModule: "SYS01 Flags", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: ["SCN042:Spring Launch"], valid: true };
-    const savedViewDetails = [{ name: "Open items", module: "REV01 Revenue", read: true, filters: [{ axis: "Pages", dimension: "Version", active: false, match: "any",
-      conditions: [condition, { ...condition, lineItemModule: undefined, lineItem: "Missing line item (ID 2000000099)", valid: false }] }] },
+    const condition = { lineItem: "Active?", lineItemModule: "SYS01 Flags", lineItemId: "2000000001", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"],
+      contexts: ["SCN042:Spring Launch"], valid: true };
+    // A condition an earlier version kept has no line item's ID.
+    const { lineItemId: _kept, ...earlier } = condition;
+    // A filter keeps its axis's dimensions one by one; one an earlier version kept has none.
+    const savedViewDetails = [{ name: "Open items", module: "REV01 Revenue", read: true, filters: [{ axis: "Pages", dimension: "Version", dimensions: ["Version"], active: false,
+      match: "any", conditions: [condition, { ...condition, lineItemModule: undefined, lineItem: "Missing line item (ID 2000000099)", lineItemId: "2000000099", valid: false }, earlier] },
+    { axis: "Rows", active: true, match: "all", conditions: [condition] }] },
     { name: "Refused", module: "REV01 Revenue", read: false, filters: [] }];
     const savedViewFilters = [{ view: "Open items", module: "REV01 Revenue", axis: "Pages", lineItem: "Active?", lineItemModule: "SYS01 Flags", active: false, valid: true }];
     const savedViewIds = ["105000000001", "105000000002"];
@@ -124,7 +129,11 @@ describe("A result as plain data", () => {
     // Each field is checked on its own: anything amiss leaves that field out, and the result is read all the same.
     for (const odd of [[{ ...savedViewDetails[0], read: "yes" }], [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], axis: "Diagonal" }] }],
       [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], match: "some" }] }],
-      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], conditions: [{ ...condition, values: [1] }] }] }], "Open items", null]) {
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], conditions: [{ ...condition, values: [1] }] }] }],
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], conditions: [{ ...condition, lineItemId: "ID 2000000001" }] }] }],
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], conditions: [{ ...condition, lineItemId: 2000000001 }] }] }],
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], dimensions: "Version" }] }],
+      [{ ...savedViewDetails[0], filters: [{ ...savedViewDetails[0].filters[0], dimensions: ["Version", 7] }] }], "Open items", null]) {
       expect(plainResult({ ...model, savedViewDetails: odd, savedViewFilters, savedViewIds }), JSON.stringify(odd)).toEqual({ ...model, savedViewFilters, savedViewIds });
     }
     for (const odd of [[{ ...savedViewFilters[0], axis: "rows" }], [{ ...savedViewFilters[0], lineItemModule: undefined }], [{ ...savedViewFilters[0], active: 1 }], {}]) {

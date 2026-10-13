@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { PAGE_FILTERS_HEADERS } from "./model-pages.js";
+import { HEADERS } from "./report.js";
 import type { AxisFilter, ViewCondition } from "./result-types.js";
-import { axisHeading, axisLabel, axisSummary, conditionSummary, conditionWords, filtersSummary, lineItemListed, listedName, OPERATOR_WORDS, valuesText } from "./saved-view-filters.js";
+import { axisHeading, axisLabel, axisSummary, conditionSummary, conditionWords, filterState, filtersSummary, lineItemListed, listedName, MATCH_SHOWN, OPERATOR_WORDS,
+  SAVED_VIEW_FILTER_HEADERS, SAVED_VIEW_FILTER_ORDER, valuesText, viewFilterRows, type ViewCard } from "./saved-view-filters.js";
 
 // Invented names only.
 const condition = (more: Partial<ViewCondition>): ViewCondition => ({ lineItem: "Active?", lineItemModule: "SYS01 Flags", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"],
@@ -58,9 +61,69 @@ describe("The words a saved view's filter is said in", () => {
       .toEqual(["is equal to True", "is greater than or equal to 5", "is not blank", 'starts with "FY"']);
   });
 
+  it("say in Filter state that a filter is off or a condition not valid, in the details' words, and nothing where it is on and valid", () => {
+    expect([filterState({ active: true }, { valid: true }), filterState({ active: false }, { valid: true }), filterState({ active: true }, { valid: false }),
+      filterState({ active: false }, { valid: false })]).toEqual(["", "Off", "Not valid", "Off · Not valid"]);
+  });
+
   it("list a condition's line item behind its module and a dot, each name in quotes where a dot, a comma, a bar or a quote would cut it", () => {
     expect([lineItemListed("Active?", "SYS01 Flags"), lineItemListed("Rate, net", "1.1 Prices"), lineItemListed("Editor's lock", "Locks"), lineItemListed("Missing line item (ID 2000000099)", undefined),
       lineItemListed("Gone.Flag", undefined), listedName(" spaced "), listedName("")])
       .toEqual(["SYS01 Flags.Active?", "'1.1 Prices'.'Rate, net'", "Locks.'Editor''s lock'", "Missing line item (ID 2000000099)", "'Gone.Flag'", "' spaced '", "''"]);
+  });
+});
+
+describe("The rows of Saved View Filters, the filters of the saved views a page's cards show", () => {
+  /** A card of an invented page that shows a saved view. */
+  const CARD: ViewCard = { app: "Planning app", page: "Demand board", number: 2, section: "1", place: ["Board", "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000001000"],
+    cardId: "00000000-0000-4000-8000-000000000002" };
+  const where = ["Planning app", "Demand board", 2, "1", "Board", "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000001000", "00000000-0000-4000-8000-000000000002"];
+  /** Each row as its columns name it. */
+  const named = (row: readonly unknown[]) => Object.fromEntries(SAVED_VIEW_FILTER_HEADERS.map((header, at) => [header, row[at]]));
+
+  it("have Custom View Filters' columns in its order, with Saved view after Filtered module, and Filter state last, and its order of rows", () => {
+    expect([...SAVED_VIEW_FILTER_HEADERS]).toEqual([...PAGE_FILTERS_HEADERS.flatMap(header => (header === "Filtered module" ? [header, "Saved view"] : [header])), "Filter state"]);
+    expect([...SAVED_VIEW_FILTER_ORDER]).toEqual(["Condition line item's module", "Condition line item", "App", "Page", "Card #"]);
+    // No column of an app's Filters table is lost: each column but the two added means what it means there.
+    expect(SAVED_VIEW_FILTER_HEADERS.filter(header => !["Saved view", "Filter state", "App", "Page type", "App ID", "Page ID"].includes(header)).sort()).toEqual([...HEADERS.Filters].sort());
+    // Show items that match says All or Any, as Custom View Filters does.
+    expect(MATCH_SHOWN).toEqual({ all: "All", any: "Any" });
+  });
+
+  it("give one row for each condition of each axis's filter, in the filter's order, each column said as Custom View Filters says it", () => {
+    const view = { name: "Open items", module: "REV01 Revenue", filters: [
+      filter({ dimensions: ["Products", "Customers"], conditions: [condition({ lineItemId: "2000000001" })] }),
+      filter({ axis: "Columns", match: "any", active: false, conditions: [
+        condition({ lineItem: "Region", lineItemId: "2000000003", dataType: "ENTITY", values: ["North", "South"], contexts: ["SCN042:Spring Launch", "FY26"] }),
+        condition({ lineItem: "Code", lineItemId: "2000000004", operator: "STARTS_WITH", dataType: "TEXT", values: ["FY 26"], valid: false })] }),
+      filter({ axis: "Pages", dimension: "Version", dimensions: ["Version"], conditions: [condition({ lineItem: "Band", lineItemId: "2000000005", operator: "BETWEEN_OR_EQUAL_TO",
+        dataType: "NUMBER", values: ["1", "9"] })] }),
+      filter({ axis: "Pages", conditions: [condition({ lineItem: "Launch", lineItemId: "2000000006", operator: "IS_BLANK", dataType: "DATE", values: [] })] }),
+    ] };
+    const rows = viewFilterRows(view, CARD);
+    expect(rows.map(row => row.length)).toEqual([22, 22, 22, 22, 22]);
+    // Filtered dimension names the filtered axis's dimensions as the client named them, with a comma between them, and is
+    // empty where it named none: Filter on says the axis.
+    expect(rows).toEqual([
+      ["SYS01 Flags", "Active?", "REV01 Revenue", "Open items", "Products, Customers", "", "is equal to", "True", "All", "", "", "Rows", ...where, "2000000001", ""],
+      ["SYS01 Flags", "Region", "REV01 Revenue", "Open items", "", "", "is equal to", "North or South", "Any", "", "SCN042:Spring Launch; FY26", "Columns", ...where,
+        "2000000003", "Off"],
+      ["SYS01 Flags", "Code", "REV01 Revenue", "Open items", "", "", "starts with", '"FY 26"', "Any", "", "", "Columns", ...where, "2000000004", "Off · Not valid"],
+      ["SYS01 Flags", "Band", "REV01 Revenue", "Open items", "Version", "", "between", "1 and 9", "All", "", "", "Pages", ...where, "2000000005", ""],
+      ["SYS01 Flags", "Launch", "REV01 Revenue", "Open items", "", "", "is blank", "", "All", "", "", "Pages", ...where, "2000000006", ""],
+    ]);
+    expect(named(rows[1])).toMatchObject({ "Filter on": "Columns", "Show items that match": "Any", "Condition context": "SCN042:Spring Launch; FY26", "Filter state": "Off",
+      "Condition group": "", "Filtered line items": "" });
+  });
+
+  it("say a line item the model does not have, and one whose module is not known, as Custom View Filters does, and give a view without a filter no row", () => {
+    const view = { name: "Old flags", module: "SYS01 Flags", filters: [filter({ conditions: [
+      condition({ lineItem: "Missing line item (ID 2000000099)", lineItemModule: undefined, lineItemId: "2000000099", valid: false }),
+      condition({ lineItem: "Labelled only", lineItemModule: undefined, lineItemId: "2000000098" }),
+      condition({ lineItem: "Current Module", lineItemModule: undefined, operator: "IS_NOT_BLANK", values: [] })] })] };
+    expect(viewFilterRows(view, CARD).map(row => [named(row)["Condition line item's module"], named(row)["Condition line item"], named(row)["Line item ID"], named(row)["Filter state"]]))
+      .toEqual([["Missing line item: module not known", "Missing line item (ID 2000000099)", "2000000099", "Not valid"], ["", "Labelled only", "2000000098", ""],
+        ["", "Current Module", "", ""]]);
+    expect(viewFilterRows({ name: "Plain", module: "REV01 Revenue", filters: [] }, CARD)).toEqual([]);
   });
 });

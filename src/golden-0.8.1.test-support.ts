@@ -359,10 +359,10 @@ export const SUBSETS_READ_ADDED = {
  * as Diagnostics rows (`rows`). Nothing is read for them. */
 export const SAVED_VIEWS_READ_ADDED = {
   saidAfter: "Import mappings: 2 of 2 read; 2 found in the grid of definitions",
-  said: ["Reading saved views' filters…", "Saved View Filters: the model page's client does not list its saved views"],
+  said: ["Reading saved views' filters…", "Saved Views: the model page's client does not list its saved views"],
   rows: {
     after: "Diagnostics,12:30:10,Import mappings: 2 of 2 read; 2 found in the grid of definitions\r\n",
-    line: "Diagnostics,12:30:10,Reading saved views' filters…\r\nDiagnostics,12:30:10,Saved View Filters: the model page's client does not list its saved views\r\n",
+    line: "Diagnostics,12:30:10,Reading saved views' filters…\r\nDiagnostics,12:30:10,Saved Views: the model page's client does not list its saved views\r\n",
   },
 } as const;
 

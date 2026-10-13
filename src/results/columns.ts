@@ -1,7 +1,7 @@
 import { CUSTOM_VIEW_FILTERS, FILTER_USES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { SAVED_VIEW_FILTER_HEADERS, SAVED_VIEW_FILTERS_FILE, VIEW_FILTER_USES } from "../saved-view-filters.js";
+import { SAVED_VIEW_FILTERS_FILE, SAVED_VIEW_HEADERS, SAVED_VIEWS_FILE, VIEW_FILTER_USES } from "../saved-view-filters.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import { FILE_IMPORTS_FILE, IMPORTS_FILE, IN_MODEL_IMPORTS_FILE, MODEL_IMPORTS_FILE } from "./import-files.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -151,6 +151,14 @@ const DASHBOARDS = ["Used in Dashboards"];
 /** The four columns the page shows an import's Source Object as (result-view.ts `importsRule`). */
 const SOURCE_PARTS = ["Source Model", "Source Module", "Saved View", "Source List"];
 const PAGE_HIDDEN = ["Page type", "App ID", "Page ID"];
+/** Custom View Filters, the Page Filters file: what filters, what is filtered, the condition and where it is, shown; numbers
+ * and IDs hidden. */
+const PAGE_FILTERS_SHOWN = ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Filtered line items", "Operator", "Value",
+  "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page"];
+const PAGE_FILTERS_HIDDEN = ["Card #", "Section #", ...PAGE_HIDDEN, "Card ID", "Line item ID"];
+/** Saved View Filters (saved-view-filters.ts): Custom View Filters' layout, with the saved view shown after the module it
+ * filters, and whether the filter is off or the condition not valid hidden, last. */
+const VIEW_FILTERS_SHOWN = PAGE_FILTERS_SHOWN.flatMap(header => (header === "Filtered module" ? [header, "Saved view"] : [header]));
 
 /** The reading order of a model's tables. These are matching names, never replacement labels. Every column remains
  * available; absent columns are skipped and unlisted columns follow the layout, shown. Line Items lists its known
@@ -188,11 +196,11 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
   ["Exports.csv", { shown: ["Name", "Action", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],
   ["Other Actions.csv", { shown: ["Name", "Action", "Action List", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],
   ["Source Models.csv", { shown: ["Name", "Mapped Workspace", "Mapped Model", "Sources", "Imports"], hidden: [] }],
+  // Every saved view (saved-view-filters.ts): whether its definition was read starts hidden.
+  [SAVED_VIEWS_FILE, { shown: SAVED_VIEW_HEADERS.slice(0, -1), hidden: SAVED_VIEW_HEADERS.slice(-1) }],
   [MODULE_USAGE_FILE, { shown: ["Module", "App", "Page"], hidden: PAGE_HIDDEN }],
-  // A saved view's filters (saved-view-filters.ts): whether its definition was read starts hidden.
-  [SAVED_VIEW_FILTERS_FILE, { shown: SAVED_VIEW_FILTER_HEADERS.slice(0, -1), hidden: SAVED_VIEW_FILTER_HEADERS.slice(-1) }],
-  [PAGE_FILTERS_FILE, { shown: ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Filtered line items", "Operator", "Value",
-    "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page"], hidden: ["Card #", "Section #", ...PAGE_HIDDEN, "Card ID", "Line item ID"] }],
+  [SAVED_VIEW_FILTERS_FILE, { shown: VIEW_FILTERS_SHOWN, hidden: [...PAGE_FILTERS_HIDDEN, "Filter state"] }],
+  [PAGE_FILTERS_FILE, { shown: PAGE_FILTERS_SHOWN, hidden: PAGE_FILTERS_HIDDEN }],
   [PAGE_ACTIONS_FILE, { shown: ["Model action name", "Action type", "App", "Page", "Button label", "Runs automatically", "Cancel button"],
     hidden: ["Card #", "Name source", ...PAGE_HIDDEN, "Card ID", "Action ID"] }],
 ]);
@@ -221,11 +229,13 @@ const layoutName = (label: string, zone: string): string => {
 export const MODEL_FILTERED: ReadonlyMap<string, readonly string[]> = new Map([[LINE_ITEMS_FILE, [FORMAT_TYPE]], ["Processes.csv", ["Actions"]]]);
 /** The tables of the pages built on a model (page-files.ts), which the run writes from an app's tables: Page Filters and
  * Page Actions hold an app's Filters and Action Buttons with their app, and are shown as those are, with their IDs and
- * numbers hidden. Each of the three offers a filter on the app, and ends with where each page is, hidden: its type, as a
- * tag, and its app's ID and its own, as IDs to copy (page-files.ts `PAGE_PLACE_HEADERS`). */
+ * numbers hidden. Saved View Filters, which the run lays out as Page Filters (saved-view-filters.ts), is shown as it is,
+ * with its Filter state a tag as Filter on is. Each offers a filter on the app, and ends with where each page is, hidden:
+ * its type, as a tag, and its app's ID and its own, as IDs to copy (page-files.ts `PAGE_PLACE_HEADERS`). */
 const PAGE_PLACE: Readonly<Record<string, Choice>> = Object.fromEntries(PAGE_PLACE_HEADERS.map((header, index): [string, Choice] => [header, index === 0 ? { ...TAG, hidden: true } : HIDDEN_ID]));
 export const PAGE_FILE_CHOICES: ReadonlyMap<string, Readonly<Record<string, Choice>>> = new Map([
   [MODULE_USAGE_FILE, { App: FILTER, ...PAGE_PLACE }], [PAGE_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters, ...PAGE_PLACE }],
+  [SAVED_VIEW_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters, ...PAGE_PLACE, "Filter state": { ...TAG, hidden: true } }],
   [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions, ...PAGE_PLACE }],
 ]);
 const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([
@@ -379,9 +389,10 @@ export const ROW_NAME_COLUMNS: Record<TabName, string> = {
   Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
   Actions: "Button label", "Where used": "Object name",
 };
-/** Page Filters and Page Actions, which hold an app's Filters and Action Buttons rows, are named as those are. */
+/** Page Filters and Page Actions, which hold an app's Filters and Action Buttons rows, are named as those are, and so is
+ * Saved View Filters, laid out as Page Filters: by the condition's line item. */
 const ROW_NAMES: ReadonlyMap<string, string> = new Map([...(Object.keys(ROW_NAME_COLUMNS) as TabName[]).map((tab): [string, string] => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]),
-  [PAGE_FILTERS_FILE, ROW_NAME_COLUMNS.Filters], [PAGE_ACTIONS_FILE, ROW_NAME_COLUMNS.Actions]]);
+  [PAGE_FILTERS_FILE, ROW_NAME_COLUMNS.Filters], [SAVED_VIEW_FILTERS_FILE, ROW_NAME_COLUMNS.Filters], [PAGE_ACTIONS_FILE, ROW_NAME_COLUMNS.Actions]]);
 
 /** The place of the column that names a table's rows; undefined for a file the page knows no such column of, and for a
  * table that lacks it. */

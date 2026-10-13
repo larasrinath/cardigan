@@ -26,9 +26,12 @@ const layouts: [string, string[], string[]][] = [
   ["Other Actions", ["Name", "Action", "Action List", "Used in Processes", ...run, "Notes"], dashboards],
   ["Source Models", ["Name", "Mapped Workspace", "Mapped Model", "Sources", "Imports"], []],
   ["Module Usage", ["Module", "App", "Page"], place],
-  ["Saved View Filters", ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports"], ["Definition read"]],
+  ["Saved Views", ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports"], ["Definition read"]],
   ["Page Filters", PAGE_FILTERS_HEADERS.filter(header => !["Card #", "Section #", ...place, "Card ID", "Line item ID"].includes(header)),
     ["Card #", "Section #", ...place, "Card ID", "Line item ID"]],
+  // Custom View Filters' layout, with the saved view shown after the module it filters, and Filter state hidden last.
+  ["Saved View Filters", [...PAGE_FILTERS_HEADERS.filter(header => !["Card #", "Section #", ...place, "Card ID", "Line item ID"].includes(header))
+    .flatMap(header => (header === "Filtered module" ? [header, "Saved view"] : [header]))], ["Card #", "Section #", ...place, "Card ID", "Line item ID", "Filter state"]],
   ["Page Actions", ["Model action name", "Action type", "App", "Page", "Button label", "Runs automatically", "Cancel button"], ["Card #", "Name source", ...place, "Card ID", "Action ID"]],
 ];
 const table = (label: string, headers: readonly string[], rows: string[][] = []): ResultTable => ({ file: `${label}.csv`, label, headers: [...headers], rows, guard: true });

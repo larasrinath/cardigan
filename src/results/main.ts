@@ -35,8 +35,8 @@ import {
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, lineItemsView, MODULE_NAME } from "./line-items-view.js";
 import { subsetOfRow } from "./line-item-subsets-view.js";
-import { savedViewOfRow } from "./saved-view-filters-view.js";
-import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
+import { savedViewOfRow, withSavedViews } from "./saved-view-filters-view.js";
+import { SAVED_VIEW_FILTERS_FILE, SAVED_VIEWS_FILE } from "../saved-view-filters.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
 import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, startColumns, startText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type StartColumns,
@@ -773,8 +773,11 @@ function showNotRemoved(): void {
 
 /** A complete result replaces the earlier one. Another run on the same subject keeps the view by its file, each table's
  * choices, the map's level and place, and the row's details where its identity still exists. The map is rebuilt from the
- * new tables. A first result opens on the Overview; `back` brings a kept result back before restoring the address's view. */
-function showResult(next: AnalysisResult, at: Date, back = false): void {
+ * new tables. A first result opens on the Overview; `back` brings a kept result back before restoring the address's view.
+ * A result an earlier version kept shows its table of the saved views as Saved Views (saved-view-filters-view.ts
+ * `withSavedViews`); a run's result is shown as it came, the very one. */
+function showResult(given: AnalysisResult, at: Date, back = false): void {
+  const next = withSavedViews(given);
   // How the result that is replaced was looked at is written first, as it is now: what of it fits the new result is taken.
   if (result) writeLooks();
   const same = result !== undefined && subjectOf(result) === subjectOf(next);
@@ -1346,8 +1349,10 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = t
     drawerItems.push(to);
     return drawerItems.length - 1;
   });
-  // A saved view's filters: each condition's line item opens its row of Line Items, where the page has one.
-  const view = savedViewOfRow(result, entry.table, row);
+  // A saved view's filters: each condition's line item opens its row of Line Items, where the page has one. A view that has
+  // none, its definition read, has no Filters section.
+  const saved = savedViewOfRow(result, entry.table, row);
+  const view = saved && (!saved.read || saved.filters.length > 0) ? saved : undefined;
   const filterOpens = view?.filters.map(filter => filter.conditions.map(condition => {
     const to = condition.lineItemModule === undefined ? undefined : rowOfLineItem(condition.lineItemModule, condition.lineItem);
     if (!to) return undefined;
@@ -1622,10 +1627,13 @@ function objectAddress(kind: "module" | "list", name: string): { url?: string; i
 }
 
 /** Why a row of the tables of the pages built on a model has no Model button for what it names that the model doesn't have
- * (page-files.ts `missingText`): one line, which names each kind of such thing once. None where the row names none. */
-function missingWhy(kinds: ReadonlySet<MissingKind>): string | undefined {
+ * (page-files.ts `missingText`): one line, which names each kind of such thing once. None where the row names none. A row
+ * of Saved View Filters names it in a saved view's filter, which its module, the filtered module, opens to fix. */
+function missingWhy(kinds: ReadonlySet<MissingKind>, inView = false): string | undefined {
   const named = (["module", "line item", "import", "export", "process"] as const).filter(kind => kinds.has(kind)).map(kind => `this ${kind}`);
-  return named.length ? `The model doesn't have ${named.join(" or ")}: deleted since the page was built, or hidden from you. Open the page to fix the card.` : undefined;
+  if (!named.length) return undefined;
+  return `The model doesn't have ${named.join(" or ")}: deleted since ${inView ? "the view was saved" : "the page was built"}, or hidden from you. `
+    + (inView ? "Open the view's module to fix its filter." : "Open the page to fix the card.");
 }
 
 /** The list a filter's dimension is, by the dimension's name: a list the export found an ID for, or, for a subset that
@@ -1643,6 +1651,10 @@ function listOfDimension(name: string): string | undefined {
   }
 }
 
+/** The tables of the pages built on a model, each row of which names its app and its page, with their IDs (model-pages.ts):
+ * Module Usage, Saved View Filters, Page Filters and Page Actions. */
+const PAGE_TABLES: readonly string[] = [MODULE_USAGE_FILE, SAVED_VIEW_FILTERS_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE];
+
 /** The ways a row of a model's tables leads elsewhere, as the buttons under its name in its details show them, and why
  * one that the result keeps from every row is not there. Model Building opens modules and lists, not line items: a line
  * item opens its module. The button that opens a row's one object in Model Building is Model, as the user named it (9 and
@@ -1651,9 +1663,10 @@ function listOfDimension(name: string): string | undefined {
  *   heading has Find source inputs beside its box: the map shows the line items without a formula that feed it.
  * - General Lists: the list, on the map and in Model Building.
  * - Module Usage: the module, on the map and in Model Building, and the app and the page that use it.
- * - Page Filters: the condition line item's module and the filtered module in Model Building, by those names, one Model
- *   button where the two are one module; the list of the filtered dimension, where it is one; and the filter's app and
- *   page.
+ * - Page Filters and Saved View Filters: the condition line item's module and the filtered module in Model Building, by
+ *   those names, one Model button where the two are one module; the list of the filtered dimension, where it is one; and
+ *   the filter's app and page.
+ * - Saved Views: the view's module in Model Building.
  * - Page Actions: the model's action, on the Actions page, and the button's app and page.
  * - Dynamic Cell Access: the driver's module and the controlled module, one Model button where they are one.
  * - Unused Line Items and Unused Modules: the row's box on the model map, and its module in Model Building.
@@ -1699,9 +1712,9 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   };
   if (file === LINE_ITEMS_FILE) inModel("module", cell(MODULE_NAME), "Model");
   if (file === MODULES_FILE || file === MODULE_USAGE_FILE) inModel("module", cellText(row[0]).trim(), "Model");
-  if (file === UNUSED_LINE_ITEMS_FILE || file === UNUSED_MODULES_FILE || file === SAVED_VIEW_FILTERS_FILE) inModel("module", cell("Module"), "Model");
+  if (file === UNUSED_LINE_ITEMS_FILE || file === UNUSED_MODULES_FILE || file === SAVED_VIEWS_FILE) inModel("module", cell("Module"), "Model");
   if (file === LISTS_FILE) inModel("list", cellText(row[0]).trim(), "Model");
-  if (file === PAGE_FILTERS_FILE) {
+  if (file === PAGE_FILTERS_FILE || file === SAVED_VIEW_FILTERS_FILE) {
     const [condition, filtered] = [cell("Condition line item's module"), cell("Filtered module")];
     if (condition === filtered) inModel("module", condition, "Model");
     else {
@@ -1729,7 +1742,7 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
     else why ??= none;
   }
   const app = cell("App");
-  if ((file === MODULE_USAGE_FILE || file === PAGE_FILTERS_FILE || file === PAGE_ACTIONS_FILE) && app !== "" && app !== NONE) {
+  if (PAGE_TABLES.includes(file) && app !== "" && app !== NONE) {
     const site = siteOf(model);
     const [appId, pageId, route] = [cell("App ID"), cell("Page ID"), PAGE_ROUTES.get(cell("Page type"))];
     if (columnIndex(entry.table, "App ID") === undefined) why ??= EARLIER_PAGES;
@@ -1742,7 +1755,7 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
       }
     }
   }
-  return { opens, why: why ?? missingWhy(gone) };
+  return { opens, why: why ?? missingWhy(gone, file === SAVED_VIEW_FILTERS_FILE) };
 }
 
 /** What a name under About this export opens in Anaplan: the model, in Model Building in the model's tab (`openInModel`),
@@ -1752,12 +1765,12 @@ type AboutOpen = { kind: "model" | "app"; url: string; what: string };
 let aboutOpens: readonly AboutOpen[] = [];
 
 /** The IDs of the apps of the pages built on a model, by the app's name, as the tables of those pages say them for each of
- * their rows (model-pages.ts): Module Usage, Page Filters and Page Actions. An app whose pages none of them lists has none,
- * two apps of one name have both, and a result an earlier version read has no App ID column, and so none at all. */
+ * their rows (model-pages.ts, `PAGE_TABLES`). An app whose pages none of them lists has none, two apps of one name have
+ * both, and a result an earlier version read has no App ID column, and so none at all. */
 function appIdsByName(model: AnalysisResult): Map<string, Set<string>> {
   const ids = new Map<string, Set<string>>();
   for (const table of model.tables) {
-    if (table.file !== MODULE_USAGE_FILE && table.file !== PAGE_FILTERS_FILE && table.file !== PAGE_ACTIONS_FILE) continue;
+    if (!PAGE_TABLES.includes(table.file)) continue;
     const [nameAt, idAt] = [columnIndex(table, "App"), columnIndex(table, "App ID")];
     if (nameAt === undefined || idAt === undefined) continue;
     for (const row of table.rows) {
@@ -1982,15 +1995,15 @@ function graphFor(model: AnalysisResult): ModelGraph {
   return modelGraph;
 }
 
-/** The map's box for a row of a model's Line Items, Modules, Module Usage, General Lists, DCA, Page Filters, Unused Line
- * Items or Unused Modules: the line item in its module, the
+/** The map's box for a row of a model's Line Items, Modules, Module Usage, General Lists, DCA, Page Filters, Saved View
+ * Filters, Unused Line Items or Unused Modules: the line item in its module (a filter's condition line item), the
  * module or the list, by their names. A module's own row of Line Items is its module's. None for any other row, for a row
  * the map does not draw (a heading, a line item that names no module, a module or a list the model does not have), and
  * where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
-  if (result?.kind !== "model" || !hasModelMap(result) || modelMap === "failed"
-    || ![LINE_ITEMS_FILE, MODULES_FILE, MODULE_USAGE_FILE, LISTS_FILE, "Dynamic Cell Access.csv", PAGE_FILTERS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE].includes(file)) {
+  if (result?.kind !== "model" || !hasModelMap(result) || modelMap === "failed" || ![LINE_ITEMS_FILE, MODULES_FILE, MODULE_USAGE_FILE, LISTS_FILE, "Dynamic Cell Access.csv",
+    PAGE_FILTERS_FILE, SAVED_VIEW_FILTERS_FILE, UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE].includes(file)) {
     return undefined;
   }
   let graph: ModelGraph;
@@ -2002,12 +2015,12 @@ function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const name = cellText(row[0]).trim();
   const lineItem = (module: string, name: string): number | undefined => graph.nodes.find(node => node.kind === "lineItem" && node.name.trim() === name
     && node.module !== undefined && graph.nodes[node.module]?.name.trim() === module)?.id;
-  if (file === "Dynamic Cell Access.csv" || file === PAGE_FILTERS_FILE) {
+  if (file === "Dynamic Cell Access.csv" || file === PAGE_FILTERS_FILE || file === SAVED_VIEW_FILTERS_FILE) {
     const cell = (header: string): string => {
       const at = columnIndex(entry.table, header);
       return at === undefined ? "" : cellText(row[at]).trim();
     };
-    return file === PAGE_FILTERS_FILE ? lineItem(cell("Condition line item's module"), cell("Condition line item"))
+    return file !== "Dynamic Cell Access.csv" ? lineItem(cell("Condition line item's module"), cell("Condition line item"))
       : lineItem(cell("Driver Module"), cell("Driver Line Item")) ?? lineItem(cell("Controlled Module"), cell("Controlled Line Item"));
   }
   if (file === LISTS_FILE) return graph.nodes.find(node => node.kind === "list" && node.name.trim() === name)?.id;

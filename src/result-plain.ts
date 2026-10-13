@@ -216,21 +216,27 @@ const texts = (value: unknown): string[] | undefined => {
   return entries.every((entry): entry is string => typeof entry === "string") ? entries : undefined;
 };
 
-/** One condition of a view's filter, every field checked, or nothing when anything else is there. */
+/** One condition of a view's filter, every field checked, or nothing when anything else is there. Its line item's ID is
+ * digits; a condition an earlier version kept has none. */
 function readCondition(value: unknown): ViewCondition | undefined {
   const condition = value as Partial<ViewCondition> | null;
   const values = texts(condition?.values);
   const contexts = texts(condition?.contexts);
   if (!condition || typeof condition !== "object" || typeof condition.lineItem !== "string" || (condition.lineItemModule !== undefined && typeof condition.lineItemModule !== "string")
+      || (condition.lineItemId !== undefined && !(typeof condition.lineItemId === "string" && /^\d{1,19}$/.test(condition.lineItemId)))
       || typeof condition.operator !== "string" || typeof condition.dataType !== "string" || !values || !contexts || typeof condition.valid !== "boolean") return undefined;
-  return { lineItem: condition.lineItem, ...(condition.lineItemModule !== undefined ? { lineItemModule: condition.lineItemModule } : {}), operator: condition.operator,
-    dataType: condition.dataType, values, contexts, valid: condition.valid };
+  return { lineItem: condition.lineItem, ...(condition.lineItemModule !== undefined ? { lineItemModule: condition.lineItemModule } : {}),
+    ...(condition.lineItemId !== undefined ? { lineItemId: condition.lineItemId } : {}), operator: condition.operator, dataType: condition.dataType, values, contexts,
+    valid: condition.valid };
 }
 
-/** One axis's filter, every field checked, or nothing when anything else is there. */
+/** One axis's filter, every field checked, or nothing when anything else is there. Its dimensions, one by one, are texts; a
+ * filter an earlier version kept has none. */
 function readAxisFilter(value: unknown): AxisFilter | undefined {
   const filter = value as Partial<AxisFilter> | null;
+  const dimensions = filter?.dimensions === undefined ? undefined : texts(filter.dimensions);
   if (!filter || typeof filter !== "object" || typeof filter.axis !== "string" || !AXES.has(filter.axis) || (filter.dimension !== undefined && typeof filter.dimension !== "string")
+      || (filter.dimensions !== undefined && !dimensions)
       || typeof filter.active !== "boolean" || (filter.match !== "all" && filter.match !== "any") || !Array.isArray(filter.conditions)) return undefined;
   const conditions: ViewCondition[] = [];
   for (const entry of Array.from(filter.conditions as unknown[])) {
@@ -238,7 +244,8 @@ function readAxisFilter(value: unknown): AxisFilter | undefined {
     if (!condition) return undefined;
     conditions.push(condition);
   }
-  return { axis: filter.axis, ...(filter.dimension !== undefined ? { dimension: filter.dimension } : {}), active: filter.active, match: filter.match, conditions };
+  return { axis: filter.axis, ...(filter.dimension !== undefined ? { dimension: filter.dimension } : {}), ...(dimensions ? { dimensions } : {}), active: filter.active,
+    match: filter.match, conditions };
 }
 
 /** A model's saved views with their filters (result-types.ts `SavedViewDetail`), every field checked, or nothing when

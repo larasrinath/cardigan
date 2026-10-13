@@ -1,6 +1,6 @@
 import { readsFile } from "../file-imports.js";
 import { CUSTOM_VIEW_FILTERS, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
-import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
+import { SAVED_VIEW_FILTER_ORDER, SAVED_VIEW_FILTERS_FILE, SAVED_VIEWS_FILE } from "../saved-view-filters.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { LINE_ITEM_SUBSETS_FILE } from "../model/line-item-subsets.js";
 import { lineItemSubsetsView } from "./line-item-subsets-view.js";
@@ -568,8 +568,10 @@ function blankDashes(view: FileView): FileView {
 }
 
 const readingCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-const PAGE_ROW_ORDER: ReadonlyMap<string, readonly string[]> = new Map([
+const PAGE_ROW_ORDER: ReadonlyMap<string, readonly string[]> = new Map<string, readonly string[]>([
   [MODULE_USAGE_FILE, ["App", "Page"]],
+  // The saved views' filters, in Custom View Filters' order, as the run writes them (saved-view-filters.ts).
+  [SAVED_VIEW_FILTERS_FILE, SAVED_VIEW_FILTER_ORDER],
   [PAGE_FILTERS_FILE, ["Condition line item's module", "Condition line item", "App", "Page", "Card #"]],
   [PAGE_ACTIONS_FILE, ["Model action name", "App", "Page"]],
 ]);
@@ -634,15 +636,15 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
- * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
- * it, followed by the two tables of what nothing uses (unused-files.ts). Line Item Subsets follows General Lists. The
- * three tables the page shows the Imports file as (import-files.ts) stand in its place. After the settings come the
- * tables of App Usage: Module Usage, then the saved views' filters (saved-view-filters.ts) and the custom view filters of
- * the pages built on the model, the Page Filters file, and Page Actions (page-files.ts), last before the map. A file of a
- * result that is not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to
- * the end and does not go missing. */
+ * writes it under. Every saved view (saved-view-filters.ts) comes right after Line Items. Dynamic Cell Access is none of
+ * Anaplan's settings: it is made from Line Items, and comes after them, followed by the two tables of what nothing uses
+ * (unused-files.ts). Line Item Subsets follows General Lists. The three tables the page shows the Imports file as
+ * (import-files.ts) stand in its place. After the settings come the tables of App Usage: Module Usage, then the filters of
+ * the saved views the pages built on the model show and the custom view filters of those pages, the Page Filters file, and
+ * Page Actions (page-files.ts), last before the map. A file of a result that is not listed here comes after these, in the
+ * result's own order: a file that is renamed, or new, moves to the end and does not go missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
-  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
+  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, SAVED_VIEWS_FILE, ACCESS_FILE,
   UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE, "Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv",
   OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, MODULE_USAGE_FILE, SAVED_VIEW_FILTERS_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE,
 ];

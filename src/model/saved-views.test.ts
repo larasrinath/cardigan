@@ -188,35 +188,47 @@ describe("The filters of a model's saved views", () => {
     { dataPages: [{ rows: [["1"]] }] }),
   };
 
-  it("are read one view at a time, in the cache's order, and make the table of each view with a filter or not read, with the details and the map's conditions", async () => {
+  it("are read one view at a time, in the cache's order, and make the table of every view, with a filter or without or not read, with the details and the map's conditions", async () => {
     const { native, posted, flight } = page(VIEWS, id => ANSWERS[id], { delay: true });
     const log: string[] = [];
     const read = await readSavedViews(native, listSavedViews(native), names(), line => log.push(line));
     // One read a view, each by its reference, never two at once.
     expect([posted.map(request => request.viewRequests[0].viewReference.entityDefaultViewEntityLongId), flight.most]).toEqual([VIEWS.map(([id]) => id), 1]);
-    // The view without a filter is no row; the one refused is, and says its definition was not read.
+    // Every view is a row: the one without a filter, its Filters empty, and the one refused, which says its definition was not read.
     expect(read.table.headers).toEqual(["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"]);
     expect(read.table.rows).toEqual([
       ["Open items", "REV01 Revenue", "Rows: Active? = True", "REV01 Revenue.Active?", "", "", "", "Yes"],
       ["Regional split", "REV01 Revenue", "Columns: Match any: Region = North or South or ID 101000000013, Volume ≥ 1500; Pages (Time, off): Period < Jan 26",
         "SYS01 Flags.Region, REV01 Revenue.Volume, SYS01 Flags.Period", "", "", "", "Yes"],
+      ["Plain", "REV01 Revenue", "", "", "", "", "", "Yes"],
       ["Refused", "SYS01 Flags", "", "", "", "", "", "No"],
       ["Old flags", "SYS01 Flags", "Rows: Missing line item (ID 2000000099) = False (not valid), Code (SCN042:Spring Launch) starts with \"FY 26\", Launch is not blank, Launch ≠ 2026-03-31",
         "Missing line item (ID 2000000099), SYS01 Flags.Code, SYS01 Flags.Launch", "", "", "", "Yes"],
     ]);
-    expect(read.ids).toEqual(["105000000001", "105000000002", "105000000004", "105000000005"]);
-    expect(read.details.map(view => [view.name, view.read, view.filters.map(filter => [filter.axis, filter.dimension, filter.active, filter.match, filter.conditions.length])])).toEqual([
-      ["Open items", true, [["Rows", undefined, true, "all", 1]]],
-      ["Regional split", true, [["Columns", undefined, true, "any", 2], ["Pages", "Time", false, "all", 1]]],
+    expect(read.ids).toEqual(["105000000001", "105000000002", "105000000003", "105000000004", "105000000005"]);
+    // Each filtered axis keeps its dimensions by the client's names for them, one by one; a page axis says them as the
+    // filter dialog does too.
+    expect(read.details.map(view => [view.name, view.read, view.filters.map(filter => [filter.axis, filter.dimension, filter.dimensions, filter.active, filter.match,
+      filter.conditions.length])])).toEqual([
+      ["Open items", true, [["Rows", undefined, ["Products"], true, "all", 1]]],
+      ["Regional split", true, [["Columns", undefined, ["Regions"], true, "any", 2], ["Pages", "Time", ["Time"], false, "all", 1]]],
+      ["Plain", true, []],
       ["Refused", false, []],
-      ["Old flags", true, [["Rows", undefined, true, "all", 4]]],
+      ["Old flags", true, [["Rows", undefined, ["Products"], true, "all", 4]]],
     ]);
-    expect(read.details[3].filters[0].conditions).toEqual([
-      { lineItem: "Missing line item (ID 2000000099)", operator: "EQUALS", dataType: "BOOLEAN", values: ["False"], contexts: [], valid: false },
-      { lineItem: "Code", lineItemModule: "SYS01 Flags", operator: "STARTS_WITH", dataType: "TEXT", values: ["FY 26"], contexts: ["SCN042:Spring Launch"], valid: true },
-      { lineItem: "Launch", lineItemModule: "SYS01 Flags", operator: "IS_NOT_BLANK", dataType: "DATE", values: [], contexts: [], valid: true },
-      { lineItem: "Launch", lineItemModule: "SYS01 Flags", operator: "NOT_EQUALS", dataType: "DATE", values: ["2026-03-31"], contexts: [], valid: true },
+    // Each condition keeps its line item's ID beside its name, a missing line item's too.
+    expect(read.details[4].filters[0].conditions).toEqual([
+      { lineItem: "Missing line item (ID 2000000099)", lineItemId: "2000000099", operator: "EQUALS", dataType: "BOOLEAN", values: ["False"], contexts: [], valid: false },
+      { lineItem: "Code", lineItemModule: "SYS01 Flags", lineItemId: "2000000004", operator: "STARTS_WITH", dataType: "TEXT", values: ["FY 26"], contexts: ["SCN042:Spring Launch"],
+        valid: true },
+      { lineItem: "Launch", lineItemModule: "SYS01 Flags", lineItemId: "2000000005", operator: "IS_NOT_BLANK", dataType: "DATE", values: [], contexts: [], valid: true },
+      { lineItem: "Launch", lineItemModule: "SYS01 Flags", lineItemId: "2000000005", operator: "NOT_EQUALS", dataType: "DATE", values: ["2026-03-31"], contexts: [], valid: true },
     ]);
+    // A condition on the view's module itself, the dialog's Current Module, has no line item, and so no ID.
+    const current = page([[105000000001, "Own", 102000000001]], () => answered(pageInfo(axis("Products", { conditions: [{ module: "_102000000001_", operator: "IS_BLANK", type: "NUMBER" }] }),
+      axis("Line Items"))));
+    const own = await readSavedViews(current.native, listSavedViews(current.native), names(), () => undefined);
+    expect(own.details[0].filters[0].conditions).toEqual([{ lineItem: "Current Module", operator: "IS_BLANK", dataType: "NUMBER", values: [], contexts: [], valid: true }]);
     // The map's conditions: each whose line item is named, with its view and module, axis, and whether it is on and valid.
     expect(read.filters).toEqual([
       { view: "Open items", module: "REV01 Revenue", axis: "Rows", lineItem: "Active?", lineItemModule: "REV01 Revenue", active: true, valid: true },
@@ -231,6 +243,30 @@ describe("The filters of a model's saved views", () => {
     expect(log).toEqual(["Saved view 105000000004: refused (No access to this view)", "Saved view 105000000005: the answer held 1 data or label pages, which were left unread",
       expect.stringMatching(/^Saved views: 5; filters read for 4, 3 with a filter; 1 refused; in \d+\.\d\d s$/)]);
     expect(read.notes).toEqual(["1 of the 5 saved views could not be read, so their filters are not known: Definition read says No in their rows, and the diagnostic log says why."]);
+  });
+
+  it("keep each filtered axis's dimensions by the names the client's cache gives them, the rows' and the columns' as well as a page's, and none it does not name", async () => {
+    const answer = answered(pageInfo(axis("Products|Customers", { conditions: [{ id: 2000000001, label: "Active?", operator: "EQUALS", type: "BOOLEAN", value: "true" }] }),
+      axis("Time|Line Items", { conditions: [{ id: 2000000002, label: "Volume", operator: "GREATER_THAN", type: "NUMBER", value: "0" }] }),
+      axis("Version|Region", { conditions: [{ id: 2000000003, label: "Region", operator: "IS_NOT_BLANK", type: "ENTITY" }] }),
+      axis("Unnamed", { conditions: [{ id: 2000000002, label: "Volume", operator: "LESS_THAN", type: "NUMBER", value: "9" }] })));
+    const { native, posted } = page([[105000000001, "Open items", 102000000001]], () => answer);
+    // The client gives an axis its dimensions' IDs, and each ID its label; it has no label for one of them.
+    (native.helper as Any).getAllDimensionIdentifiersForAxisSpecification = (specification: Any) => String(specification.dimension).split("|");
+    (native.helper as Any).getLabelForDimensionIdentifier = (_cache: unknown, id: string) => (id === "Unnamed" ? "" : id);
+    const read = await readSavedViews(native, listSavedViews(native), names(), () => undefined);
+    expect(read.details[0].filters.map(filter => [filter.axis, filter.dimensions, filter.dimension])).toEqual([["Rows", ["Products", "Customers"], undefined],
+      ["Columns", ["Time", "Line Items"], undefined], ["Pages", ["Version", "Region"], "Version / Region"], ["Pages", undefined, undefined]]);
+    // Nothing more is asked of the model for them: the one view's read.
+    expect(posted).toHaveLength(1);
+    // A client that cannot say, or one that fails, names none: the filters are read all the same.
+    for (const helper of [{}, { getAllDimensionIdentifiersForAxisSpecification: () => { throw new Error("not loaded"); } }]) {
+      const again = page([[105000000001, "Open items", 102000000001]], () => answer);
+      (again.native as Any).helper = helper;
+      const plain = await readSavedViews(again.native, listSavedViews(again.native), names(), () => undefined);
+      expect(plain.details[0].filters.map(filter => [Object.hasOwn(filter, "dimensions"), Object.hasOwn(filter, "dimension"), filter.conditions.length]))
+        .toEqual([[false, false, 1], [false, false, 1], [false, false, 1], [false, false, 1]]);
+    }
   });
 
   it("stop being read once the export is asked to stop, and list the views not read rather than leave them out", async () => {
@@ -265,5 +301,10 @@ describe("The filters of a model's saved views", () => {
     ] };
     const read = await readSavedViews(native, listSavedViews(native), names({ imports, mappings, sourceObjects: new Map([[112000000002, 105000000002]]), exports }), () => undefined);
     expect(read.table.rows.map(row => [row[0], row[5], row[6]])).toEqual([["Open items", "Load from open items", "Export open items"], ["Regional split", "Load by source", "Export by ID"]]);
+    // A view without a filter is a row of its own, with the imports and the exports that read it.
+    const plain = page([[105000000003, "Plain", 102000000001]], () => answered(NO_FILTER));
+    const exportsPlain = { columns: exports.columns, rows: [{ ids: [116000000004], labels: ["Export plain"], cells: ["Export from 'REV01 Revenue'.Plain", ""] }] };
+    const unfiltered = await readSavedViews(plain.native, listSavedViews(plain.native), names({ exports: exportsPlain }), () => undefined);
+    expect(unfiltered.table.rows).toEqual([["Plain", "REV01 Revenue", "", "", "", "", "Export plain", "Yes"]]);
   });
 });

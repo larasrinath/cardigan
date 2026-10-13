@@ -3,7 +3,7 @@ import { missingText } from "../page-files.js";
 import type { Log, Stop } from "../progress.js";
 import type { AxisFilter, ImportMapping, SavedViewDetail, SavedViewFilter, ViewAxis, ViewCondition } from "../result-types.js";
 import { sourceObjectOf } from "../results/source-object.js";
-import { filtersSummary, lineItemListed, READ_WORDS, SAVED_VIEW_FILTER_HEADERS } from "../saved-view-filters.js";
+import { filtersSummary, lineItemListed, READ_WORDS, SAVED_VIEW_HEADERS } from "../saved-view-filters.js";
 import { message, seconds } from "../util.js";
 import { plainText, type Grid, type GridRow, type Table } from "./grid.js";
 import { readViewDefinition, Refusal, type Native } from "./native.js";
@@ -15,14 +15,17 @@ import { readViewDefinition, Refusal, type Native } from "./native.js";
  * take views opened at once from one session (seen live, 12 Oct 2026: of 160 views, 21 refused read four at a time, none
  * one at a time). Of a definition only its axes' filters are kept (`pageInfo`, each axis's `axisDefinition`'s
  * `sortAndFilterDefinition`), with the labels of each condition's line item, values and context items as the definition
- * gives them (`filterConditionInfos`): nothing more is read for a name. A condition's line item is named by the Line
+ * gives them (`filterConditionInfos`), and each filtered axis's dimensions by the names the client's cache gives them
+ * (`dimensionsOf`): nothing more is read for a name. A condition's line item is named by the Line
  * Items grid the export read, by its ID, and its module with it: the definition's own label is the name where that grid
- * has none of the ID, and one with neither is a missing line item, as a filter of a deleted line item is.
+ * has none of the ID, and one with neither is a missing line item, as a filter of a deleted line item is. The ID is kept
+ * beside the name.
  *
- * The table lists each view that has a filter, on or off, and each whose definition was not read, in the cache's order, with
- * the imports and the exports that read the view (`importsOf`, `exportsOf`). Which pages show it is said once the pages
- * built on the model are read (model-pages.ts). `stop` is asked before each read; once it says the export was asked to
- * stop, no further view is read, and the views not read are said to be so, not left out. */
+ * The table, Saved Views, lists every view, with a filter or without, on or off, and each whose definition was not read, in
+ * the cache's order, with the imports and the exports that read the view (`importsOf`, `exportsOf`). Which pages show it is
+ * said once the pages built on the model are read (model-pages.ts), which then make the Saved View Filters table of the
+ * filters of the views they show. `stop` is asked before each read; once it says the export was asked to stop, no further
+ * view is read, and the views not read are said to be so, not left out. */
 
 /** A saved view as the model page's client lists it: its ID, its name and its module's ID. */
 export interface ListedView { id: number; name: string; moduleId: number }
@@ -72,8 +75,9 @@ export interface SavedViewNames {
   exports?: { columns: Grid["columns"]; rows: readonly GridRow[] };
 }
 
-/** What the saved views give the result: the table, a detail for each of its rows, each condition for the Model map, each
- * row's view's ID for the pages built on the model (content.ts takes them off the result), and the notes on views not read. */
+/** What the saved views give the result: the Saved Views table, a detail for each of its rows, each condition for the Model
+ * map, each row's view's ID for the pages built on the model (content.ts takes them off the result), and the notes on views
+ * not read. */
 export interface SavedViewsRead { table: Table; details: SavedViewDetail[]; filters: SavedViewFilter[]; ids: string[]; notes: string[] }
 
 /** What became of one view: its filters, or why its definition was not read. */
@@ -97,23 +101,23 @@ const NO_VALUE: ReadonlySet<string> = new Set(["IS_BLANK", "IS_NOT_BLANK"]);
 /** The data types whose values are a list's items or periods, which a condition's info gives labels for. */
 const ITEMS: ReadonlySet<string> = new Set(["ENTITY", "TIME_ENTITY"]);
 
-/** A page axis's dimensions, as the model's client names them (ModelContentHelper `getAllDimensionIdentifiersForAxisSpecification`
- * and `getLabelForDimensionIdentifier`, which read its cache), the filter dialog joining several with a slash; nothing
- * where the client cannot say. */
-function dimensionOf(native: Native, specification: Any): string | undefined {
+/** An axis's dimensions, each by the name the model's client gives it, in the axis's order (ModelContentHelper
+ * `getAllDimensionIdentifiersForAxisSpecification` and `getLabelForDimensionIdentifier`, which read its cache, so nothing
+ * is asked of the model for them): the rows', the columns' or a page's. Nothing where the client cannot say, or names none. */
+function dimensionsOf(native: Native, specification: Any): string[] | undefined {
   try {
     const identifiers: unknown = native.helper.getAllDimensionIdentifiersForAxisSpecification?.(specification);
     if (!Array.isArray(identifiers)) return undefined;
     const names = identifiers.map(identifier => plainText(native.helper.getLabelForDimensionIdentifier?.(native.cache, identifier))).filter(name => name.trim() !== "");
-    return names.length ? names.join(" / ") : undefined;
+    return names.length ? names : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** One condition, in the result's words, with its line item named by its ID (`lineItemOf`). Its values are the definition's
- * own: a Boolean as True or False, a list's items and periods by the labels the condition's info gives them, by their IDs
- * where it gives none, and any other value as the definition holds it. */
+/** One condition, in the result's words, with its line item named by its ID (`lineItemOf`), which is kept too. Its values are
+ * the definition's own: a Boolean as True or False, a list's items and periods by the labels the condition's info gives
+ * them, by their IDs where it gives none, and any other value as the definition holds it. */
 function conditionOf(condition: Any, info: Any, lineItemOf: (id: number) => { name: string; module: string } | undefined): ViewCondition {
   const id = entityOf(condition?.lineItemIdentifier);
   const named = id === undefined ? undefined : lineItemOf(id);
@@ -134,11 +138,13 @@ function conditionOf(condition: Any, info: Any, lineItemOf: (id: number) => { na
   const contexts = (Array.isArray(condition?.contextIdentifiers) ? condition.contextIdentifiers as unknown[] : [])
     .map((identifier, at) => (contextLabels[at] !== undefined && contextLabels[at].trim() !== "" ? contextLabels[at] : asId(identifier)));
   // The client takes a condition whose info does not say it is not valid for a valid one (Condition.js `isValid`).
-  return { lineItem, ...(named ? { lineItemModule: named.module } : {}), operator, dataType, values, contexts, valid: info?.isValid !== false };
+  return { lineItem, ...(named ? { lineItemModule: named.module } : {}), ...(id !== undefined ? { lineItemId: String(id) } : {}), operator, dataType, values, contexts,
+    valid: info?.isValid !== false };
 }
 
 /** The filters of a view's definition: Rows, Columns, then each page axis, each that has a condition, whether it is on or
- * not, with its conditions in their order. */
+ * not, with its conditions in their order, and the axis's dimensions by the client's names for them (`dimensionsOf`): one
+ * by one for every axis, and for a page axis said as the filter dialog says it too, several joined with a slash. */
 function filtersOf(native: Native, pageInfo: Any, lineItemOf: (id: number) => { name: string; module: string } | undefined): AxisFilter[] {
   const pages: unknown[] = Array.isArray(pageInfo?.pageAxisSpecifications) ? pageInfo.pageAxisSpecifications : [];
   const axes: [ViewAxis, Any][] = [["Rows", pageInfo?.rowAxisSpecification], ["Columns", pageInfo?.columnAxisSpecification], ...pages.map((page): [ViewAxis, Any] => ["Pages", page])];
@@ -147,10 +153,11 @@ function filtersOf(native: Native, pageInfo: Any, lineItemOf: (id: number) => { 
     const conditions: unknown[] = Array.isArray(definition?.filterConditions) ? definition.filterConditions : [];
     if (!conditions.length) return [];
     const infos: unknown[] = Array.isArray(definition.filterConditionInfos) ? definition.filterConditionInfos : [];
-    const dimension = axis === "Pages" ? dimensionOf(native, specification) : undefined;
+    const dimensions = dimensionsOf(native, specification);
+    const dimension = axis === "Pages" && dimensions ? dimensions.join(" / ") : undefined;
     // The client's icon for a filter takes one that does not say it is active for one that is off (MainView.js `_getIconClass`).
-    return [{ axis, ...(dimension ? { dimension } : {}), active: definition.isActive === true, match: definition.filterMatchType === "ANY" ? "any" : "all",
-      conditions: conditions.map((condition, at) => conditionOf(condition, infos[at], lineItemOf)) }];
+    return [{ axis, ...(dimension ? { dimension } : {}), ...(dimensions ? { dimensions } : {}), active: definition.isActive === true,
+      match: definition.filterMatchType === "ANY" ? "any" : "all", conditions: conditions.map((condition, at) => conditionOf(condition, infos[at], lineItemOf)) }];
   });
 }
 
@@ -221,11 +228,11 @@ function exportsOf(views: readonly ListedView[], modules: readonly string[], nam
   return used;
 }
 
-/** Each view's definition, one view after another, in the client's order, and the Saved View Filters table made from them
- * (`SavedViewsRead`). The log has a line for each view the model refused, by its ID, with the model's words on why, a line
- * for any answer that held data or label pages all the same, and one line on them all: how many views there are, how many
- * were read, how many of those have a filter, how many were refused, and how long it took. A stop leaves the views after it
- * unread: they are listed, and a note says how many. */
+/** Each view's definition, one view after another, in the client's order, and the Saved Views table made from them, a row
+ * for every view (`SavedViewsRead`). The log has a line for each view the model refused, by its ID, with the model's words
+ * on why, a line for any answer that held data or label pages all the same, and one line on them all: how many views there
+ * are, how many were read, how many of those have a filter, how many were refused, and how long it took. A stop leaves the
+ * views after it unread: they are listed, and a note says how many. */
 export async function readSavedViews(native: Native, views: readonly ListedView[], names: SavedViewNames, log: Log, stop?: Stop): Promise<SavedViewsRead> {
   const started = Date.now();
   const moduleNames = new Map(names.moduleIds.map(([name, id]) => [id, name]));
@@ -266,11 +273,10 @@ export async function readSavedViews(native: Native, views: readonly ListedView[
 
   const imports = importsOf(views, modules, names);
   const exports = exportsOf(views, modules, names);
-  const result: SavedViewsRead = { table: { headers: [...SAVED_VIEW_FILTER_HEADERS], rows: [] }, details: [], filters: [], ids: [], notes: [] };
+  const result: SavedViewsRead = { table: { headers: [...SAVED_VIEW_HEADERS], rows: [] }, details: [], filters: [], ids: [], notes: [] };
   views.forEach((view, at) => {
     const outcome = outcomes[at] ?? { read: false };
     const filters = outcome.read ? outcome.filters : [];
-    if (outcome.read && !filters.length) return;
     const module = modules[at];
     const used = new Map<string, string>();
     for (const condition of filters.flatMap(filter => filter.conditions)) {

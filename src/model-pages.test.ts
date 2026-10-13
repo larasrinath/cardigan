@@ -680,24 +680,37 @@ describe("The pages built on a model, read beside its export", () => {
   });
 });
 
-describe("Used on Pages of the saved views' filters", () => {
-  /** A grid card that only selects a saved view of the model, by the view's ID, as Page Builder keeps one. */
-  const viewCard = (n: number, title: string, view: string): Obj => common(n, "TABLE", { defaultTitle: title,
-    widgetDataSources: [{ widgetGuid: guid(n + 100), subEntityId: "", viewDescription: null, dataSourceId: view, dataSourceType: "CLASSIC", axisDescriptionQuery: null }] });
+describe("Saved Views' Used on Pages, and the Saved View Filters of the pages", () => {
+  /** A grid card that only selects a saved view of the model, by the view's ID, as Page Builder keeps one; with `twice`, a
+   * card that lists the view in two data sources. */
+  const source = (n: number, view: string) => ({ widgetGuid: guid(n + 100), subEntityId: "", viewDescription: null, dataSourceId: view, dataSourceType: "CLASSIC", axisDescriptionQuery: null });
+  const viewCard = (n: number, title: string, view: string, twice = false): Obj => common(n, "TABLE", { defaultTitle: title,
+    widgetDataSources: twice ? [source(n, view), source(n, view)] : [source(n, view)] });
   const HEADERS = ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"];
-  /** The export with its Saved View Filters table: three views, each a row, in the order of their IDs. */
+  const filter = (axis: "Rows" | "Columns", lineItem: string, module: string, id: string,
+    more: { active?: boolean; match?: "all" | "any"; valid?: boolean; dimensions?: string[] } = {}) => ({
+    axis, ...(more.dimensions ? { dimensions: more.dimensions } : {}), active: more.active ?? true, match: more.match ?? "all",
+    conditions: [{ lineItem, lineItemModule: module, lineItemId: id, operator: "GREATER_THAN", dataType: "NUMBER", values: ["0"], contexts: [], valid: more.valid ?? true }] });
+  /** The export with its Saved Views table, every view a row in the order of their IDs, and their details: one shown on two
+   * pages, one shown by a card that names it by its module and name, one not read, one no page shows, and one without a filter. */
   const withViews = (): AnalysisResult => {
     const result = exported();
-    result.tables.push({ file: "Saved View Filters.csv", label: "Saved View Filters", headers: [...HEADERS], guard: false, rows: [
-      ["Flagged", "Demand", "Rows: Volume > 0", "Demand.Volume", "", "", "", "Yes"], ["Other", "Factors", "Rows: Territory demand > 0", "Factors.Territory demand", "", "", "", "Yes"],
-      ["Unshown", "Demand", "", "", "", "", "", "No"]] });
+    result.tables.push({ file: "Saved Views.csv", label: "Saved Views", headers: [...HEADERS], guard: false, rows: [
+      ["Flagged", "Demand", "Rows: Volume > 0", "Demand.Volume", "", "", "", "Yes"], ["Other", "Factors", "Columns (off): Match any: Territory demand > 0", "Factors.Territory demand", "", "", "", "Yes"],
+      ["Unshown", "Demand", "", "", "", "", "", "No"], ["Quiet", "Demand", "Rows: Volume > 0", "Demand.Volume", "", "", "", "Yes"], ["Plain", "Demand", "", "", "", "", "", "Yes"]] });
+    result.savedViewDetails = [{ name: "Flagged", module: "Demand", read: true, filters: [filter("Rows", "Volume", "Demand", LI(1), { dimensions: ["Product", "Time"] })] },
+      { name: "Other", module: "Factors", read: true, filters: [filter("Columns", "Territory demand", "Factors", LI(9), { active: false, match: "any", valid: false })] },
+      { name: "Unshown", module: "Demand", read: false, filters: [] }, { name: "Quiet", module: "Demand", read: true, filters: [filter("Rows", "Volume", "Demand", LI(1))] },
+      { name: "Plain", module: "Demand", read: true, filters: [] }];
     return result;
   };
-  const IDS = ["105000000901", "105000000902", "105000000903"];
-  /** Two boards: the first shows the first view twice; the second shows it once more, and a view the export gave another ID,
-   * which the model's names name Other, of Factors. */
+  const IDS = ["105000000901", "105000000902", "105000000903", "105000000904", "105000000905"];
+  /** Two boards: the first shows the first view on two cards, and lists it twice on a third, and shows the view whose definition
+   * was not read and the view without a filter; the second shows the first view once more, and a view the export gave another
+   * ID, which the model's names name Other, of Factors. */
   const pages = () => {
-    const use = fake(BOTH, { [PAGE_A]: board(PAGE_A, APP_A, "Demand board", MODEL, [viewCard(1, "Flagged grid", "105000000901"), viewCard(2, "Again", "105000000901")]),
+    const use = fake(BOTH, { [PAGE_A]: board(PAGE_A, APP_A, "Demand board", MODEL, [viewCard(1, "Flagged grid", "105000000901"), viewCard(2, "Again", "105000000901"),
+      viewCard(3, "Unread", "105000000903"), viewCard(4, "Twice", "105000000901", true), viewCard(5, "Plain grid", "105000000905")]),
       [PAGE_B]: board(PAGE_B, APP_B, "Supply board", MODEL, [viewCard(1, "Other grid", "105000000999"), viewCard(2, "Flagged too", "105000000901")]) });
     use.reads.loadCatalog = vi.fn(async () => {
       const named = catalog();
@@ -706,23 +719,63 @@ describe("Used on Pages of the saved views' filters", () => {
     }) as unknown as typeof loadCatalog;
     return use;
   };
+  const read = (use: Fake, ids: readonly string[] = IDS, customer: string | null = CUSTOMER) =>
+    addModelPages(withViews(), customer ?? undefined, { status: () => undefined, log: line => use.log.push(line) }, undefined, use.reads, undefined, ids);
 
-  it("names each page whose cards show a view, by the view's ID, else by its module's name and its own, each once, with its app, in the pages' order", async () => {
+  it("names in Used on Pages each page whose cards show a view, by the view's ID, else by its module's name and its own, each once, with its app, in the pages' order", async () => {
     const use = pages();
-    const result = await addModelPages(withViews(), CUSTOMER, { status: () => undefined, log: line => use.log.push(line) }, undefined, use.reads, undefined, IDS);
-    expect(cellsOf(result, "Saved View Filters.csv", "Name", "Used on Pages")).toEqual([["Flagged", "Supply board (Another app), Demand board (Planning app)"],
-      ["Other", "Supply board (Another app)"], ["Unshown", ""]]);
-    expect(use.log).toContain("saved views on pages: 2 of the 3 Saved View Filters rows shown on a page read");
+    const result = await read(use);
+    expect(cellsOf(result, "Saved Views.csv", "Name", "Used on Pages")).toEqual([["Flagged", "Supply board (Another app), Demand board (Planning app)"],
+      ["Other", "Supply board (Another app)"], ["Unshown", "Demand board (Planning app)"], ["Quiet", ""], ["Plain", "Demand board (Planning app)"]]);
+    expect(use.log).toContain("saved views on pages: 4 of the 5 Saved Views rows shown on a page read");
     // The export's table is not changed: the result's is a copy.
     expect(withViews().tables.at(-1)?.rows.every(row => row[4] === "")).toBe(true);
   });
 
-  it("leaves Used on Pages empty, and says why in the log, where the views' IDs do not fit the table or the pages could not be read", async () => {
+  it("lists in Saved View Filters each condition of the filter of each view a card shows, card by card, in Custom View Filters' columns and order", async () => {
     const use = pages();
-    const misfit = await addModelPages(withViews(), CUSTOMER, { status: () => undefined, log: line => use.log.push(line) }, undefined, use.reads, undefined, IDS.slice(1));
-    expect(cellsOf(misfit, "Saved View Filters.csv", "Used on Pages").flat()).toEqual(["", "", ""]);
-    expect(use.log).toContain("saved views on pages: the export's IDs do not fit its Saved View Filters table (2 IDs, 3 rows), so no page is named");
-    const unread = await addModelPages(withViews(), undefined, { status: () => undefined, log: () => undefined }, undefined, pages().reads, undefined, IDS);
-    expect(cellsOf(unread, "Saved View Filters.csv", "Used on Pages").flat()).toEqual(["", "", ""]);
+    const result = await read(use);
+    const table = result.tables.find(each => each.file === "Saved View Filters.csv")!;
+    expect([table.label, table.headers, table.guard]).toEqual(["Saved View Filters", [...PAGE_FILTERS_HEADERS.slice(0, 3), "Saved view", ...PAGE_FILTERS_HEADERS.slice(3), "Filter state"], true]);
+    const supply = ["Another app", "Supply board"];
+    const demand = ["Planning app", "Demand board"];
+    // In Custom View Filters' order: by the condition line item's module, the line item, the app, the page and the card.
+    // Two cards that show one view give a set each; a card that lists a view twice gives one; the view not read, the one
+    // without a filter, and the one no page shows give none. Filtered dimension names the axis's dimensions as the client
+    // named them, and is empty where it named none. Each card's section is the one its Grid sections row shows the view in.
+    expect(table.rows).toEqual([
+      ["Demand", "Volume", "Demand", "Flagged", "Product, Time", "", "is greater than", "0", "All", "", "", "Rows", ...supply, 2, "1", "Board", APP_B, PAGE_B, guid(2), LI(1), ""],
+      ["Demand", "Volume", "Demand", "Flagged", "Product, Time", "", "is greater than", "0", "All", "", "", "Rows", ...demand, 1, "1", "Board", APP_A, PAGE_A, guid(1), LI(1), ""],
+      ["Demand", "Volume", "Demand", "Flagged", "Product, Time", "", "is greater than", "0", "All", "", "", "Rows", ...demand, 2, "1", "Board", APP_A, PAGE_A, guid(2), LI(1), ""],
+      ["Demand", "Volume", "Demand", "Flagged", "Product, Time", "", "is greater than", "0", "All", "", "", "Rows", ...demand, 4, "1", "Board", APP_A, PAGE_A, guid(4), LI(1), ""],
+      ["Factors", "Territory demand", "Factors", "Other", "", "", "is greater than", "0", "Any", "", "", "Columns", ...supply, 1, "1", "Board", APP_B, PAGE_B, guid(1), LI(9),
+        "Off · Not valid"],
+    ]);
+    expect(use.log).toContain("saved view filters on pages: 5 rows from 5 cards that show a saved view with a filter; 1 cards show a view whose definition was not read");
+    // Said with the other tables of the pages: its count among the files and in the summary, and how to read it, beside Custom View Filters'.
+    expect(detailsOf(result).filter(row => row[1] === "Saved View Filters.csv")).toEqual([["Files", "Saved View Filters.csv", "5 rows"]]);
+    expect(result.summary).toContain("Saved View Filters: 5 rows");
+    expect(detailsOf(result).filter(row => row[0] === "How to read").map(row => row[1])).toEqual(["Modules", "Module Usage", "Saved View Filters", "Page Filters", "Page Actions", "Missing"]);
+  });
+
+  it("leaves Used on Pages and Saved View Filters empty, and says why in the log, where the views' IDs do not fit the views", async () => {
+    const use = pages();
+    const misfit = await read(use, IDS.slice(1));
+    expect(cellsOf(misfit, "Saved Views.csv", "Used on Pages").flat()).toEqual(["", "", "", "", ""]);
+    expect(rowsOf(misfit, "Saved View Filters.csv")).toEqual([]);
+    expect(use.log).toContain("saved views on pages: the export's IDs do not fit its saved views (4 IDs, 5 views), so no page is named");
+  });
+
+  it("says Saved View Filters was not exported, with the other tables of the pages, where the pages could not be read", async () => {
+    const unread = await read(pages(), IDS, null);
+    expect(cellsOf(unread, "Saved Views.csv", "Used on Pages").flat()).toEqual(["", "", "", "", ""]);
+    expect([rowsOf(unread, "Saved View Filters.csv"), detailsOf(unread).find(row => row[1] === "Saved View Filters.csv"), unread.summary.find(line => line.startsWith("Saved View Filters"))])
+      .toEqual([undefined, ["Files", "Saved View Filters.csv", `Not exported: ${NO_CUSTOMER}`], `Saved View Filters: not exported (${NO_CUSTOMER}).`]);
+  });
+
+  it("makes no Saved View Filters, and says nothing of it, where the export did not read the saved views", async () => {
+    const result = await run(exported(), CUSTOMER, pages());
+    expect([rowsOf(result, "Saved View Filters.csv"), detailsOf(result).some(row => String(row[1]).startsWith("Saved View Filters")),
+      result.summary.some(line => line.startsWith("Saved View Filters"))]).toEqual([undefined, false, false]);
   });
 });

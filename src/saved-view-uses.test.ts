@@ -5,7 +5,7 @@ import { addViewFilterUses } from "./saved-view-uses.js";
 // Invented names only.
 const LINE_ITEMS: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Formula", "Module Name"], rows: [
   ["REV01 Revenue", "", ""], ["Active?", "", "REV01 Revenue"], ["Volume", "", "REV01 Revenue"], ["Orphan", "", ""], ["SYS01 Flags", "", ""], ["Region", "", "SYS01 Flags"]] };
-const SAVED: ResultTable = { file: "Saved View Filters.csv", label: "Saved View Filters", guard: false, headers: ["Name", "Module"], rows: [["Open items", "REV01 Revenue"]] };
+const SAVED: ResultTable = { file: "Saved Views.csv", label: "Saved Views", guard: false, headers: ["Name", "Module"], rows: [["Open items", "REV01 Revenue"], ["Split", "REV01 Revenue"]] };
 const use = (view: string, lineItem: string, lineItemModule: string, active = true): SavedViewFilter =>
   ({ view, module: "REV01 Revenue", axis: "Rows", lineItem, lineItemModule, active, valid: true });
 const detail = (name: string, read = true): SavedViewDetail => ({ name, module: "REV01 Revenue", read, filters: [] });
@@ -34,6 +34,9 @@ describe("Line Items' count of the saved views whose filters use each line item"
     expect(counts(unread)).toEqual(["REV01 Revenue: \"\"", "Active?: 1", "Volume: \"\"", "Orphan: \"\"", "SYS01 Flags: \"\"", "Region: \"\""]);
     const unlisted = addViewFilterUses(model({}, [LINE_ITEMS]));
     expect(counts(unlisted).every(each => each.endsWith('""'))).toBe(true);
+    // A result without the Saved Views table is one whose views were not all listed: its counts are not known.
+    const untabled = addViewFilterUses(model({ savedViewDetails: [detail("Open items")], savedViewFilters: [] }, [LINE_ITEMS]));
+    expect(counts(untabled).every(each => each.endsWith('""'))).toBe(true);
     // Without Line Items, or its Module Name column, nothing is added.
     const bare = model({ savedViewFilters: [] }, [{ ...LINE_ITEMS, headers: ["", "Formula", "Module"] }]);
     expect(addViewFilterUses(bare)).toBe(bare);

@@ -15,15 +15,18 @@ import type { Progress } from "./progress.js";
 import { buildReport, HEADERS, NONE, PAGE_TYPE, viewName, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, PageUses, ResultTable } from "./result-types.js";
-import { SAVED_VIEW_FILTERS, SAVED_VIEW_FILTERS_FILE } from "./saved-view-filters.js";
+import { SAVED_VIEW_FILTER_HEADERS, SAVED_VIEW_FILTER_ORDER, SAVED_VIEW_FILTERS, SAVED_VIEW_FILTERS_FILE, SAVED_VIEWS, SAVED_VIEWS_FILE, viewFilterRows }
+  from "./saved-view-filters.js";
 import { getJson, RestError } from "./rest.js";
 import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, seconds, stepTimes, text, type Obj } from "./util.js";
 
 /** The pages built on a model, read in the Anaplan tab (content.ts) with the signed-in session and GET only, as an app's
  * pages are read (analyse.ts): Model Building's own list of the pages built on the model, each page's published version,
  * the apps of those pages, and the names in the model that their cards use. From them the model's result gets three
- * tables, Module Usage, Page Filters and Page Actions (page-files.ts), the apps under About this export, and a column in
- * Line Items. Only a card that works on this model counts: one that names no other model, on a page that names this
+ * tables, Module Usage, Page Filters and Page Actions (page-files.ts), and where the export read the saved views a fourth,
+ * Saved View Filters, of the filters of the saved views the cards show (saved-view-filters.ts), with Used on Pages of Saved
+ * Views; the apps under About this export, and a column in Line Items. Only a card that works on this model counts: one
+ * that names no other model, on a page that names this
  * model or none. A button names no model of its own: its card's is the model of its action. Nothing here fails the
  * export: what cannot be read is a note, and a run that is stopped ends as one.
  *
@@ -62,18 +65,37 @@ export const PAGE_FILTERS_HEADERS: readonly string[] = ["Condition line item's m
 export const PAGE_ACTIONS_HEADERS: readonly string[] = ["Model action name", "Action type", "App", "Page", "Card #", "Button label", "Runs automatically", "Cancel button",
   "Name source", ...PAGE_PLACE_HEADERS, "Card ID", "Action ID"];
 
-/** The three files, each with the label the page shows it under: its name without the extension, as the export's are. Page
+/** The files, each with the label the page shows it under: its name without the extension, as the export's are. Page
  * Filters is the file's label, which the results page shows as Custom View Filters (results/result-view.ts `SHOWN_NAMES`). */
-const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Module Usage"], [PAGE_FILTERS_FILE, "Page Filters"], [PAGE_ACTIONS_FILE, "Page Actions"]];
+const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Module Usage"], [SAVED_VIEW_FILTERS_FILE, SAVED_VIEW_FILTERS], [PAGE_FILTERS_FILE, "Page Filters"],
+  [PAGE_ACTIONS_FILE, "Page Actions"]];
+/** The files a model's result gets of the pages built on it: Saved View Filters only where the export read the saved views
+ * (`savedViewDetails`), whose filters it lists. Where it did not, Saved Views says why, and no table of their filters is
+ * made or said to be missing. */
+const filesOf = (result: AnalysisResult): (readonly [file: string, label: string])[] =>
+  FILES.filter(([file]) => file !== SAVED_VIEW_FILTERS_FILE || result.savedViewDetails !== undefined);
 
-/** How to read the three tables, and what they name Missing, as the overview lists them. The row on Page Filters is shown
- * under the name the page gives the table, Custom View Filters, and says that name, and that of its column of Line Items. */
+/** How to read the tables, and what they name Missing, as the overview lists them: Saved View Filters only where the result
+ * has the table (`filesOf`). The row on Page Filters is shown under the name the page gives the table, Custom View Filters,
+ * and says that name, and that of its column of Line Items. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Module Usage", "Not a Model settings grid: the pages built on this model that use each module. One row for each module and page, in the Modules "
     + "table's order, then by app and page. A page uses a module when a card on it that works on this model shows the module, a saved view of it or "
     + "one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, with a dash for its app and its page. "
     + "After them come the modules a page uses that the Modules table does not list: one that reads Missing module, with its ID, is one a card "
     + "still points at that the model no longer has, or that you cannot see. Module, App and Page are shown; page type and IDs start hidden in the column chooser. Only published pages are read, and only those you can open."],
+  [SAVED_VIEW_FILTERS, "Under App Usage's Page Filters, beside Custom View Filters: the filters of the saved views that cards on the pages built on this model show, "
+    + "with the columns of Custom View Filters, in its order, and Saved view after Filtered module. One row for each card that works on this model and shows a saved view "
+    + "with a filter, on or off, and for each condition of that view's filter: two cards that show one view have a set of rows each. A card shows a view by the view's ID, "
+    + "or else by its module's name and its own. Rows are sorted as Custom View Filters' are, by the condition line item's module, then Condition line item, app, page and "
+    + "card, and otherwise stay in the view's own order: Rows, Columns, then each page axis, each condition in its order. Saved views no page shows are not listed here: "
+    + `${SAVED_VIEWS}, under Modules, lists every one. Condition line item's module and Condition line item name the condition's line item as Line Items does, each `
+    + `opening its row; Filtered module is the view's module, and Saved view the view, which opens its row of ${SAVED_VIEWS}. Filter on is the axis the filter is on, Rows, `
+    + "Columns or Pages, and Filtered dimension the dimensions of that axis as Model Building names them, each opening its row of General Lists where it is a list; it is "
+    + "empty where Model Building names none. Operator and Value are said in the filter dialog's words, a value by its label; Show items that match says All or Any, and Condition context "
+    + "lists the condition's context items. Filtered line items and Condition group are empty: a view's definition is read for its filters alone, and they have no "
+    + "groups. Filter state says Off where the filter is not on and Not valid where Anaplan marks the condition so. Card and section numbers, page type, IDs and Filter "
+    + `state start hidden in the column chooser. The ${SAVED_VIEW_FILTERS} column of Line Items counts every saved view's filters, whether a page shows the view or not.`],
   ["Page Filters", "Under App Usage's Page Filters, beside Saved View Filters: the card filters on the pages built on this model, the filters of a card's custom view, with the columns of an app's Filters table: those of the cards that work on "
     + "this model, sorted by the condition line item's module, then Condition line item, app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
     + "filters, the module, the dimension and the line items the grid shows, then the condition, and then where the filter is: its app, page, card "
@@ -109,47 +131,111 @@ interface PagesRead {
 /** The names a model's catalog gives, with its notes, as `loadCatalog` gives them. */
 type Named = { catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] };
 const NO_NAMES = (): Named => ({ catalog: emptyCatalog(), notes: [], failedActionTypes: [] });
-/** What a page gives the tables: its app and name, where it is (`PAGE_PLACE_HEADERS`, in their order), its rows of the two
- * tables, the modules it uses, its cards that point at something the model does not have (page-missing.ts), and what its
- * cards that work on this model use of the model by name (page-uses.ts). */
-interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string>; missing: Map<string, Set<string>>;
-  uses: Omit<PageUses, "unread">; views: { id: string; name?: string; module?: string }[] }
+/** A saved view a card shows, by the card's own reference to it, the view's ID, and by its module's name and its own where
+ * the model's names give them; with the card: its ID, its number, and the number of the section that shows the view, where
+ * the page's Grid sections table gives one, as it does for a card that only selects the view. */
+interface PageView { id: string; name?: string; module?: string; card: { id: string; number: Cell; section: Cell } }
 
-/** A page as Used on Pages of Saved View Filters names it: by its name, with its app's in brackets. */
+/** What a page gives the tables: its app and name, where it is (`PAGE_PLACE_HEADERS`, in their order), its rows of the two
+ * tables, the modules it uses, its cards that point at something the model does not have (page-missing.ts), what its
+ * cards that work on this model use of the model by name (page-uses.ts), and the saved views they show. */
+interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string>; missing: Map<string, Set<string>>;
+  uses: Omit<PageUses, "unread">; views: PageView[] }
+
+/** A page as Used on Pages of Saved Views names it: by its name, with its app's in brackets. */
 const pageLabel = (page: Pick<PageRows, "app" | "page">): string => `${page.page} (${page.app})`;
 
-/** Fills Used on Pages of the Saved View Filters table (saved-view-filters.ts): for each row, the pages read whose cards
- * that work on this model show the row's saved view, in the pages' order, each once. A card shows a view by the view's ID,
- * which the export gave for each row (`savedViewIds`, which content.ts takes off its result); a card whose view's ID the
- * table does not have shows the row's view where the model's names name it by the row's module and name. Without the IDs,
- * or where they do not fit the table row for row, the column stays empty, and the log says so. The table is copied. */
-function addViewPages(result: AnalysisResult, pages: readonly PageRows[], savedViewIds: readonly string[] | undefined, progress: Progress): void {
-  const at = result.tables.findIndex(table => table.file === SAVED_VIEW_FILTERS_FILE);
+/** Which of the export's saved views a card shows, by its place among the result's details of them (`savedViewDetails`, one
+ * for each row of Saved Views, in its order): by the view's ID, which the export gave for each (`savedViewIds`, which
+ * content.ts takes off its result), or, for a view whose ID the export does not have, where the model's names name it by its
+ * module and its name and one view alone has both. Nothing where the result has no details of the views; and nothing, with a
+ * line of the log on why, where the IDs do not fit the details one for one. */
+function viewsOf(result: AnalysisResult, savedViewIds: readonly string[] | undefined, progress: Progress): ((view: PageView) => number | undefined) | undefined {
+  const details = result.savedViewDetails;
+  if (!details) return undefined;
+  if (!savedViewIds || savedViewIds.length !== details.length) {
+    progress.log(`saved views on pages: the export's IDs do not fit its saved views (${savedViewIds?.length ?? 0} IDs, ${details.length} views), so no page is named`);
+    return undefined;
+  }
+  const key = (module: string, name: string): string => JSON.stringify([module.trim(), name.trim()]);
+  const byId = new Map(savedViewIds.map((id, at) => [id, at]));
+  const named = new Map<string, number[]>();
+  details.forEach((view, at) => named.set(key(view.module, view.name), [...named.get(key(view.module, view.name)) ?? [], at]));
+  return view => {
+    const byName = view.module !== undefined && view.name !== undefined ? named.get(key(view.module, view.name)) : undefined;
+    return byId.get(view.id) ?? (byName?.length === 1 ? byName[0] : undefined);
+  };
+}
+
+/** Fills Used on Pages of the Saved Views table (saved-view-filters.ts): for each row, the pages read whose cards that work
+ * on this model show the row's saved view (`viewOf`), in the pages' order, each once. A table that does not fit the views'
+ * details row for row keeps the column empty, and the log says so. The table is copied. */
+function addViewPages(result: AnalysisResult, pages: readonly PageRows[], viewOf: (view: PageView) => number | undefined, progress: Progress): void {
+  const at = result.tables.findIndex(table => table.file === SAVED_VIEWS_FILE);
   const table = result.tables[at];
   const column = table ? table.headers.indexOf("Used on Pages") : -1;
   if (!table || column < 0) return;
-  if (!savedViewIds || savedViewIds.length !== table.rows.length) {
-    progress.log(`saved views on pages: the export's IDs do not fit its ${SAVED_VIEW_FILTERS} table (${savedViewIds?.length ?? 0} IDs, ${table.rows.length} rows), so no page is named`);
+  if (table.rows.length !== result.savedViewDetails?.length) {
+    progress.log(`saved views on pages: the ${SAVED_VIEWS} table does not fit the export's saved views (${table.rows.length} rows, ${result.savedViewDetails?.length ?? 0} views), so no page is named`);
     return;
   }
-  const key = (module: string, name: string): string => JSON.stringify([module.trim(), name.trim()]);
-  const [nameAt, moduleAt] = [table.headers.indexOf("Name"), table.headers.indexOf("Module")];
-  const rowOf = new Map(savedViewIds.map((id, row) => [id, row]));
-  const named = new Map<string, number[]>();
-  table.rows.forEach((row, index) => {
-    const known = key(String(row[moduleAt] ?? ""), String(row[nameAt] ?? ""));
-    named.set(known, [...named.get(known) ?? [], index]);
-  });
   const shown = table.rows.map(() => [] as string[]);
   for (const page of pages) {
     for (const view of page.views) {
-      const byName = view.module !== undefined && view.name !== undefined ? named.get(key(view.module, view.name)) : undefined;
-      const row = rowOf.get(view.id) ?? (byName?.length === 1 ? byName[0] : undefined);
+      const row = viewOf(view);
       if (row !== undefined && !shown[row].includes(pageLabel(page))) shown[row].push(pageLabel(page));
     }
   }
   result.tables[at] = { ...table, rows: table.rows.map((row, index) => row.map((cell, place) => (place === column ? shown[index].join(", ") : cell))) };
-  progress.log(`saved views on pages: ${shown.filter(each => each.length).length} of the ${table.rows.length} ${SAVED_VIEW_FILTERS} rows shown on a page read`);
+  progress.log(`saved views on pages: ${shown.filter(each => each.length).length} of the ${table.rows.length} ${SAVED_VIEWS} rows shown on a page read`);
+}
+
+/** A card's number as the order of the cards on its page: one the report gives none sorts last. */
+const cardOrder = (number: Cell): number => (typeof number === "number" ? number : Number.MAX_SAFE_INTEGER);
+
+/** The rows of Saved View Filters: for each page read, by app and page, each card that works on this model and shows one of
+ * the export's saved views (`viewOf`), in the order of the cards' numbers, each view once for its card, the rows of the
+ * view's filter (saved-view-filters.ts `viewFilterRows`), where the card is; then put in Custom View Filters' order
+ * (`SAVED_VIEW_FILTER_ORDER`), the rows of one place in that order keeping the order they were made in. A view without a
+ * filter gives none, and so does one whose definition was not read, whose filter is not known; a view no page shows is no
+ * row. The log says how many rows, from how many cards, and how many cards show a view whose filter is not known. Without
+ * `viewOf`, where the views' IDs did not fit them (`viewsOf`, which says so), no card is known to show any view, and there
+ * are none. */
+function viewFilterRowsOf(result: AnalysisResult, pages: readonly PageRows[], viewOf: ((view: PageView) => number | undefined) | undefined, progress: Progress): Cell[][] {
+  const details = result.savedViewDetails ?? [];
+  const rows: Cell[][] = [];
+  if (!viewOf) return rows;
+  let [cards, unread, unknown] = [0, 0, 0];
+  for (const page of pages) {
+    // A card that lists one view twice shows it once. Card IDs are the page's own: a copied page may keep them.
+    const seen = new Set<string>();
+    for (const view of [...page.views].sort((a, b) => cardOrder(a.card.number) - cardOrder(b.card.number))) {
+      const at = viewOf(view);
+      const detail = at === undefined ? undefined : details[at];
+      if (!detail) {
+        unknown++;
+        continue;
+      }
+      const shown = JSON.stringify([view.card.id, at]);
+      if (seen.has(shown)) continue;
+      seen.add(shown);
+      if (!detail.read) unread++;
+      if (!detail.filters.length) continue;
+      cards++;
+      rows.push(...viewFilterRows(detail, { app: page.app, page: page.page, number: view.card.number, section: view.card.section, place: page.place, cardId: view.card.id }));
+    }
+  }
+  progress.log(`saved view filters on pages: ${rows.length} rows from ${cards} cards that show a saved view with a filter`
+    + `${unread ? `; ${unread} cards show a view whose definition was not read` : ""}${unknown ? `; ${unknown} views the cards show are not among the export's` : ""}`);
+  // The sort is stable: rows of one place keep the order they were made in.
+  const order = SAVED_VIEW_FILTER_ORDER.map(header => SAVED_VIEW_FILTER_HEADERS.indexOf(header));
+  return rows.sort((a, b) => {
+    for (const at of order) {
+      const compared = byText(String(a[at] ?? ""), String(b[at] ?? ""));
+      if (compared) return compared;
+    }
+    return 0;
+  });
 }
 
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
@@ -221,11 +307,12 @@ function addFilterUses(result: AnalysisResult, filters: readonly Cell[][], every
   });
 }
 
-/** The three tables are not made, and the result says why, as the export says it of a file it could not make: a line of
- * the summary and a Files row for each. The Line Items column is there, empty: nothing is known of the filters. */
+/** The tables are not made (`filesOf`), and the result says why, as the export says it of a file it could not make: a line
+ * of the summary and a Files row for each. The Line Items column is there, empty: nothing is known of the filters. */
 function leftOut(result: AnalysisResult, why: string): AnalysisResult {
-  result.summary.push(...FILES.map(([, label]) => `${label}: not exported (${why}).`));
-  addDetails(result, { files: FILES.map(([file]): DetailRow => ["Files", file, `Not exported: ${why}`]) });
+  const files = filesOf(result);
+  result.summary.push(...files.map(([, label]) => `${label}: not exported (${why}).`));
+  addDetails(result, { files: files.map(([file]): DetailRow => ["Files", file, `Not exported: ${why}`]) });
   addFilterUses(result, [], false);
   return result;
 }
@@ -652,22 +739,37 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
       if (module !== "" && module !== NONE) modules.add(module);
     }
     // The saved views its cards that work on this model show, each by the card's own reference to it (card-details.ts: a
-    // CLASSIC source that names no module), and by its module's name and its own where the model's names give them.
-    const views = (input.details?.cards ?? []).filter(card => ours.has(card.id)).flatMap(card => (card.sources ?? []).flatMap(source => (source.view
-      ? [{ id: source.view.id, ...(source.view.name && source.view.moduleName ? { name: viewName(source.view), module: source.view.moduleName } : {}) }] : [])));
+    // CLASSIC source that names no module), and by its module's name and its own where the model's names give them, with
+    // the card: its ID, the number the Cards rows give it, and the section its Grid sections row shows the view in, where
+    // it has one.
+    const numbers = new Map(report.Cards.rows.map(row => [String(row[idAt]), row[numberAt]]));
+    const grid = HEADERS["Grid sections"];
+    const [sectionCardAt, sectionAt, sectionViewAt] = [grid.indexOf("Card ID"), grid.indexOf("Section #"), grid.indexOf("Saved view")];
+    const views = (input.details?.cards ?? []).filter(card => ours.has(card.id)).flatMap(card => (card.sources ?? []).flatMap((source): PageView[] => {
+      if (!source.view) return [];
+      const shown = viewName(source.view);
+      const section = report["Grid sections"].rows.find(row => String(row[sectionCardAt]) === card.id && String(row[sectionViewAt]) === shown)?.[sectionAt];
+      return [{ id: source.view.id, ...(source.view.name && source.view.moduleName ? { name: shown, module: source.view.moduleName } : {}),
+        card: { id: card.id, number: numbers.get(card.id) ?? "", section: section === undefined ? "" : String(section) } }];
+    }));
     return { app, page, place, filters: kept(PAGE_FILTERS_HEADERS, HEADERS.Filters, report.Filters.rows), actions: kept(PAGE_ACTIONS_HEADERS, HEADERS.Actions, report.Actions.rows), modules,
       missing: missingCards(report, ours), uses: pageUsesOf((input.details?.cards ?? []).filter(card => ours.has(card.id))), views };
   }).sort((a, b) => byText(a.app, b.app) || byText(a.page, b.page));
   // What the pages that were read use of the model by name, for the run's tables of what nothing uses (model/unused.ts).
   result.pageUses = mergePageUses(built.map(page => page.uses), unread.length);
-  addViewPages(result, built, savedViewIds, progress);
+  // Which pages show each saved view, and the filters of the views they show, where the export read the saved views.
+  const viewOf = viewsOf(result, savedViewIds, progress);
+  if (viewOf) addViewPages(result, built, viewOf, progress);
+  const viewFilters = result.savedViewDetails ? viewFilterRowsOf(result, built, viewOf, progress) : [];
 
   const usage = moduleUsageRows(exportedModules(result), built);
   const filters = built.flatMap(page => page.filters);
   const actions = built.flatMap(page => page.actions);
-  const counted: Record<string, Cell[][]> = { [MODULE_USAGE_FILE]: usage, [PAGE_FILTERS_FILE]: filters, [PAGE_ACTIONS_FILE]: actions };
-  const headers: Record<string, readonly string[]> = { [MODULE_USAGE_FILE]: MODULE_USAGE_HEADERS, [PAGE_FILTERS_FILE]: PAGE_FILTERS_HEADERS, [PAGE_ACTIONS_FILE]: PAGE_ACTIONS_HEADERS };
-  result.tables.push(...FILES.map(([file, label]): ResultTable => ({ file, label, headers: [...headers[file]], rows: plainRows(counted[file]), guard: true })));
+  const files = filesOf(result);
+  const counted: Record<string, Cell[][]> = { [MODULE_USAGE_FILE]: usage, [SAVED_VIEW_FILTERS_FILE]: viewFilters, [PAGE_FILTERS_FILE]: filters, [PAGE_ACTIONS_FILE]: actions };
+  const headers: Record<string, readonly string[]> = { [MODULE_USAGE_FILE]: MODULE_USAGE_HEADERS, [SAVED_VIEW_FILTERS_FILE]: SAVED_VIEW_FILTER_HEADERS,
+    [PAGE_FILTERS_FILE]: PAGE_FILTERS_HEADERS, [PAGE_ACTIONS_FILE]: PAGE_ACTIONS_HEADERS };
+  result.tables.push(...files.map(([file, label]): ResultTable => ({ file, label, headers: [...headers[file]], rows: plainRows(counted[file]), guard: true })));
   addFilterUses(result, filters, unread.length === 0);
 
   // The model's name starts a note of the name reads: here it is this model's.
@@ -680,13 +782,14 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
     ...(appsUnread ? [`The names of ${appsUnread} ${appsUnread === 1 ? "app" : "apps"} could not be read: ${appsUnread === 1 ? "it is" : "they are"} shown by ID.`] : []),
     ...named.notes.map(note => names.reduce((said, name) => (said === note && note.startsWith(`${name}: `) ? note.slice(name.length + 2) : said), note)),
   ];
-  result.summary.push(...FILES.map(([file, label]) => `${label}: ${rows(counted[file].length)}`), ...notes.map(note => `${ABOUT}: ${note}`));
+  result.summary.push(...files.map(([file, label]) => `${label}: ${rows(counted[file].length)}`), ...notes.map(note => `${ABOUT}: ${note}`));
   // The apps the list's pages are in. Without a page to tell them by, the apps are not known, and none are said.
   const apps = [...new Set(appGuids.map(appName))].sort(byText);
+  const made = new Set(files.map(([, label]) => label));
   addDetails(result, {
-    files: FILES.map(([file]): DetailRow => ["Files", file, rows(counted[file].length)]),
+    files: files.map(([file]): DetailRow => ["Files", file, rows(counted[file].length)]),
     notes: notes.map((note): DetailRow => ["Notes", ABOUT, note]),
-    howToRead: HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail,
+    howToRead: HOW_TO_READ.filter(([detail]) => detail !== SAVED_VIEW_FILTERS || made.has(detail)).map(([detail, value]): DetailRow => ["How to read", detail,
       result.engine === "polaris" && !result.tables.some(table => table.file === "Line Items.csv") && detail === "Page Filters" ? value.split(`The ${CUSTOM_VIEW_FILTERS} column of Line Items`)[0].trimEnd() : value]),
     ...(entries.length === 0 ? { apps: NO_APPS } : apps.length ? { apps: apps.join("\n") } : {}),
   });
