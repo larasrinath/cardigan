@@ -656,6 +656,28 @@ function dataSourceOf(cell: string, model: string): DataSource {
   return { type };
 }
 
+/** The object of this model each import of a model's object reads, by the import's ID: the object's ID, as the import's data
+ * source's definition names it (`dataSourceOf`), where that source is this model's. Out of the grids the export read for
+ * the mappings, the imports' definitions in their column `column` and the data sources' (`sources`): nothing more is read,
+ * and nothing of it is kept but which of this model's saved views an import reads (model/saved-views.ts). An import whose
+ * definition or source cannot be read, or reads another model's object, has none. */
+export function sourceObjectsOf(tab: Grid, definitions: Grid | undefined, column: number, sources: SourceDefinitions | undefined): Map<number, number> {
+  const objects = new Map<number, number>();
+  const at = definitions ? definitionsAt(definitions, column) : -1;
+  const sourceAt = sources ? sources.grid.columns.findIndex(entry => entry.ids[0] === sources.column) : -1;
+  if (!definitions || at < 0 || !sources || sourceAt < 0) return objects;
+  const byId = new Map(definitions.rows.map(row => [row.ids[0], row]));
+  const sourceRows = new Map(sources.grid.rows.map(row => [row.ids[0], row]));
+  for (const row of tab.rows) {
+    const cell = byId.get(row.ids[0])?.cells[at];
+    const reference = cell === undefined ? undefined : sourceIdOf(cell);
+    const source = reference === undefined ? undefined : sourceRows.get(reference);
+    const model = source ? dataSourceOf(source.cells[sourceAt] ?? "", sources.model).model : undefined;
+    if (Number.isSafeInteger(row.ids[0]) && model?.here && model.object !== undefined) objects.set(row.ids[0], model.object);
+  }
+  return objects;
+}
+
 /** The ID of an import's data source, out of its definition's `source` ("_113000000012_"); nothing where the definition is
  * no JSON object or names none. */
 function sourceIdOf(text: string): number | undefined {

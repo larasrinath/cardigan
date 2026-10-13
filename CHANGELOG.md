@@ -6,6 +6,12 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Filters on the map.** The map's **Page filters** option under **Links** is now **Filters**, and it draws saved views' own filters too, from the filter's line item to the module whose saved view it filters, with the funnel mark where a module's own line item filters its view; a line item's details list the saved views it filters, and a module's the saved views whose filters filter it.
 
+## 0.43.0 (12 October 2026)
+
+- **Saved View Filters.** App Usage gains a Page Filters section: Saved View Filters lists each saved view with a filter, on or off, in the filter dialog's words, with the line items it uses and the pages, imports and exports that use the view, beside the cards' own filters, Page Filters until now, shown as Custom View Filters; Line Items counts Saved View Filters beside Custom View Filters, and a line item a view's filter uses is no longer unused. In a window under 1,024 pixels wide, where it was under 1,000, the one menu stands in the menu bar's place, so the bar never takes a second line. Refresh the Anaplan tab once after updating. (#12)
+- **Busy page.** A settings table skipped because the model page was busy is read again later in the same run. (#12)
+- **Engine.** A Polaris model whose Line Items couldn't be read is told Polaris from its Modules columns. (#12)
+
 ## 0.42.0 (12 October 2026)
 
 - **Start Date and Start Time.** An action's start shows as two columns, Start Date and Start Time, in the zone the Timezone control picks, and a row's details say that zone only, with the time Anaplan wrote under As read; switching the zone no longer moves the tables or the details. (#11)

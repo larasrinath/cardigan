@@ -4,7 +4,9 @@ import { parseMarkup, type FakeElement } from "./dom.test-support.js";
 import { FILE_ICONS, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, type NavEntry } from "./markup.js";
 
 const DIMENSIONS = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Line Item Subsets"];
-const USAGE = ["Module Usage", "Page Filters", "Page Actions"];
+/** App Usage: Module Usage; a saved view's own filters and a page card's custom view filters (the Page Filters file), under
+ * Page Filters; and Page Actions. */
+const USAGE = ["Module Usage", "Saved View Filters", "Page Filters", "Page Actions"];
 const MODULES = ["Modules", "Line Items", "Dynamic Cell Access"];
 /** Actions as Polaris shows it, its Imports file unsplit. */
 const ACTIONS = ["Processes", "Imports", "Import Data Sources", "Exports", "Other Actions"];
@@ -35,9 +37,14 @@ describe("The model's shorter menu bar", () => {
       { label: "Imports", files: ["Imports.csv", "File Imports.csv", "Model-to-Model Imports.csv", "In-Model Imports.csv", "Import Data Sources.csv"] },
       { label: "Exports", files: ["Exports.csv"] }, { label: "Other Actions", files: ["Other Actions.csv"] },
     ]);
+    // App Usage heads its tables by section: the two kinds of filter together under Page Filters.
+    expect(NAV_GROUPS.find(group => group.label === "App Usage")?.subgroups).toEqual([
+      { label: "Module Usage", files: ["Module Usage.csv"] }, { label: "Page Filters", files: ["Saved View Filters.csv", "Page Filters.csv"] },
+      { label: "Page Actions", files: ["Page Actions.csv"] },
+    ]);
     // A group's sub-groups hold its files in the group's own order, each once: a heading moves no table.
     const headed = NAV_GROUPS.filter(group => group.subgroups);
-    expect(headed.map(group => group.label)).toEqual(["Dimensions", "Actions"]);
+    expect(headed.map(group => group.label)).toEqual(["Dimensions", "Actions", "App Usage"]);
     for (const group of headed) expect(group.subgroups?.flatMap(subgroup => subgroup.files)).toEqual(group.files);
   });
 
@@ -48,13 +55,16 @@ describe("The model's shorter menu bar", () => {
     const dimensions = [["Time", DIMENSIONS.slice(0, 2)], ["Versions", ["Versions"]], ["Lists", DIMENSIONS.slice(3)]];
     // The Imports file that Polaris shows unsplit stands under Imports, with Data Sources.
     const actions = [["Processes", ["Processes"]], ["Imports", ["Imports", "Import Data Sources"]], ["Exports", ["Exports"]], ["Other Actions", ["Other Actions"]]];
+    const usage = [["Module Usage", ["Module Usage"]], ["Page Filters", ["Saved View Filters", "Page Filters"]], ["Page Actions", ["Page Actions"]]];
     expect(tree(wide.querySelector("#navGroupDimensions")!)).toEqual(dimensions);
     expect(tree(wide.querySelector("#navGroupActions")!)).toEqual(actions);
+    expect(tree(wide.querySelector("#navGroupAppUsage")!)).toEqual(usage);
     expect(tree(compact.querySelector("#navMenu")!)).toEqual([
-      "Overview", ["Dimensions", dimensions], ["Modules", MODULES], ["Actions", actions], "Source Models", ["App Usage", USAGE], "Model map",
+      "Overview", ["Dimensions", dimensions], ["Modules", MODULES], ["Actions", actions], "Source Models", ["App Usage", usage], "Model map",
     ]);
-    // Every Dimensions table, and every Actions table, sits at the same section depth, which sets its indent in results.css.
-    for (const [id, label, names] of [["navGroupDimensions", "Dimensions", DIMENSIONS], ["navGroupActions", "Actions", ACTIONS]] as const) {
+    // Every Dimensions table, every Actions table and every App Usage table sits at the same section depth, which sets its
+    // indent in results.css.
+    for (const [id, label, names] of [["navGroupDimensions", "Dimensions", DIMENSIONS], ["navGroupActions", "Actions", ACTIONS], ["navGroupAppUsage", "App Usage", USAGE]] as const) {
       for (const menu of [wide.querySelector(`#${id}`)!, compact.querySelector(`[aria-label="${label}"]`)!]) {
         expect(menu.querySelectorAll(".nav-item").map(entry => entry.parentElement?.parentElement === menu)).toEqual(names.map(() => true));
       }

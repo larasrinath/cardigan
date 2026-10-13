@@ -1,6 +1,7 @@
-import { FILTER_USES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
+import { CUSTOM_VIEW_FILTERS, FILTER_USES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
+import { SAVED_VIEW_FILTER_HEADERS, SAVED_VIEW_FILTERS_FILE, VIEW_FILTER_USES } from "../saved-view-filters.js";
 import { UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE } from "../unused-files.js";
 import { FILE_IMPORTS_FILE, IMPORTS_FILE, IN_MODEL_IMPORTS_FILE, MODEL_IMPORTS_FILE } from "./import-files.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -41,8 +42,12 @@ export interface Column {
   /** The column's position in the table's headers and in each row. */
   index: number;
   /** The name the page shows: the header, or a name of the page's own for a header that is empty. Every file of a model
-   * starts with such a column, the one that names each row. The file keeps the empty header. */
+   * starts with such a column, the one that names each row. The file keeps the empty header. A column the page shows
+   * under another name than its header's (`SHOWN_COLUMNS`) has that name. */
   label: string;
+  /** For a column the page shows under another name than its header's (`SHOWN_COLUMNS`): its header, by which the page
+   * keeps what was chosen of it (view-keep.ts `columnKeys`) and lays it out, as before it was renamed. */
+  key?: string;
   kind: ColumnKind;
   /** An optional noun after a numeric count in the table. */
   unit?: string;
@@ -134,7 +139,7 @@ export const blanksDash = (file: string, header: string): boolean => file !== LI
  * item as their condition (model-pages.ts). */
 const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
 export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
-  ["Modules.csv", CELL_COUNTS], ["Line Items.csv", [...CELL_COUNTS, FILTER_USES]], ["General Lists.csv", ["Item Count"]],
+  ["Modules.csv", CELL_COUNTS], ["Line Items.csv", [...CELL_COUNTS, FILTER_USES, VIEW_FILTER_USES]], ["General Lists.csv", ["Item Count"]],
   // The run's tables of what nothing uses count a line item's or a module's cells, and a module's line items (unused-files.ts).
   [UNUSED_LINE_ITEMS_FILE, ["Cell Count"]], [UNUSED_MODULES_FILE, ["Line Items", "Cell Count"]],
 ]);
@@ -160,7 +165,7 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
   ["Modules.csv", { shown: ["Name", "Functional Area", "Applies To", "Time Scale", "Time Range", "Versions", "Cell Count", "Notes"],
     hidden: ["Line Items", "Referenced By"] }],
   [LINE_ITEMS_FILE, { shown: ["Name", "Module Name", "Format", FORMAT_TYPE, "Formula", "Applies To", "Time Scale", "Versions", "Summary", "Referenced By",
-    "Cell Count", "Calculation Effort", FILTER_USES, "Notes"], hidden: ["Applies To from", "Time Range", "Style", "Read Access Driver", "Write Access Driver", "Users List",
+    "Cell Count", "Calculation Effort", FILTER_USES, VIEW_FILTER_USES, "Notes"], hidden: ["Applies To from", "Time Range", "Style", "Read Access Driver", "Write Access Driver", "Users List",
     "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback", "Brought-Forward", "Start of Section", "Data Tags", "Ratio Numerator", "Ratio Denominator", "Format List"] }],
   ["Dynamic Cell Access.csv", { shown: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], hidden: [] }],
   [UNUSED_LINE_ITEMS_FILE, { shown: ["Line Item", "Module", "Why", "Format", "Cell Count", "Notes"], hidden: ["Formula", "Referenced By"] }],
@@ -184,11 +189,19 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
   ["Other Actions.csv", { shown: ["Name", "Action", "Action List", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],
   ["Source Models.csv", { shown: ["Name", "Mapped Workspace", "Mapped Model", "Sources", "Imports"], hidden: [] }],
   [MODULE_USAGE_FILE, { shown: ["Module", "App", "Page"], hidden: PAGE_HIDDEN }],
+  // A saved view's filters (saved-view-filters.ts): whether its definition was read starts hidden.
+  [SAVED_VIEW_FILTERS_FILE, { shown: SAVED_VIEW_FILTER_HEADERS.slice(0, -1), hidden: SAVED_VIEW_FILTER_HEADERS.slice(-1) }],
   [PAGE_FILTERS_FILE, { shown: ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Filtered line items", "Operator", "Value",
     "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page"], hidden: ["Card #", "Section #", ...PAGE_HIDDEN, "Card ID", "Line item ID"] }],
   [PAGE_ACTIONS_FILE, { shown: ["Model action name", "Action type", "App", "Page", "Button label", "Runs automatically", "Cancel button"],
     hidden: ["Card #", "Name source", ...PAGE_HIDDEN, "Card ID", "Action ID"] }],
 ]);
+
+/** The columns the page shows under another name than their header's, by file and header: Line Items' count of the custom
+ * view filters of the pages built on the model, headed Page Filters as the Page Filters table is named, which the page
+ * shows as Custom View Filters, as it shows that table (result-view.ts `SHOWN_NAMES`). The header stays the column's key,
+ * so a result kept earlier, and the view kept for it, are read as before. */
+export const SHOWN_COLUMNS: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map([[LINE_ITEMS_FILE, new Map([[FILTER_USES, CUSTOM_VIEW_FILTERS]])]]);
 
 /** Other names a model's grids give a column of a layout. An action's start that is one column, as the file has it, and
  * one whose header names no zone, which the page shows as it stands, take Start Date's place. */
@@ -321,6 +334,7 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
     const none = blanksDash(table.file, header);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
+    const shown = model ? SHOWN_COLUMNS.get(table.file)?.get(header) : undefined;
     const subsetCount = table.file === "Line Item Subsets.csv" && header === "Line Items";
     const range = subsetCount ? "number" : rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
     // An action's time of day offers no filter: Start Date's range of whole days is the filter of when it started, and a
@@ -329,12 +343,12 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
       : range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone)));
     const hidden = (table.file === "Line Item Subsets.csv" && /(?:^| )IDs?$/.test(label))
       || (layout ? layout.hidden.includes(layoutName(label, zone)) : choice.hidden === true);
-    return { index, label, kind: subsetCount ? "count" : choice.kind ?? "text", num: subsetCount || choice.num === true, filter,
+    return { index, label: shown ?? label, ...(shown ? { key: label } : {}), kind: subsetCount ? "count" : choice.kind ?? "text", num: subsetCount || choice.num === true, filter,
       ...(subsetCount ? { unit: "line item" } : {}), ...(range ? { range } : {}), hidden, none };
   });
   if (!order) return columns;
   const rank = (column: Column): number => {
-    const at = order.indexOf(layoutName(column.label, zone));
+    const at = order.indexOf(layoutName(column.key ?? column.label, zone));
     return at < 0 ? order.length : at;
   };
   return columns.sort((a, b) => rank(a) - rank(b));

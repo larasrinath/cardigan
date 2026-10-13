@@ -77,6 +77,19 @@ export interface AnalysisResult {
    * finds the model's unused line items with it (model/unused.ts). None in an app's result, in a model's whose pages could
    * not be read, nor in one that an earlier version kept. */
   pageUses?: PageUses;
+  /** The model's saved views that have a filter, and those whose definition was not read, one for each row of the Saved
+   * View Filters table, in its order (model/saved-views.ts): the results page lists each one's filters in its row's
+   * details. Empty for a model with none; none in an app's result, in a model's whose saved views could not be listed,
+   * nor in one that an earlier version kept. */
+  savedViewDetails?: SavedViewDetail[];
+  /** Each condition of a saved view's filter, as the export read it, for the Model map: the saved view and its module, the
+   * axis, and the condition's line item and that line item's module, all by the names Modules and Line Items give them;
+   * whether the filter is on and the condition valid. A condition whose line item can't be named is left out. */
+  savedViewFilters?: SavedViewFilter[];
+  /** The IDs of the saved views of `savedViewDetails`, in digits, one for each: the content script finds the pages whose
+   * cards show each view with them (model-pages.ts), and takes them off the result before it leaves the Anaplan tab, as it
+   * takes `lineItemIds`. No results page holds them. */
+  savedViewIds?: string[];
   /** Where a model read in Model Building is, as the Anaplan tab's address said it: the site's origin and the customer.
    * The results page opens the model's modules there, and the apps and pages built on it. None in an app's result, in a
    * model's read on the classic model page, whose address names no customer, nor in one that an earlier version kept. */
@@ -95,6 +108,64 @@ export interface PageUses {
   unread: number;
   /** How many line items and modules the cards name that the model's names could not name. */
   unnamed: number;
+}
+
+/** A saved view with a filter, or one whose definition was not read, as a row of the Saved View Filters table names it. */
+export interface SavedViewDetail {
+  /** The view's name, and its module's, as Modules names it. */
+  name: string;
+  module: string;
+  /** Whether its definition was read: false where the model refused it, or the export was stopped before it. */
+  read: boolean;
+  /** The filter of each axis that has one, on or off: Rows, Columns, then each page axis in its order. None where the
+   * definition was not read. */
+  filters: AxisFilter[];
+}
+
+/** The axes of a view, as Anaplan's filter dialog names them. */
+export type ViewAxis = "Rows" | "Columns" | "Pages";
+
+/** One axis's filter, as the view's definition holds it (`sortAndFilterDefinition`). */
+export interface AxisFilter {
+  axis: ViewAxis;
+  /** For a page axis, its dimension, as the model's client names it, where it does. */
+  dimension?: string;
+  /** Whether the filter is on: the dialog's Enable filter (`isActive`). */
+  active: boolean;
+  /** Whether a row shows where all of the conditions hold, or any (`filterMatchType` ALL or ANY). */
+  match: "all" | "any";
+  conditions: ViewCondition[];
+}
+
+/** One condition of an axis's filter. */
+export interface ViewCondition {
+  /** The line item, by the name Line Items gives it, or by the name the definition gives it where Line Items has none of
+   * its ID; "Missing line item (ID 2000000123)" where neither does (page-files.ts `missingText`). */
+  lineItem: string;
+  /** The line item's module, by the name Line Items gives it; none where Line Items has none of the line item's ID. */
+  lineItemModule?: string;
+  /** Anaplan's word for the comparison: EQUALS, NOT_EQUALS, LESS_THAN, IS_BLANK, CONTAINS and the like. */
+  operator: string;
+  /** Anaplan's word for what is compared (`comparisonDataType`): BOOLEAN, NUMBER, TEXT, DATE, ENTITY or TIME_ENTITY. */
+  dataType: string;
+  /** The values compared with: a list's items and periods by their labels, True or False, and any other value as the
+   * definition holds it. None for an operator that takes none. */
+  values: string[];
+  /** The items the line item is read at on its dimensions that the view does not show, by their labels. */
+  contexts: string[];
+  /** False where Anaplan marks the condition not valid. */
+  valid: boolean;
+}
+
+/** One condition of a saved view's filter, for the Model map (`AnalysisResult.savedViewFilters`). */
+export interface SavedViewFilter {
+  view: string;
+  module: string;
+  axis: ViewAxis;
+  lineItem: string;
+  lineItemModule: string;
+  active: boolean;
+  valid: boolean;
 }
 
 /** One import, with its mapping. The mapping is the import's own: it holds whether the source it was made with is still

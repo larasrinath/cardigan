@@ -56,8 +56,9 @@ The menu bar groups the model's tables:
     <tr><td>Exports</td><td>Export actions and their settings.</td></tr>
     <tr><td>Other Actions</td><td>Other model actions, such as deleting or ordering list items.</td></tr>
     <tr><td><b>Source Models</b></td><td>Source Models</td><td>Source model mappings and their sources and imports.</td></tr>
-    <tr><td rowspan="3"><b>App Usage</b></td><td>Module Usage</td><td>Where published pages use the model's modules.</td></tr>
-    <tr><td>Page Filters</td><td>Card filters on pages built on the model.</td></tr>
+    <tr><td rowspan="4"><b>App Usage</b></td><td>Module Usage</td><td>Where published pages use the model's modules.</td></tr>
+    <tr><td>Saved View Filters</td><td>Saved views' own filters, and the pages, imports and exports that use each view.</td></tr>
+    <tr><td>Custom View Filters</td><td>Card filters on pages built on the model.</td></tr>
     <tr><td>Page Actions</td><td>Action buttons on pages built on the model.</td></tr>
   </tbody>
 </table>
@@ -178,7 +179,7 @@ Use Cardigan only on models and apps you are allowed to read. [NOTICE.md](NOTICE
 
 - Only published page definitions you can access are read. App Usage needs the model open through Model Building; the Overview reports pages or tables that could not be read.
 - Reading page references can cause Anaplan to load the models they use.
-- Saved views' own filters, sorts and hidden items are not listed. Some names may remain as IDs when they cannot be read.
+- Saved views' sorts and hidden items are not listed, and their filters only where Model Building's client answers. Some names may remain as IDs when they cannot be read.
 - Import mappings name targets and constants, Time periods included, from the model itself, and a model import's source columns when its source is in this model. A line item an import still maps to that the model doesn't have shows as Missing line item; other unknown names stay as IDs. Headers matched by name or code when the import runs, and columns not in the saved definition, aren't listed. Imports of users, versions or line items say what they load instead of a mapping.
 - The map does not evaluate formulas or draw processes and actions. **About** explains what it could not place.
 - Very large tables may not be read, and large results may not fit in session storage; the page says so. Map zoom, position, search and full screen may reset on refresh.

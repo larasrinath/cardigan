@@ -272,7 +272,7 @@ describe("The pages built on a model", () => {
     expect(cellsOf(same, PAGE_FILTERS_FILE, "Card #", "Filtered module")).toEqual([[1, `Missing module (ID ${OTHER_MODULE})`], [3, "Demand"]]);
     expect(cellsOf(same, PAGE_ACTIONS_FILE, "Card #", "Model action name")[2]).toEqual([4, "Missing import (ID 112000000977)"]);
     expect(same.summary).toContain("Pages built on the model: 2 cards on pages built on this model point at things the model doesn't have: deleted since the page "
-      + "was built, or hidden from you. Module Usage, Page Filters and Page Actions say Missing, with the ID.");
+      + "was built, or hidden from you. Module Usage, Custom View Filters and Page Actions say Missing, with the ID.");
 
     // A page built on another model: only its card that names this model is kept.
     const mixed = board(PAGE_C, APP_B, "Mixed board", OTHER_MODEL, [grid(1, "Theirs", OTHER_MODULE, [leaf(["1901000000077"])]),
@@ -528,7 +528,7 @@ describe("The pages built on a model", () => {
     it("says on the Overview how many cards point at such things, once, with the other notes", async () => {
       const result = await runOld();
       const note = "3 cards on pages built on this model point at things the model doesn't have: deleted since the page was built, or hidden from you. "
-        + "Module Usage, Page Filters and Page Actions say Missing, with the ID.";
+        + "Module Usage, Custom View Filters and Page Actions say Missing, with the ID.";
       expect(result.summary.slice(-1)).toEqual([`Pages built on the model: ${note}`]);
       expect(detailsOf(result).filter(row => row[0] === "Notes")).toEqual([["Notes", "Source Models", "none"], ["Notes", "Pages built on the model", note]]);
       // Without such a card, no such note.
@@ -677,5 +677,52 @@ describe("The pages built on a model, read beside its export", () => {
       expect(vi.mocked(use.reads.loadCatalog).mock.calls.at(-1)?.[0], JSON.stringify(ids)).toEqual({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL, modelName: "Model one" });
       expect(use.log.some(line => line.startsWith("Run: ")), JSON.stringify(ids)).toBe(false);
     }
+  });
+});
+
+describe("Used on Pages of the saved views' filters", () => {
+  /** A grid card that only selects a saved view of the model, by the view's ID, as Page Builder keeps one. */
+  const viewCard = (n: number, title: string, view: string): Obj => common(n, "TABLE", { defaultTitle: title,
+    widgetDataSources: [{ widgetGuid: guid(n + 100), subEntityId: "", viewDescription: null, dataSourceId: view, dataSourceType: "CLASSIC", axisDescriptionQuery: null }] });
+  const HEADERS = ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"];
+  /** The export with its Saved View Filters table: three views, each a row, in the order of their IDs. */
+  const withViews = (): AnalysisResult => {
+    const result = exported();
+    result.tables.push({ file: "Saved View Filters.csv", label: "Saved View Filters", headers: [...HEADERS], guard: false, rows: [
+      ["Flagged", "Demand", "Rows: Volume > 0", "Demand.Volume", "", "", "", "Yes"], ["Other", "Factors", "Rows: Territory demand > 0", "Factors.Territory demand", "", "", "", "Yes"],
+      ["Unshown", "Demand", "", "", "", "", "", "No"]] });
+    return result;
+  };
+  const IDS = ["105000000901", "105000000902", "105000000903"];
+  /** Two boards: the first shows the first view twice; the second shows it once more, and a view the export gave another ID,
+   * which the model's names name Other, of Factors. */
+  const pages = () => {
+    const use = fake(BOTH, { [PAGE_A]: board(PAGE_A, APP_A, "Demand board", MODEL, [viewCard(1, "Flagged grid", "105000000901"), viewCard(2, "Again", "105000000901")]),
+      [PAGE_B]: board(PAGE_B, APP_B, "Supply board", MODEL, [viewCard(1, "Other grid", "105000000999"), viewCard(2, "Flagged too", "105000000901")]) });
+    use.reads.loadCatalog = vi.fn(async () => {
+      const named = catalog();
+      addModuleViews(named, { data: [{ id: MODULE_2, name: "Factors", views: [{ viewId: "105000000999", viewName: "Factors.Other" }] }] });
+      return { catalog: named, notes: [], failedActionTypes: [] };
+    }) as unknown as typeof loadCatalog;
+    return use;
+  };
+
+  it("names each page whose cards show a view, by the view's ID, else by its module's name and its own, each once, with its app, in the pages' order", async () => {
+    const use = pages();
+    const result = await addModelPages(withViews(), CUSTOMER, { status: () => undefined, log: line => use.log.push(line) }, undefined, use.reads, undefined, IDS);
+    expect(cellsOf(result, "Saved View Filters.csv", "Name", "Used on Pages")).toEqual([["Flagged", "Supply board (Another app), Demand board (Planning app)"],
+      ["Other", "Supply board (Another app)"], ["Unshown", ""]]);
+    expect(use.log).toContain("saved views on pages: 2 of the 3 Saved View Filters rows shown on a page read");
+    // The export's table is not changed: the result's is a copy.
+    expect(withViews().tables.at(-1)?.rows.every(row => row[4] === "")).toBe(true);
+  });
+
+  it("leaves Used on Pages empty, and says why in the log, where the views' IDs do not fit the table or the pages could not be read", async () => {
+    const use = pages();
+    const misfit = await addModelPages(withViews(), CUSTOMER, { status: () => undefined, log: line => use.log.push(line) }, undefined, use.reads, undefined, IDS.slice(1));
+    expect(cellsOf(misfit, "Saved View Filters.csv", "Used on Pages").flat()).toEqual(["", "", ""]);
+    expect(use.log).toContain("saved views on pages: the export's IDs do not fit its Saved View Filters table (2 IDs, 3 rows), so no page is named");
+    const unread = await addModelPages(withViews(), undefined, { status: () => undefined, log: () => undefined }, undefined, pages().reads, undefined, IDS);
+    expect(cellsOf(unread, "Saved View Filters.csv", "Used on Pages").flat()).toEqual(["", "", ""]);
   });
 });

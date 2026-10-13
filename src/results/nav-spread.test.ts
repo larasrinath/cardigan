@@ -20,7 +20,8 @@ const CHROME_WIDTHS: ReadonlyMap<string, readonly [plain: number, bold: number]>
   ["Unused Line Items", [105.5, 108.5]], ["Unused Modules", [97, 99.3]], ["Actions", [42.4, 43.9]], ["Processes", [55.6, 56.8]], ["Imports", [44.4, 46.4]],
   ["File Imports", [67.4, 70.2]], ["Model-to-Model Imports", [144.1, 148.6]], ["In-Model Imports", [100.8, 104.5]], ["Data Sources", [75, 76.9]],
   ["Exports", [42.3, 44.3]], ["Other Actions", [78.9, 81.3]], ["Source Models", [85.2, 87.3]], ["App Usage", [62.8, 64.3]], ["Module Usage", [83.3, 85.4]],
-  ["Page Filters", [65.4, 67.7]], ["Page Actions", [73.9, 76.2]], ["Model map", [65.9, 67.6]],
+  ["Page Filters", [65.4, 67.7]], ["Saved View Filters", [102.6, 106.1]], ["Custom View Filters", [112.6, 116.1]], ["Page Actions", [73.9, 76.2]],
+  ["Model map", [65.9, 67.6]],
 ] as const);
 const chromeWidth = ([text, weight]: WeightedText): number => CHROME_WIDTHS.get(text)?.[weight === MARKED_WEIGHT ? 1 : 0] ?? textWidth([text, weight]);
 
@@ -66,7 +67,8 @@ function modelLine(shown: string, width: number) {
 }
 
 describe("The navigation's line, spread over its width", () => {
-  it.each([1000, 1280, 1440])("keeps the shorter model bar on one line at %ipx with the same slots for every selected table", width => {
+  // From 1024px wide, where the bar stands in the one menu's place (results.css), to the README's pictures' 1440px.
+  it.each([1024, 1280, 1440])("keeps the model bar, every table present, on one line at %ipx with the same slots for every selected table", width => {
     const entries = [
       { id: "overview", label: "Overview" },
       ...NAV_GROUPS.slice(0, 3).flatMap(group => group.files).map(file => ({ id: file, label: file.replace(/\.csv$/, ""), file })),
@@ -92,6 +94,15 @@ describe("The navigation's line, spread over its width", () => {
       return [widths, [...bar.set]];
     });
     expect(laid).toEqual(entries.map(() => laid[0]));
+    // The worst case: every table present, with Custom View Filters shown, the longest words of any menu of App Usage, which
+    // its button names in bold. The line keeps every other view's slots, and the button, grown from the middle of its slot,
+    // stays the least gap from the slots beside it.
+    const appUsage = items.findIndex(entry => "entries" in entry && entry.group.id === "navGroupAppUsage");
+    const group = items[appUsage];
+    expect("entries" in group ? group.entries.map(each => each.label) : []).toEqual(["Module Usage", "Saved View Filters", "Custom View Filters", "Page Actions"]);
+    const slots = laid[entries.findIndex(entry => entry.file === "Page Filters.csv")][0] as number[];
+    const grown = 42 + chromeWidth(["Custom View Filters", MARKED_WEIGHT]);
+    expect(grown).toBeLessThanOrEqual(slots[appUsage] + 2 * (cssGap(slots, available) - LEAST_GAP) + 1e-9);
   });
 
   it("gives each item a slot of its width at rest where the gaps are wide enough for the view shown's item to grow into them", () => {

@@ -16,7 +16,7 @@ const layouts: [string, string[], string[]][] = [
   ["General Lists", ["Name", "Parent Hierarchy", "Top Level", "Item Count", "Numbered", "Production Data", "Properties", "Subsets", "Notes"],
     ["Display Name Property", "Referenced in Applies To", "Referenced as Format", "Referenced in Formula"]],
   ["Modules", ["Name", "Functional Area", "Applies To", "Time Scale", "Time Range", "Versions", "Cell Count", "Notes"], ["Line Items", "Referenced By"]],
-  ["Line Items", ["Name", "Module Name", "Format", "Format type", "Formula", "Applies To", "Time Scale", "Versions", "Summary", "Referenced By", "Cell Count", "Calculation Effort", "Page Filters", "Notes"],
+  ["Line Items", ["Name", "Module Name", "Format", "Format type", "Formula", "Applies To", "Time Scale", "Versions", "Summary", "Referenced By", "Cell Count", "Calculation Effort", "Page Filters", "Saved View Filters", "Notes"],
     ["Applies To from", "Time Range", "Style", "Read Access Driver", "Write Access Driver", "Users List", "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback", "Brought-Forward", "Start of Section", "Data Tags", "Ratio Numerator", "Ratio Denominator", "Format List"]],
   ["Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], []],
   ["Processes", ["Name", "Actions", ...run, "Notes"], dashboards],
@@ -26,6 +26,7 @@ const layouts: [string, string[], string[]][] = [
   ["Other Actions", ["Name", "Action", "Action List", "Used in Processes", ...run, "Notes"], dashboards],
   ["Source Models", ["Name", "Mapped Workspace", "Mapped Model", "Sources", "Imports"], []],
   ["Module Usage", ["Module", "App", "Page"], place],
+  ["Saved View Filters", ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports"], ["Definition read"]],
   ["Page Filters", PAGE_FILTERS_HEADERS.filter(header => !["Card #", "Section #", ...place, "Card ID", "Line item ID"].includes(header)),
     ["Card #", "Section #", ...place, "Card ID", "Line item ID"]],
   ["Page Actions", ["Model action name", "Action type", "App", "Page", "Button label", "Runs automatically", "Cancel button"], ["Card #", "Name source", ...place, "Card ID", "Action ID"]],
@@ -33,18 +34,22 @@ const layouts: [string, string[], string[]][] = [
 const table = (label: string, headers: readonly string[], rows: string[][] = []): ResultTable => ({ file: `${label}.csv`, label, headers: [...headers], rows, guard: true });
 const model = (tables: ResultTable[]): AnalysisResult => ({ kind: "model", name: "Invented plan", id: "invented-model", zipName: "unused.zip", summary: [], tables });
 
+/** A column's name as the page shows it: Line Items' count of the page filters is shown as Custom View Filters, its header
+ * still its key (columns.ts `SHOWN_COLUMNS`). */
+const shownAs = (label: string) => (header: string): string => (label === "Line Items" && header === "Page Filters" ? "Custom View Filters" : header);
+
 describe("A model's reading layouts", () => {
   it.each(layouts)("orders %s, retains every column and shows new columns", (label, shown, hidden) => {
     const headers = [...shown, ...hidden].reverse();
     const file = table(label, ["New column", ...headers], [["new", ...headers]]);
     const columns = columnsOf(file);
-    expect(columns.filter(column => !column.hidden).map(column => column.label)).toEqual([...shown, "New column"]);
+    expect(columns.filter(column => !column.hidden).map(column => column.label)).toEqual([...shown.map(shownAs(label)), "New column"]);
     expect(columns.filter(column => column.hidden).map(column => column.label)).toEqual(hidden);
     expect(columns.map(column => file.headers[column.index])).toEqual([...shown, ...hidden, "New column"]);
     expect(columns.map(column => file.rows[0][column.index])).toEqual([...shown, ...hidden, "new"]);
     // A model without one of these columns gets no invented column or empty space for it.
     const missing = columnsOf(table(label, headers.filter(header => header !== shown[0])));
-    expect(missing.map(column => column.label)).toEqual([...shown.slice(1), ...hidden]);
+    expect(missing.map(column => column.label)).toEqual([...shown.slice(1).map(shownAs(label)), ...hidden]);
     expect(file.headers).toEqual(["New column", ...headers]);
   });
 
@@ -88,6 +93,18 @@ describe("A model's reading layouts", () => {
     expect(taken.hidden.has(5)).toBe(false);
     // Even a previously kept explicit choice whose old default differed wins over the new default.
     expect(takeTable({ shown: ["Style"] }, next, () => []).hidden.has(2)).toBe(false);
+  });
+
+  it("keeps what was chosen of Line Items' count of the page filters, shown now as Custom View Filters, under the header it was kept by", () => {
+    // A view kept before the column was renamed: the count hidden and sorted on, by its header, which is still its key.
+    const headers = ["", "Module Name", "Page Filters", "Saved View Filters", "Notes"];
+    const rows = [["Units", "Demand", 2, 0, ""], ["Price", "Sales", 0, 1, ""]];
+    const columns = columnsOf(table("Line Items", headers, rows));
+    expect(columns.filter(column => column.key !== undefined).map(column => [column.label, column.key])).toEqual([["Custom View Filters", "Page Filters"]]);
+    const taken = takeTable({ hidden: ["Page Filters"], sort: { column: "Page Filters", dir: "asc" } }, columns, () => []);
+    expect([[...taken.hidden], taken.sort]).toEqual([[2], { column: 2, dir: "asc" }]);
+    // And what is kept now is kept by the header too.
+    expect(keepTable({ columns, hidden: new Set([2]), filters: new Map(), ranges: new Map(), sort: undefined, page: 0 }, () => [])?.hidden).toEqual(["Page Filters"]);
   });
 
   it("sorts page filters by condition, app, page and numeric card number only in the results view", () => {

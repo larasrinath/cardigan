@@ -862,7 +862,7 @@ describe("The results page's script, on the page", () => {
     sendResult(ports[0], partial);
     expect(page.id("view").textContent).toContain(POLARIS_NOTE);
     expect(page.all('#navList [data-nav="map"]')).toHaveLength(0);
-    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules", "Page Filters"]);
+    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules", "Custom View Filters"]);
     expect(page.all("#ovAbout dt").map(each => each.textContent)).toEqual(["Workspace", "Workspace ID", "Model", "Model ID", "Apps"]);
     expect(page.texts("#view .stat .s-lab")).toEqual(["General Lists", "Modules"]);
     const unavailableMap = page.document.createElement("button");
@@ -4492,9 +4492,11 @@ describe("The navigation bar of the results page", () => {
     expect(page.key("ArrowDown").defaultPrevented).toBe(true);
     expect(openMenus()).toEqual([id]);
     const entries = page.all(`#${id} .nav-item`);
+    // App Usage heads its tables by section too: Module Usage, Page Filters (the custom view filters here) and Page Actions.
     expect(page.texts(`#${id} .nav-heading`)).toEqual(id === "navGroupDimensions" ? ["Time", "Versions", "Lists"]
       : id === "navGroupActions" ? ["Processes", "Imports", "Exports", "Other Actions"]
-      : id === "navMenu" ? ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "Processes", "Imports", "Exports", "Other Actions", "App Usage"] : []);
+      : id === "navGroupAppUsage" ? ["Module Usage", "Page Filters", "Page Actions"]
+      : ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "Processes", "Imports", "Exports", "Other Actions", "App Usage", "Module Usage", "Page Filters", "Page Actions"]);
     expect(page.document.activeElement).toBe(entries[0]);
     for (const entry of [...entries.slice(1), entries[0]]) {
       page.key("ArrowDown");
@@ -4526,6 +4528,8 @@ describe("The navigation bar of the results page", () => {
       const model = withFiles(...EXPORTED, "Line Item Subsets", "Module Usage", "Page Filters", "Page Actions");
       await openWith(model);
       goTo(model.tables.findIndex(table => table.label === label));
+      // The page shows the Page Filters file as Custom View Filters, by the file's name: the view kept for it is the file's.
+      const shown = label === "Page Filters" ? "Custom View Filters" : label;
       page.id("tblSearch").type(`${label} 1`);
       await letKeep();
       vi.advanceTimersByTime(1000);
@@ -4534,10 +4538,10 @@ describe("The navigation bar of the results page", () => {
       // Old or unknown navigation fields must not interfere with table settings or the address's table ID.
       session.held.set(VIEW_KEY, JSON.stringify({ ...keptView, navGroup: "navGroupTime", navGroupLists: true }));
       await open(`?tab=42${hash}`);
-      await eventually(() => page.texts("#view h1")[0] === label, "the selected table to return");
+      await eventually(() => page.texts("#view h1")[0] === shown, "the selected table to return");
       expect(page.id("tblSearch").value).toBe(`${label} 1`);
       const groupId = ["Module Usage", "Page Filters", "Page Actions"].includes(label) ? "navGroupAppUsage" : "navGroupDimensions";
-      expect(entryLabel(page.find(`#navList [aria-controls="${groupId}"]`))).toBe(label);
+      expect(entryLabel(page.find(`#navList [aria-controls="${groupId}"]`))).toBe(shown);
       expect(page.has("#navGroupTime, #navGroupLists")).toBe(false);
     });
 
@@ -8302,5 +8306,90 @@ describe("A model's imports in the three tables of their kinds, on the page", ()
     goTo(FILES);
     expect(await placedLines()).toEqual(["Import tables: File Imports 1, Model-to-Model Imports 2, In-Model Imports 2; 4 placed by their data source and 0 by Source Model; "
       + "0 could not be placed."]);
+  });
+});
+
+describe("The saved views' filters and the custom view filters, under App Usage", () => {
+  const table = (label: string, headers: string[], rows: Cell[][], file = `${label}.csv`): ResultTable => ({ file, label, headers, rows, guard: false });
+  const VIEW_HEADERS = ["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports", "Definition read"];
+  const condition = { lineItem: "Active?", lineItemModule: "SYS01 Flags", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: [], valid: true };
+  /** An invented model with a saved view with filters on two axes, one not read, its line items, the pages' custom view filters
+   * and an import that reads the view. */
+  const VIEWS_MODEL: AnalysisResult = { ...MODEL, site: { origin: "https://us1a.app.anaplan.com", customer: "a".repeat(32) },
+    moduleIds: [["REV01 Revenue", "102000000001"], ["SYS01 Flags", "102000000002"]],
+    savedViewDetails: [
+      { name: "Open items", module: "REV01 Revenue", read: true, filters: [
+        { axis: "Rows", active: true, match: "all", conditions: [condition] },
+        { axis: "Columns", active: false, match: "any", conditions: [{ ...condition, lineItem: "Region", dataType: "ENTITY", values: ["North", "South"], contexts: ["SCN042:Spring Launch"] },
+          { lineItem: "Missing line item (ID 2000000099)", operator: "EQUALS", dataType: "BOOLEAN", values: ["True"], contexts: [], valid: false }] }] },
+      { name: "Refused", module: "SYS01 Flags", read: false, filters: [] }],
+    tables: [{ ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Model", "Workspace ID", "b".repeat(32)], ["Model", "Model ID", MODEL.id]] },
+      table("Modules", ["", "Functional Area"], [["REV01 Revenue", "Sales"], ["SYS01 Flags", "System"]]),
+      table("Line Items", ["", "Module Name", "Format", "Page Filters", "Saved View Filters"], [["Active?", "SYS01 Flags", "BOOLEAN", 2, 1], ["Region", "SYS01 Flags", "LIST", 0, 1],
+        ["Volume", "REV01 Revenue", "NUMBER", 0, 0]]),
+      table("Imports", ["", "Source Type", "Source Object"], [["Load open items", "SAVED VIEW", "'REV01 Revenue'.'Open items'"]]),
+      table("Module Usage", ["Module", "App", "Page"], [["REV01 Revenue", "Planning app", "Demand board"]]),
+      table("Saved View Filters", VIEW_HEADERS, [
+        ["Open items", "REV01 Revenue", "Rows: Active? = True; Columns (off): Match any: Region (SCN042:Spring Launch) = North or South, Missing line item (ID 2000000099) = True (not valid)",
+          "SYS01 Flags.Active?, SYS01 Flags.Region, Missing line item (ID 2000000099)", "Demand board (Planning app)", "Load open items", "", "Yes"],
+        ["Refused", "SYS01 Flags", "", "", "", "", "", "No"]]),
+      table("Page Filters", ["Condition line item's module", "Condition line item", "Filtered module"], [["SYS01 Flags", "Active?", "REV01 Revenue"]])],
+  };
+  const row = (name: string) => page.all('#tableWrap tbody [data-act="row"]').find(cell => cell.closest("tr")?.children[0].textContent.trim() === name)!;
+  const item = (words: string) => page.all('#drawerBody [data-act="item"]').find(link => link.textContent === words)!;
+
+  it("lists the saved views' filters beside the custom view filters under App Usage's Page Filters, and gives each a tile where it has rows", async () => {
+    await openWith(VIEWS_MODEL);
+    page.find('#navList [aria-controls="navGroupAppUsage"]').press();
+    expect(page.texts("#navGroupAppUsage .nav-heading")).toEqual(["Module Usage", "Page Filters"]);
+    expect(page.all("#navGroupAppUsage .nav-item").map(entryLabel)).toEqual(["Module Usage", "Saved View Filters", "Custom View Filters"]);
+    expect(page.texts("#view .stat .s-lab")).toEqual(expect.arrayContaining(["Saved View Filters", "Custom View Filters"]));
+  });
+
+  it("keeps the saved views' filters in the menu, without a tile, for a model with no saved view that has a filter", async () => {
+    await openWith({ ...VIEWS_MODEL, savedViewDetails: [], tables: VIEWS_MODEL.tables.map(each => (each.file === "Saved View Filters.csv" ? { ...each, rows: [] } : each)) });
+    expect([page.all("#navList .nav-item").map(entryLabel).includes("Saved View Filters"), page.texts("#view .stat .s-lab").includes("Saved View Filters")]).toEqual([true, false]);
+  });
+
+  it("opens a view's details with its Filters before All details: each axis under its heading, each condition in the dialog's words, its line item opening its row", async () => {
+    await openWith(VIEWS_MODEL);
+    goToNamed("Saved View Filters");
+    // The columns shown, with Definition read hidden and in the chooser.
+    expect(page.all("#tableWrap thead th").map(th => th.textContent.trim()).filter(Boolean))
+      .toEqual(["Name", "Module", "Filters", "Filter Line Items", "Used on Pages", "Used by Imports", "Used by Exports"]);
+    row("Open items").press();
+    const filters = page.id("drawerFilters");
+    expect(filters.querySelectorAll("h4").map(heading => heading.textContent)).toEqual(["Rows · Match all", "Columns · Match any · off"]);
+    expect(filters.querySelectorAll("li").map(each => each.textContent)).toEqual(["Active? is equal to True",
+      "Region is equal to North or South · Context: SCN042:Spring Launch", "Missing line item (ID 2000000099) is equal to True · Not valid"]);
+    // Filters stand before All details, which do not repeat them; Definition read is among them, hidden in the table.
+    const html = page.id("drawerBody").innerHTML;
+    expect(html.indexOf('id="drawerFilters"')).toBeLessThan(html.indexOf("All details"));
+    const terms = page.all("#drawerBody dt").map(term => term.textContent.trim());
+    expect([terms.includes("Filters"), terms.includes("Definition read")]).toEqual([false, true]);
+    // The Model button opens the view's module; the line items, the module, the listed line items and the import link to their rows.
+    expect(page.texts("#drawerOpens button")).toContain("Model");
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Active?", "Region", "REV01 Revenue", "SYS01 Flags.Active?", "SYS01 Flags.Region", "Load open items"]);
+    item("Active?").press();
+    expect(page.id("drawerTitle").textContent).toBe("Active?");
+    page.id("drawerBack").press();
+    expect(page.id("drawerTitle").textContent).toBe("Open items");
+    // A view whose definition was not read says so.
+    row("Refused").press();
+    expect(page.id("drawerFilters").textContent).toContain("This view's definition was not read, so its filters are not known. The diagnostic log says why.");
+  });
+
+  it("shows Line Items' count of the custom view filters as Custom View Filters, and the saved views' beside it", async () => {
+    await openWith(VIEWS_MODEL);
+    goToNamed("Line Items");
+    const heads = page.all("#tableWrap thead th").map(th => th.textContent.trim());
+    expect([heads.indexOf("Saved View Filters") - heads.indexOf("Custom View Filters"), heads.includes("Page Filters")]).toEqual([1, false]);
+  });
+
+  it("opens a result an earlier version kept, without the table or any view's details", async () => {
+    await openWith(MODEL);
+    expect(page.all("#navList .nav-item").map(entryLabel).includes("Saved View Filters")).toBe(false);
+    goToNamed("Line Items");
+    expect(page.texts("#view h1")).toEqual(["Line Items"]);
   });
 });

@@ -1,9 +1,11 @@
 import { analyseApp } from "./analyse.js";
 import { greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { readPolarisModel, startModelPages } from "./model-pages.js";
-import { engineFromColumns, engineLine, POLARIS_FULL_NOTE } from "./model-engine.js";
+import { engineColumns, engineFromColumns, engineLine, POLARIS_FULL_NOTE } from "./model-engine.js";
 import { readModelNames } from "./model-names.js";
 import { addUnused } from "./model/unused.js";
+import { SAVED_VIEW_FILTERS } from "./saved-view-filters.js";
+import { addViewFilterUses } from "./saved-view-uses.js";
 import { diagnosticRows, stampLine } from "./details.js";
 import { firstLine, ModelUnavailable, type Progress } from "./progress.js";
 import type { AnalysisResult } from "./result-types.js";
@@ -30,6 +32,10 @@ const CUSTOMER_PATH = /\/a\/modeling(?:-ui)?\/customers\/([0-9A-Fa-f]{32})(?:[/?
 /** The workspace a Model Building address names after its customer: with the customer and the model, the pages built on
  * the model are read beside its export (model-pages.ts `startModelPages`). */
 const WORKSPACE_PATH = /\/a\/modeling(?:-ui)?\/customers\/[0-9A-Fa-f]{32}\/workspaces\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
+
+/** Why a model read without its Classic client has no Saved View Filters table: the saved views' filters are read through
+ * that client alone (model/saved-views.ts). */
+export const NO_SAVED_VIEWS = "not read: Cardigan reads saved views' filters through Model Building's client, which didn't answer";
 
 /** This script can be put into a document more than once: by Chrome as the page loads, and by the results page when none
  * answers it, as in a tab that was open before Cardigan was installed, updated or reloaded (results/connection.ts). Only
@@ -90,7 +96,9 @@ if (window.top === window) {
    * what was started beside it. The IDs of its line items come with the export for reading the pages built on it, and go
    * no further: they are taken off the result here, so that the results page never holds them. So do the Line Items
    * grid's columns, which tell the engine where the export has no Line Items table, as when the model refused the grid's
-   * later pages, and how many of its rows the model refused, which Unused Line Items says. The export says it was
+   * later pages, and how many of its rows the model refused, which Unused Line Items says, and the saved views' IDs, by
+   * which the pages that show each saved view are found. Where the Line Items grid gave no columns, the Modules table's
+   * tell the engine. Line Items gains its count of the saved views whose filters use each line item. The export says it was
    * made with this version, whichever version the model's reader is of (version-label.ts). A model read in Model
    * Building carries where it is, which the results page opens its modules, apps and pages by. */
   const readModel = async (seen: Seen, progress: Progress, signal: AbortSignal) => {
@@ -122,7 +130,8 @@ if (window.top === window) {
       const result = await readPolarisModel(ids, { engine: "unknown", ...names }, progress, signal);
       const note = "The model's Classic client didn't answer, so Cardigan read what it could without it.";
       result.summary.unshift(note);
-      result.tables.find(table => table.details)?.rows.push(["Notes", "Classic client", note]);
+      result.summary.push(`${SAVED_VIEW_FILTERS}: ${NO_SAVED_VIEWS}.`);
+      result.tables.find(table => table.details)?.rows.push(["Notes", "Classic client", note], ["Notes", SAVED_VIEW_FILTERS, `${NO_SAVED_VIEWS}.`]);
       return { ...keepEngineLog(withVersion(result)), ...(site ? { site } : {}) };
     }
     progress.log("Classic reader: answered; starting model settings");
@@ -134,16 +143,21 @@ if (window.top === window) {
       pages.abandon(error);
       throw error;
     }
-    const { lineItemIds, lineItemColumns, lineItemsRefused, ...result } = exported;
-    const engine = engineFromColumns(result.tables.find(table => table.file === "Line Items.csv")?.headers ?? lineItemColumns ?? []);
-    logEngine(engineLine(engine));
+    const { lineItemIds, lineItemColumns, lineItemsRefused, savedViewIds, ...result } = exported;
+    // The engine by Line Items' columns, or, where Line Items gave none, by Modules' (model-engine.ts).
+    const told = engineColumns(result.tables.find(table => table.file === "Line Items.csv")?.headers ?? lineItemColumns,
+      result.tables.find(table => table.file === "Modules.csv")?.headers);
+    const engine = engineFromColumns(told.columns);
+    logEngine(engineLine(engine, told.from));
     if (engine === "polaris") {
       result.summary.push(POLARIS_FULL_NOTE);
       result.tables.find(table => table.details)?.rows.push(["Notes", "Engine", POLARIS_FULL_NOTE]);
     }
     // What nothing uses is known once the pages built on the model are read: it is made from the result and the line items'
-    // IDs, which go no further (model/unused.ts).
-    const read = keepEngineLog(addUnused(await pages.finish(withVersion(result), lineItemIds), lineItemIds, progress.log, lineItemsRefused));
+    // IDs, which go no further (model/unused.ts). The saved views' IDs find the pages that show each view, and go no
+    // further either (model-pages.ts). Line Items' count of the saved views' filters goes after the pages' count of the
+    // custom view filters, as the page shows them (saved-view-uses.ts).
+    const read = keepEngineLog(addUnused(addViewFilterUses(await pages.finish(withVersion(result), lineItemIds, savedViewIds)), lineItemIds, progress.log, lineItemsRefused));
     return seen.origin && seen.customer ? { ...read, site: { origin: seen.origin, customer: seen.customer } } : read;
   };
 

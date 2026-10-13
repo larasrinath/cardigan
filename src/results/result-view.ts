@@ -1,5 +1,6 @@
 import { readsFile } from "../file-imports.js";
-import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
+import { CUSTOM_VIEW_FILTERS, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
+import { SAVED_VIEW_FILTERS_FILE } from "../saved-view-filters.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { LINE_ITEM_SUBSETS_FILE } from "../model/line-item-subsets.js";
 import { lineItemSubsetsView } from "./line-item-subsets-view.js";
@@ -636,13 +637,14 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
  * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
  * it, followed by the two tables of what nothing uses (unused-files.ts). Line Item Subsets follows General Lists. The
  * three tables the page shows the Imports file as (import-files.ts) stand in its place. After the settings come the
- * tables of the pages built on the model, Module Usage, Page Filters and Page Actions (page-files.ts), last before the
- * map. A file of a result that is not listed here comes after these, in the result's own order: a file that is renamed,
- * or new, moves to the end and does not go missing. */
+ * tables of App Usage: Module Usage, then the saved views' filters (saved-view-filters.ts) and the custom view filters of
+ * the pages built on the model, the Page Filters file, and Page Actions (page-files.ts), last before the map. A file of a
+ * result that is not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to
+ * the end and does not go missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
   MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
   UNUSED_LINE_ITEMS_FILE, UNUSED_MODULES_FILE, "Processes.csv", IMPORTS_FILE, ...IMPORT_TABLES.map(table => table.file), "Import Data Sources.csv", "Exports.csv",
-  OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
+  OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, MODULE_USAGE_FILE, SAVED_VIEW_FILTERS_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE,
 ];
 
 /** The result's files as the page lists them in the navigation: every file but the Details file, each with its place in
@@ -760,6 +762,9 @@ export function cardParts(result: AnalysisResult, cards: CardsTable, row: Row): 
 const SHOWN_NAMES: ReadonlyMap<string, { label: string; full?: string }> = new Map([
   ["Import Data Sources.csv", { label: "Data Sources" }],
   [ACCESS_FILE, { label: "DCA", full: "Dynamic Cell Access (DCA)" }],
+  // The card filters on the pages built on the model, the filters of a card's custom view, beside a saved view's own (Saved
+  // View Filters): the file keeps its name, by which a result kept earlier and the view kept for it are read.
+  [PAGE_FILTERS_FILE, { label: CUSTOM_VIEW_FILTERS }],
 ]);
 
 /** The name the page gives a table: its own label, or the one `SHOWN_NAMES` gives its file. */

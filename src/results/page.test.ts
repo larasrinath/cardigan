@@ -321,7 +321,7 @@ describe("The results page's files", () => {
     expect([shell.find(".hd").children.map(child => child.id || child.getAttribute("class")), plain.match(ORDER)]).toEqual([["brand", "hdMeta", "hd-actions"], null]);
   });
 
-  it("lays the navigation out on one line, a model's tables in groups whose menus have the popovers' look, with one menu in the line's place under 1000px wide; it marks the view shown as it always did", () => {
+  it("lays the navigation out on one line, a model's tables in groups whose menus have the popovers' look, with one menu in the line's place under 1024px wide; it marks the view shown as it always did", () => {
     // One line of items, each as wide as its words and on one line of its own: no item fills the line. An item goes to the
     // next line only where the line has no room, which no line the page knows needs where it is shown (see below).
     // Nothing of the line scrolls: no rule of it holds an overflow or a scroll.
@@ -336,9 +336,11 @@ describe("The results page's files", () => {
     expect(["background:var(--panel)", "border:1px solid var(--border-strong)", "border-radius:var(--r-md)", "box-shadow:var(--shadow)"].map(part => [part, menu.includes(part), popover.includes(part)]))
       .toEqual(["background:var(--panel)", "border:1px solid var(--border-strong)", "border-radius:var(--r-md)", "box-shadow:var(--shadow)"].map(part => [part, true, true]));
     expect([menu.includes("position:absolute;"), menu.includes("overflow-y:auto;"), /z-index:(\d+)/.exec(menu)?.[1]]).toEqual([true, true, "50"]);
-    // Under 1000px wide the one menu stands in the line's place, whatever the result's kind: the shorter line fits at 1000px.
-    // It is the narrow layout's only rule about the navigation, and nothing slides in over the content.
-    expect(mediaRules("(max-width:999px)")).toEqual([[".nav-list", "display:none"], [".nav-compact", "display:flex"]]);
+    // Under 1024px wide the one menu stands in the line's place, whatever the result's kind: a model's line, with every table,
+    // fits at 1024px (nav-spread.test.ts). It is the narrow layout's only rule about the navigation, and nothing slides in
+    // over the content.
+    expect(mediaRules("(max-width:1023px)")).toEqual([[".nav-list", "display:none"], [".nav-compact", "display:flex"]]);
+    expect(mediaRules("(max-width:999px)")).toEqual([]);
     expect(mediaRules("(max-width:1120px)").filter(([selector]) => /nav/.test(selector))).toEqual([]);
     // An entry has no count: the overview's tiles say how many rows each table has.
     expect(rules(".cnt")).toEqual([]);
