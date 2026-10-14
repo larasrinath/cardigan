@@ -35,6 +35,16 @@ const STOPPED = "The export was stopped.";
 export const NO_MODEL = "The model is still opening; wait until it shows in Anaplan, then choose Run again.";
 export const NO_READER = "Refresh the Anaplan tab to load Cardigan's model reader and run again.";
 export const QUIET = "The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.";
+/** What the user is told when the model's frame did not answer a run at all (`FIRST_ANSWER_MS`). */
+export const UNANSWERED = "The model's page in the Anaplan tab did not answer. Refresh the Anaplan tab, wait until the model shows, then choose Run again.";
+/** How long a run waits for the model's frame to answer it at all, with its first step, or with "alive" where it takes over
+ * an export that was stopped (`serveCore`). A frame that serves a reader of this build answers in the very turn it hears
+ * the run, so the answer comes at once, or within a second or two where the frame's page is busy. One that has said
+ * nothing by then has no reader that serves it: Model Building moved the frame to another page whose reader has not
+ * started, or the page in it is stuck. Thirty seconds leave room for a page that is busy for a while, as Model Building
+ * can be just after it opens a model, and are still a tenth of the idle time. Only once the frame has answered is it given
+ * the idle time, which is for a long read (`runInCore`). */
+export const FIRST_ANSWER_MS = 30_000;
 export const UNREADABLE = `Cardigan could not read what the model's page sent back. ${REFRESH} ${SEND_LOG}`;
 /** What the user is told when the model's reader in the tab is of another build than the content script: Chrome puts the
  * reader into a page as it loads, and a reload of the extension takes it out of no page, so a model open since before an
@@ -43,7 +53,12 @@ export const UNREADABLE = `Cardigan could not read what the model's page sent ba
 export const OLD_READER = "This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader. "
   + "Refresh the Anaplan tab, wait until the model shows, then choose Run again.";
 
-export interface Endpoint { postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void }
+export interface Endpoint {
+  postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void;
+  /** A window says it once it has gone, whatever its origin: a frame's window once the frame was taken out of the page
+   * (`gone`). */
+  readonly closed?: boolean;
+}
 export interface MessageTarget {
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
   removeEventListener(type: "message", listener: (event: MessageEvent) => void): void;
@@ -53,6 +68,19 @@ export interface MessageTarget {
 export interface CoreHandle { source: Endpoint; origin: string; modelId: string; build?: string }
 /** A build's mark as a reader says it: a few letters and digits, which the log may quote. */
 const BUILD_MARK = /^[\w.-]{1,40}$/;
+
+/** Whether a reader's window has gone: its frame was taken out of the page, and what is posted to it reaches nobody. The
+ * window says so itself, whatever its origin (`closed`): in Chrome the window of a frame taken out of the page says it is
+ * closed, a frame of another site's as well, and posting to it throws nothing. A frame that was only moved to another page
+ * is the same window, and open. A window that cannot be asked is taken to be there: the run's short wait for its answer
+ * tells (`runInCore`). */
+export function gone(core: CoreHandle): boolean {
+  try {
+    return core.source.closed === true;
+  } catch {
+    return false;
+  }
+}
 
 // Messages are structured clones from another window; fields are checked before use.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,13 +108,17 @@ export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => voi
   });
 }
 
-/** Shell side: asks the core frame to export and relays its progress. Fails if the frame goes quiet for `idleMs`, or sends
- * something that is not a model's result. `signal` stops it: the run rejects with the signal's reason. A frame that went
- * quiet and a run that was stopped are both given up at once, and the frame is told to stop reading (serveCore says when
- * it then does). Quiet is no message of this run at all: besides its steps and log lines the frame sends "alive" before
- * each page of a grid it reads, so that a grid of many pages, which has nothing to report between them, is not taken for
- * a frame that has gone. */
-export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progress, idleMs = 300_000, signal?: AbortSignal): Promise<AnalysisResult> {
+/** Shell side: asks the core frame to export and relays its progress. Fails if the frame does not answer the run within
+ * `firstMs` (at most `idleMs`), if it goes quiet for `idleMs` once it has answered, or if it sends something that is not
+ * a model's result. `signal` stops it: the run rejects with the signal's reason. A frame that went quiet and a run that
+ * was stopped are both given up at once, and the frame is told to stop reading (serveCore says when it then does). Quiet
+ * is no message of this run at all: besides its steps and log lines the frame sends "alive" before each page of a grid it
+ * reads, so that a grid of many pages, which has nothing to report between them, is not taken for a frame that has gone.
+ * A frame of this build answers a run in the turn it hears it (`FIRST_ANSWER_MS`): one that has not answered within the
+ * short wait is given up, telling the user to refresh the tab, and not waited for as long as a read may take. A frame that
+ * has gone is not asked at all (`gone`). */
+export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progress, idleMs = 300_000, signal?: AbortSignal,
+  firstMs = FIRST_ANSWER_MS): Promise<AnalysisResult> {
   return new Promise((resolve, reject) => {
     const nonce = crypto.randomUUID();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -101,13 +133,20 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
       core.source.postMessage(onRun({ type: "stop", nonce }), core.origin);
       finish({ error });
     };
-    const idle = () => { clearTimeout(timer); timer = setTimeout(() => giveUp(new Failure(QUIET, `the model's frame sent nothing for ${idleMs / 1000} s`)), idleMs); };
+    /** Starts the wait again: for the frame's first answer until it has answered the run, and for the idle time from then on. */
+    const wait = (answered: boolean) => {
+      clearTimeout(timer);
+      const first = Math.min(firstMs, idleMs);
+      timer = answered ? setTimeout(() => giveUp(new Failure(QUIET, `the model's frame sent nothing for ${idleMs / 1000} s`)), idleMs)
+        : setTimeout(() => giveUp(new Failure(UNANSWERED, `case=NO_ANSWER; the model's frame did not answer the run in ${first / 1000} s`)), first);
+    };
     const stop = () => giveUp(signal?.reason ?? new Error(STOPPED));
     const listener = (event: MessageEvent) => {
       const data = ofThisBuild(event);
       if (!data || event.source !== (core.source as unknown) || event.origin !== core.origin || data.nonce !== nonce) return;
-      // Whatever the frame sends for this run starts the wait again. For "alive" that is all: it is not passed on.
-      idle();
+      // Whatever the frame sends for this run is its answer, and starts the wait again. For "alive" that is all: it is not
+      // passed on.
+      wait(true);
       // Nothing here may throw, or the run would be left waiting for the idle time: textOf has a text for every value.
       if (data.type === "status") progress.status(textOf(data.text));
       else if (data.type === "log") progress.log(textOf(data.text));
@@ -121,9 +160,10 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
       }
     };
     if (signal?.aborted) { reject(signal.reason ?? new Error(STOPPED)); return; }
+    if (gone(core)) { reject(new Failure(UNANSWERED, "case=NO_ANSWER; the model's frame has gone")); return; }
     self.addEventListener("message", listener);
     signal?.addEventListener("abort", stop, { once: true });
-    idle();
+    wait(false);
     core.source.postMessage(onRun({ type: "run", nonce }), core.origin);
   });
 }
@@ -147,7 +187,7 @@ function originOf(self: Window): string | undefined {
  * whose reader is of another build than this script, or says none, is not asked: after a few seconds more for one of
  * this build to check in beside it, the run fails with `OLD_READER` (progress.ts `OldReader`). That says whether the
  * frame is on this page's origin, where the results page may put this build's reader itself, and the log says which
- * builds the two are. */
+ * builds the two are. A frame of another model, or one that has gone, is never asked (`waitForCore`). */
 export async function exportInCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<AnalysisResult> {
   const found = await waitForCore(self, core, probes, model, progress, signal, waitMs);
@@ -155,15 +195,34 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   return runInCore(self, found, progress, undefined, signal);
 }
 
-/** Wait before starting either reader: both Classic and Polaris models can load the Classic client late. */
+/** Wait before starting either reader: both Classic and Polaris models can load the Classic client late. Only the reader of
+ * `model`, the model the tab's address names, is taken, in whatever case its ID is written. Model Building moves to another
+ * model inside its page, so the frame held (`core`) can be the one of the model it showed before, until the new model's
+ * frame checks in; and a frame taken out of the page has gone (`gone`). Either is passed over, which the log says once for
+ * each, and the frames are greeted every second until the model's own checks in, within the same wait as for none. */
 export async function waitForCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<CoreHandle> {
   const deadline = Date.now() + waitMs;
   const began = Date.now();
   /** When a reader of another build was first heard, while none of this build has been. */
   let otherSince: number | undefined;
+  /** What the log said of each frame passed over so far, by its window: it says each once. */
+  const passed = new Map<Endpoint, string>();
+  /** The reader held, where it is the model's own and its frame is there. */
+  const ours = (): CoreHandle | undefined => {
+    const held = core();
+    if (!held) return undefined;
+    const why = held.modelId.toUpperCase() !== model.toUpperCase() ? `the tab's address names model ${model}` : gone(held) ? "it has gone" : undefined;
+    if (why === undefined) return held;
+    const said = `the frame of model ${held.modelId}: ${why}`;
+    if (passed.get(held.source) !== said) {
+      passed.set(held.source, said);
+      progress.log(`Classic reader: passed over ${said}`);
+    }
+    return undefined;
+  };
   for (;;) {
-    const found = core();
+    const found = ours();
     if (found?.build === BUILD) break;
     if (found) otherSince ??= Date.now();
     if (Date.now() >= deadline || (otherSince !== undefined && Date.now() - otherSince >= OWN_READER_WAIT_MS)) break;
@@ -175,7 +234,7 @@ export async function waitForCore(self: Window, core: () => CoreHandle | undefin
   signal?.throwIfAborted();
   const seen = [...probes()];
   for (const probe of seen) progress.log(describeProbe(probe));
-  const found = core();
+  const found = ours();
   if (!found) throw seen.length || self.document?.readyState === "loading"
     ? new ModelUnavailable(NO_MODEL, `case=MODEL_OPENING; the Classic frame did not answer after ${Math.round((Date.now() - began) / 1000)} s; ${seen.length} frame(s) reported in`, "MODEL_OPENING")
     : new ModelUnavailable(NO_READER, "case=NO_READER; no reader in the frames answered", "NO_READER");
@@ -185,7 +244,6 @@ export async function waitForCore(self: Window, core: () => CoreHandle | undefin
     throw new OldReader(OLD_READER, `case=OLD_READER; the model's reader is ${found.build === undefined ? "of a build that names none" : `build ${found.build}`}; this script is build ${BUILD}; `
       + `its frame is ${renewable ? "on the page's own origin" : `on ${found.origin}, the page on ${page ?? "an origin it does not say"}`}`, renewable);
   }
-  if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
   return found;
 }
 
@@ -327,7 +385,9 @@ export function greetFrames(root: Window, depth = 0): void {
 /** Core side: announces itself to the top window until acknowledged, then runs the exports the top window asks for, one at
  * a time. A "stop" for the running export ends it before its next step (a status or a log line) or the next page of a
  * grid it reads, whichever comes first: the read that is under way is let finish, and nothing is read after it. A "run"
- * that arrives before then takes the export over, so a second export never starts beside the first. An export that is
+ * that arrives before then takes the export over, so a second export never starts beside the first, and is answered at
+ * once that it goes on ("alive"), as a new export answers with its first step: the read under way may say nothing for a
+ * while, and the top window gives up on a frame that does not answer a run (runInCore). An export that is
  * not stopped tells the top window before each page of a grid that it is still going ("alive"), which is all that keeps
  * the top window waiting while a grid of many pages is read (runInCore). It takes a run only of its own build, on the run
  * channel (RUN_PROTOCOL). `current` is false once a later reader serves this frame (model-content.ts): this one then
@@ -355,7 +415,10 @@ export function serveCore(self: MessageTarget, top: TopWindow, modelId: () => st
     if (data.type === "stop") { if (running && data.nonce === running.nonce) running.stopped = true; return; }
     if (data.type !== "run" || typeof data.nonce !== "string") return;
     if (running) {
-      if (running.stopped) Object.assign(running, { nonce: data.nonce, origin: event.origin, stopped: false });
+      if (running.stopped) {
+        Object.assign(running, { nonce: data.nonce, origin: event.origin, stopped: false });
+        top.window.postMessage(onRun({ nonce: data.nonce, type: "alive" }), event.origin);
+      }
       return;
     }
     const run = running = { nonce: data.nonce, origin: event.origin, stopped: false };

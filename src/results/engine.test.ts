@@ -513,6 +513,20 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([service.reads.map(read), service.sockets]).toEqual([[`apps/${GOLDEN_APP}`], []]);
   });
 
+  it("takes what a run reads after the tab went on to another app inside the same page: on the same port, with a line in the log", async () => {
+    showApp();
+    const page = resultsPage(tab);
+    await until(done(page), "the result");
+    // The tab goes on to another app inside its page: the port stays open, and Run again, as the icon's click, goes on it.
+    const other = "fedcba98-7654-3210-fedc-ba9876543210";
+    shown.shows = { kind: "app", id: other };
+    page.client.runAgain();
+    await until(() => page.client.state.phase !== "running", "the run on the other app to end");
+    expect([tab.ports.length, page.client.shows, runs.map(run => run.subject.id)]).toEqual([1, { kind: "app", id: other }, [GOLDEN_APP, other]]);
+    expect(page.client.log[0]).toBe(stamped(`The Anaplan tab shows app ${other} now, where this page had app ${GOLDEN_APP}: the page takes it, and this run reads it.`));
+    expect(page.client.log[1]).toBe(stamped(firstLine("app", other, APP_HOST)));
+  });
+
   it("gives an error the engine sends without having started a run a line in the page's log", async () => {
     showApp();
     const board = anaplan!.hold(BOARD);
@@ -688,10 +702,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const heard = page.ports[0].heard.length;
     page.client.runAgain();
     await until(() => page.client.state.phase === "failed", "the failure");
-    // The engine had a whole result. The page was sent the result, the rows of the two files before Cards, and then, in
-    // place of the rest and of "done", why it stopped and that the run failed.
+    // The engine had a whole result. The page was sent what the run reads, the result, the rows of the two files before
+    // Cards, and then, in place of the rest and of "done", why it stopped and that the run failed.
     expect(runs[1].result).toBeDefined();
-    expect(page.ports[0].types().slice(heard).filter(type => type !== "log" && type !== "status")).toEqual(["result", "rows", "rows", "error"]);
+    expect(page.ports[0].types().slice(heard).filter(type => type !== "log" && type !== "status")).toEqual(["subject", "result", "rows", "rows", "error"]);
     expect(page.ports[0].heard.slice(-2)).toEqual([{ type: "log", text: stamped(`stopped: the result could not be sent (${TOO_LARGE})`) }, { type: "error", message: UNSENT }]);
     // The page took none of it for a result: it was told of steps and then of the failure, with the engine's sentence.
     expect(page.states.slice(told).map(state => state.phase).filter((phase, index, all) => phase !== all[index - 1])).toEqual(["running", "failed"]);

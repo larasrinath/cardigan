@@ -23,7 +23,7 @@ import { ABOUT_SHOWN } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
-import { ALL_WORDS, ENGINE_WORDS, WORD_PACE_MS, WORD_POOLS } from "./spinner-words.js";
+import { ALL_WORDS, ENGINE_WORDS, MODEL_ONLY_WORDS, WORD_PACE_MS, WORD_POOLS } from "./spinner-words.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -7838,6 +7838,132 @@ describe("How a result was looked at, kept through a refresh of the page until t
     page.find('[data-sort="0"]').press();
     letLooksKeep();
     expect([sortOf(0), page.id("rowCount").textContent]).toEqual(["ascending", "1–50 of 120 rows"]);
+  });
+});
+
+describe("An Anaplan tab that goes on to another model or app inside the same page, as Model Building and the apps do", () => {
+  /** Model B and app B: another model than MODEL, and another app than APP, each with an invented name and ID of its own. */
+  const MODEL_B: AnalysisResult = { ...MODEL, name: "Model two", id: "FEDCBA9876543210FEDCBA9876543210", zipName: "Model two - Model Export - 2026-10-03.zip" };
+  const APP_B: AnalysisResult = { ...APP, name: "Second app", id: "fedcba98-7654-3210-fedc-ba9876543210", zipName: "Second app - App Export - 2026-10-03.zip" };
+  /** What the tab says of a result's app or model. */
+  const said = (result: AnalysisResult) => ({ kind: result.kind, id: result.id });
+  /** What the tab keeps of how the result is looked at, by whose result it is. */
+  const keptFor = (): string | undefined => {
+    const text = session.held.get(VIEW_KEY);
+    return text === undefined ? undefined : (JSON.parse(text) as { subject?: string }).subject;
+  };
+  /** A word that finds the first row of the result's second table. */
+  const word = (result: AnalysisResult) => String(result.tables[2].rows[0][0]);
+  /** The page with `first`'s result on it, as the icon's click leaves it, and looked at: its second table shown and
+   * searched, with a row's details open, which the tab has kept. */
+  const lookedAt = async (first: AnalysisResult) => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: said(first) });
+    // As the run starts, it says what it reads.
+    ports[0].send({ type: "subject", subject: said(first) });
+    sendResult(ports[0], first);
+    await letKeep();
+    goTo(2);
+    page.id("tblSearch").type(word(first));
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    vi.advanceTimersByTime(1000);
+    expect([page.document.title, page.id("drawer").classList.contains("show"), keptFor()]).toEqual([`Cardigan - ${first.name}`, true, `${first.kind}:${first.id}`]);
+  };
+  /** The run's log, as the run card's button copies it. */
+  const runLog = async () => {
+    page.id("runCopy").press();
+    await settle();
+    return copied.at(-1) ?? "";
+  };
+
+  it.each([
+    ["model A, then model B", "Run again", MODEL, MODEL_B], ["model A, then model B", "the icon", MODEL, MODEL_B], ["app A, then app B", "Run again", APP, APP_B],
+    ["app A, then app B", "the icon", APP, APP_B], ["an app, then a model", "Run again", APP, MODEL_B], ["a model, then an app", "the icon", MODEL, APP_B],
+  ] as const)("%s, run by %s on the same port: the run reads B, the page takes B, and B opens on its Overview with nothing of A's view", async (_case, entry, first, next) => {
+    await lookedAt(first);
+    if (entry === "the icon") await clickIcon(); else page.id("runAgain").press();
+    // The port stays open as the tab moves on in its page: the run goes on it.
+    expect([connects.length, ports[0].posted]).toEqual([1, [{ type: "run" }, { type: "run" }]]);
+    ports[0].send({ type: "subject", subject: said(next) });
+    // While B is read, nothing on the page names A: not the header, the tab's title, the run card, A's tables, its details or
+    // the buttons that open its parts. The run card shows the run as before a first result.
+    expect([page.document.title, page.id("hdMeta").textContent, page.id("topnav").hidden, page.has("#runCard"), page.id("runTitle").textContent,
+      page.id("drawer").classList.contains("show"), page.has("#ovAbout"), page.has("#tableWrap"), page.id("runAgain").hidden, page.id("view").textContent.includes(first.name)])
+      .toEqual(["Cardigan", "", true, true, "Analysing", false, false, false, true, false]);
+    if (entry === "Run again") expect(page.document.activeElement).toBe(page.id("view"));
+    // The log says it, by the IDs of the two.
+    expect(await runLog()).toContain(`The Anaplan tab shows ${next.kind} ${next.id} now, where this page had ${first.kind} ${first.id}: the page takes it, and this run reads it.`);
+    ports[0].send({ type: "status", text: "Reading Versions…" });
+    expect([page.document.title, page.id("hdMeta").textContent, page.id("runStatus").textContent]).toEqual(["Cardigan", "", "Reading Versions…"]);
+
+    sendResult(ports[0], next);
+    await letKeep();
+    expect([page.document.title, page.texts("#hdMeta .meta-app"), page.texts("#view h1"), page.id("drawer").classList.contains("show"), page.has("#runBanner")])
+      .toEqual([`Cardigan - ${next.name}`, [next.name], ["Overview"], false, false]);
+    // Nothing of how A was looked at: B's second table is not searched, and the tab keeps nothing of A's view. What is
+    // chosen on B is kept as B's.
+    goTo(2);
+    expect(page.id("tblSearch").value).toBe("");
+    vi.advanceTimersByTime(1000);
+    expect(keptFor()).toBeUndefined();
+    page.id("tblSearch").type(word(next));
+    vi.advanceTimersByTime(1000);
+    expect(keptFor()).toBe(`${next.kind}:${next.id}`);
+  });
+
+  it("speaks of the kind the run reads in the run card: a model's phrases once the run reads a model after an app", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    await lookedAt(APP);
+    page.id("runAgain").press();
+    ports[0].send({ type: "subject", subject: said(MODEL_B) });
+    ports[0].send({ type: "status", text: "Building the report…" });
+    expect(page.find(".run-word").textContent).toBe(MODEL_ONLY_WORDS[1]);
+  });
+
+  it("keeps the view of a run on the same model, whatever case the tab writes its ID in", async () => {
+    await lookedAt(MODEL);
+    page.id("runAgain").press();
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id.toLowerCase() } });
+    ports[0].send({ type: "status", text: "Reading Versions…" });
+    // The result stays while it is read again, under its name, with the run in the run control.
+    expect([page.document.title, page.texts("#view h1"), page.id("tblSearch").value, page.id("drawer").classList.contains("show"), page.has("#runCard"),
+      page.id("runAgain").title]).toEqual(["Cardigan - Model one", ["Modules"], word(MODEL), true, false, "Reading Versions…"]);
+    sendResult(ports[0], MODEL);
+    await letKeep();
+    expect([page.texts("#view h1"), page.id("tblSearch").value, page.id("drawer").classList.contains("show"), keptFor()])
+      .toEqual([["Modules"], word(MODEL), true, `model:${MODEL.id}`]);
+  });
+
+  it("reads B after a refresh of the page brought A's result back, and lets A's go as the run starts", async () => {
+    await lookedAt(MODEL);
+    await letKeep();
+    await open("?tab=42");
+    await eventually(() => page.document.title === "Cardigan - Model one", "A's result to come back");
+    // The tab says it shows B as the port opens: the page asks nothing, and A's result stays.
+    ports[1].send({ type: "subject", subject: said(MODEL_B) });
+    expect([ports[1].posted, page.document.title]).toEqual([[], "Cardigan - Model one"]);
+    page.id("runAgain").press();
+    ports[1].send({ type: "subject", subject: said(MODEL_B) });
+    expect([page.document.title, page.has("#runCard"), page.id("hdMeta").textContent]).toEqual(["Cardigan", true, ""]);
+    expect(await runLog()).toContain(`The Anaplan tab shows model ${MODEL_B.id} now, where this page had model ${MODEL.id}`);
+    sendResult(ports[1], MODEL_B);
+    await letKeep();
+    expect([page.document.title, page.texts("#view h1")]).toEqual(["Cardigan - Model two", ["Overview"]]);
+  });
+
+  it("keeps A's view for a later run on A, when the run on B did not finish", async () => {
+    await lookedAt(MODEL);
+    page.id("runAgain").press();
+    ports[0].send({ type: "subject", subject: said(MODEL_B) });
+    ports[0].send({ type: "error", message: "The model is still opening; wait until it shows in Anaplan, then choose Run again." });
+    expect([page.document.title, page.id("runTitle").textContent, page.id("runRetry").hidden]).toEqual(["Cardigan", "The analysis stopped", false]);
+    // The tab goes back to A: A's result opens as it was looked at.
+    page.id("runRetry").press();
+    ports[0].send({ type: "subject", subject: said(MODEL) });
+    sendResult(ports[0], MODEL);
+    await letKeep();
+    goTo(2);
+    expect([page.document.title, page.id("tblSearch").value]).toEqual(["Cardigan - Model one", word(MODEL)]);
   });
 });
 

@@ -93,6 +93,12 @@ export interface ClientOptions {
   tabLoading?: () => Promise<boolean>;
   /** Waits that long: setTimeout's, unless a test passes its own. */
   wait?: (ms: number) => Promise<void>;
+  /** The app or model whose result the page shows, by its kind and ID, where it shows one: what the app or model a run
+   * reads is compared with (`reads`). */
+  onPage?: () => { kind: string; id: string } | undefined;
+  /** A run reads another app or model than the page had (`reads`), which `shows` names now: the page lets the result of the
+   * one before go. */
+  onSubject?(subject: Seen): void;
   onState(state: RunState): void;
   /** The diagnostic log changed; the lines are the run's so far. */
   onLog?(lines: readonly string[]): void;
@@ -120,6 +126,11 @@ export const MAX_LOG_LINES = 3000;
 
 const text = (value: unknown): value is string => typeof value === "string";
 const pause = (ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); });
+
+/** An app or a model: what a run reads. */
+type Seen = Exclude<Subject, { kind: "none" }>;
+/** Whether two apps or models are the one: the same kind, and the same ID in whatever case it is written. */
+const sameSubject = (a: { kind: string; id: string }, b: { kind: string; id: string }): boolean => a.kind === b.kind && a.id.toUpperCase() === b.id.toUpperCase();
 
 /** What putting the content script into a tab came to: it is there now, or it is not, with what the tab shows when that is
  * no Anaplan page. */
@@ -232,7 +243,8 @@ export class ResultsClient {
   readonly log: string[] = [];
   private port: TabPort | undefined;
   private subject: Subject | undefined;
-  /** What the tab last said it shows: kept after its port closes, as it does when the tab goes to another page. */
+  /** What the tab last said it shows: as its port opened, or what a run reads, as the run said when it started (`reads`).
+   * Kept after its port closes, as it does when the tab goes to another page. */
   get shows(): Subject | undefined {
     return this.subject;
   }
@@ -262,7 +274,9 @@ export class ResultsClient {
   }
 
   /** The run control: analyses what the tab shows. On the open port when the tab showed an app or a model, otherwise on a
-   * new port, which asks the tab afresh what it shows and then analyses it. Ignored while a run is in progress. */
+   * new port, which asks the tab afresh what it shows and then analyses it. Either way the run says first what it reads,
+   * which is what the tab shows then, and may be another app or model than the tab said before (`reads`). The icon's click
+   * on a tab whose results page answers comes here too (icon-entry.ts). Ignored while a run is in progress. */
   runAgain(): void {
     if (this.state.phase === "running") return;
     this.asked = this.options.connect !== undefined;
@@ -466,9 +480,14 @@ export class ResultsClient {
     // An answer to an ask to open a module belongs to no run: it is taken whatever the page is doing.
     if (message.type === "opened") return this.takeOpened(message);
     if (message.type === "subject") {
-      // Sent once per port. Only the first one starts a run, so a result on the page is never replaced unasked.
-      if (this.subject) return;
       const subject: Subject | undefined = message.subject && typeof message.subject === "object" ? message.subject : undefined;
+      // Sent again as each run starts: what the run reads (protocol.ts).
+      if (this.subject && this.state.phase === "running") {
+        if (subject && (subject.kind === "app" || subject.kind === "model") && text(subject.id)) this.reads(subject);
+        return;
+      }
+      // Sent first as the port opens. Only that one starts a run, so a result on the page is never replaced unasked.
+      if (this.subject) return;
       if (subject && (subject.kind === "app" || subject.kind === "model")) {
         this.subject = subject;
         // A page nobody has asked reads nothing: by now its tab ID may belong to another tab than the one it was opened for.
@@ -530,6 +549,18 @@ export class ResultsClient {
         return this.set({ phase: "failed", message: failure });
       }
     }
+  }
+
+  /** The app or model a run reads, as the tab said when the run started: what the tab shows now, which the page takes as
+   * what it shows (`shows`). Where that is another than the page had, the result the page shows or else what the tab
+   * said before, the run's log says so, by the IDs of the two, and the page is told (`onSubject`). The same app or model
+   * keeps the page as it is, whatever case its ID is written in. */
+  private reads(subject: Seen): void {
+    const had = this.options.onPage?.() ?? (this.subject?.kind === "none" ? undefined : this.subject);
+    this.subject = subject;
+    if (!had || sameSubject(had, subject)) return;
+    this.append(stampLine(`The Anaplan tab shows ${subject.kind} ${subject.id} now, where this page had ${had.kind} ${had.id}: the page takes it, and this run reads it.`));
+    this.options.onSubject?.(subject);
   }
 
   /** The pieces the tab sent do not make a result. The run has failed, and the log says what did not fit. */
