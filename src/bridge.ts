@@ -11,8 +11,10 @@ import { BUILD } from "./version.js";
  * messages: the core frame announces itself, the shell asks it to export, and the core frame streams progress and finally
  * the result (the export's files as tables) back. The shell can also ask it to open one of the model's modules, lists or
  * settings pages in the page, as Model Building's own Modules list, General Lists and sidebar open one (`openInCore`).
- * Each side accepts messages only from the other window and only from an Anaplan origin. On the classic model page opened
- * on its own there is no frame: the core side runs in the page's own window, and the other window is that same window.
+ * Each side accepts messages only from the other window and only from an Anaplan origin, and addresses its own to the
+ * other window's Anaplan origin alone (`TopWindow` on the core side). Only the page's greeting to its frames, which carries
+ * nothing, goes to any origin (`greetFrames`). On the classic model page opened on its own there is no frame: the core
+ * side runs in the page's own window, and the other window is that same window.
  *
  * A frame can hold two readers: the one Chrome put there as the page loaded, and one of a later build that the results
  * page put beside it since (results/connection.ts `renewReader`). Checking in is common to all of them (PROTOCOL), so
@@ -242,12 +244,57 @@ export function probeFrame(): FrameProbe {
 export const describeProbe = (probe: FrameProbe) =>
   `${probe.top ? "page" : "frame"} ${probe.host}${probe.path}: loader=${probe.loader} model=${probe.model} workspace=${probe.workspace}`;
 
-/** Main-world side, in every frame: report what this frame sees to the top window for a while. */
-export function reportFrame(top: Endpoint, everyMs = 3000, forMs = 60_000): void {
-  const send = () => top.postMessage({ protocol: PROTOCOL, type: "probe", probe: probeFrame() }, "*");
-  // An already-open page can be greeted long after the periodic diagnostics have stopped.
+/** Main-world side: the top window's origin as this window can read it without a message. In the top window itself, its
+ * own; in a frame, the last of the origins Chrome lists for the windows around it (`location.ancestorOrigins`), which is
+ * the top window's. Where there is no such list, nothing; where a page's referrer policy hides an origin, the list says
+ * "null" for it, which `topWindow` does not take. */
+export function topOriginOf(isTop: boolean, place: { readonly origin: string; readonly ancestorOrigins?: ArrayLike<string> }): string | undefined {
+  if (isTop) return place.origin;
+  const ancestors = place.ancestorOrigins;
+  return ancestors?.length ? ancestors[ancestors.length - 1] : undefined;
+}
+
+/** Main-world side: the top window, as the reader in a frame posts to it. What the reader posts without being asked, the
+ * frame's probe and its check-in ("core-ready", with the model's ID), goes to the top window's own origin alone, and only
+ * once that is known to be an Anaplan origin: a page of another site that framed an Anaplan page hears nothing of the
+ * model. The frame reads it where it can (`topOriginOf`); where it cannot, the first message the top window sends the
+ * frame tells it, such as its greeting ("hello"), an acknowledgement or a run. Until then nothing is posted: the top window
+ * greets its frames every second while a run waits for the model (`waitForCore`), and when it is to open one of the
+ * model's objects before any frame has checked in (content.ts). What the reader answers to an ask goes to the origin the
+ * ask came from. */
+export interface TopWindow {
+  /** The top window as this frame holds it: the source of its messages, and what is posted to. */
+  readonly window: Endpoint;
+  /** Its origin, once known: an Anaplan origin. */
+  readonly origin: string | undefined;
+  /** Learns the origin from a message, while it is not known: one the top window sent, from an Anaplan origin. */
+  hear(event: MessageEvent): void;
+  /** Posts to the top window at its origin; nothing while that is not known. */
+  post(message: Record<string, unknown>): void;
+}
+
+/** The top window `top`, whose origin this frame read as `origin` (`topOriginOf`): taken only if it is an Anaplan origin. */
+export function topWindow(top: Endpoint, origin?: string): TopWindow {
+  let known = origin !== undefined && ANAPLAN_ORIGIN.test(origin) ? origin : undefined;
+  return {
+    window: top,
+    get origin() { return known; },
+    hear: event => {
+      if (known === undefined && event.source === (top as unknown) && ANAPLAN_ORIGIN.test(event.origin)) known = event.origin;
+    },
+    post: message => { if (known !== undefined) top.postMessage(message, known); },
+  };
+}
+
+/** Main-world side, in every frame: report what this frame sees to the top window for a while, at the top window's
+ * origin alone (`TopWindow`). While that is not known the reports wait, and the greeting that tells it has one sent. */
+export function reportFrame(top: TopWindow, everyMs = 3000, forMs = 60_000): void {
+  const send = () => top.post({ protocol: PROTOCOL, type: "probe", probe: probeFrame() });
+  // An already-open page can be greeted long after the periodic diagnostics have stopped. Whatever the top window sends
+  // tells this frame its origin, where the frame could not read it.
   window.addEventListener?.("message", event => {
-    if (ours(event)?.type === "hello" && event.source === (top as unknown)) send();
+    top.hear(event);
+    if (ours(event)?.type === "hello" && event.source === (top.window as unknown)) send();
   });
   send();
   const timer = setInterval(send, everyMs);
@@ -264,11 +311,15 @@ export function watchProbes(self: MessageTarget, onProbe: (probe: FrameProbe) =>
   });
 }
 
-/** Shell side: ask every frame, nested ones included, to check in now. */
+/** Shell side: ask every frame, nested ones included, to check in now. The greeting also tells a frame's reader this
+ * page's origin, where the frame could not read it (`TopWindow`). */
 export function greetFrames(root: Window, depth = 0): void {
   if (depth > 4) return;
   for (let index = 0; index < root.frames.length; index++) {
     const frame = root.frames[index];
+    // The one message of the bridge to any origin ("*"): a frame's origin cannot be read from this window, and a frame
+    // greeted at another origin than its own would not hear it. So it carries the protocol and its type, and never
+    // anything else: nothing of the model, the page or the user.
     try { frame.postMessage({ protocol: PROTOCOL, type: "hello" }, "*"); greetFrames(frame, depth + 1); } catch { /* a frame that went away */ }
   }
 }
@@ -280,21 +331,22 @@ export function greetFrames(root: Window, depth = 0): void {
  * not stopped tells the top window before each page of a grid that it is still going ("alive"), which is all that keeps
  * the top window waiting while a grid of many pages is read (runInCore). It takes a run only of its own build, on the run
  * channel (RUN_PROTOCOL). `current` is false once a later reader serves this frame (model-content.ts): this one then
- * neither announces itself nor takes a run. */
-export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
+ * neither announces itself nor takes a run. It announces itself at the top window's origin alone: while that is not
+ * known, it does not, and the greeting that tells it has it announce itself at once (`TopWindow`). */
+export function serveCore(self: MessageTarget, top: TopWindow, modelId: () => string | undefined,
   exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000,
   current: () => boolean = () => true): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
   const announce = () => {
     const id = current() ? modelId() : undefined;
-    if (!id) return;
-    top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD }, "*");
+    if (id) top.post({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD });
   };
   const timer = setInterval(announce, announceMs);
   const stopAnnouncing = setTimeout(() => clearInterval(timer), announceForMs);
   announce();
   const listener = (event: MessageEvent) => {
-    if (event.source !== (top as unknown)) return;
+    if (event.source !== (top.window as unknown)) return;
+    top.hear(event);
     const common = ours(event);
     if (common?.type === "ack") { clearInterval(timer); return; }
     if (common?.type === "hello") { announce(); return; }
@@ -307,7 +359,7 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
       return;
     }
     const run = running = { nonce: data.nonce, origin: event.origin, stopped: false };
-    const reply = (message: Message) => top.postMessage(onRun({ nonce: run.nonce, ...message }), run.origin);
+    const reply = (message: Message) => top.window.postMessage(onRun({ nonce: run.nonce, ...message }), run.origin);
     const lines: string[] = [];
     /** What ends a stopped export: every step asks it first. */
     const check = () => { if (run.stopped) throw new Error(STOPPED); };

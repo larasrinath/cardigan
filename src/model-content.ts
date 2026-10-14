@@ -1,4 +1,4 @@
-import { reportFrame, serveCore, serveOpen } from "./bridge.js";
+import { reportFrame, serveCore, serveOpen, topOriginOf, topWindow } from "./bridge.js";
 import { stampLine } from "./details.js";
 import { exportModel } from "./model/export.js";
 import { modelOnPage } from "./model/native.js";
@@ -8,7 +8,9 @@ import { firstLine } from "./progress.js";
 /** The model export's reading side. It runs in the page's main world in every Anaplan frame, because the Model settings
  * grids are read through the page's own classic client, and stays inert anywhere without an open classic model. It puts
  * nothing on the page and exports only when the top window's content script asks (bridge.ts).
- * - Every frame reports what it sees to the top window for a minute (types only), for the diagnostic log.
+ * - Every frame reports what it sees to the top window for a minute (types only), for the diagnostic log. That report and
+ *   the model's check-in go to the top window's own Anaplan origin alone, which the frame reads from its location or
+ *   learns from the top window's first message to it (bridge.ts `TopWindow`).
  * - Core frame inside the Model Building page (the usual case): the top window is the page around it. There the frame
  *   also opens one of the model's modules or lists in the page when the top window asks (model/open-object.ts).
  * - Classic model page opened on its own: the top window is this window, and its content script asks from the isolated
@@ -34,7 +36,11 @@ const exportOwnPage: typeof exportModel = (progress, diagnostics, stop) => {
   return exportModel(progress, () => `${first}${diagnostics()}`, stop);
 };
 
-if (window.top) reportFrame(window.top);
+/** The top window, with its origin as this window reads it: one for the report and the check-in, so that a greeting heard
+ * before the model is there tells the check-in the origin as well. */
+const top = window.top ? topWindow(window.top, topOriginOf(window.top === window, location)) : undefined;
+
+if (top) reportFrame(top);
 
 const started = Date.now();
 const watch = setInterval(() => {
@@ -42,7 +48,7 @@ const watch = setInterval(() => {
     clearInterval(watch);
   } else if (modelOnPage()) {
     clearInterval(watch);
-    if (window.top) serveCore(window, window.top, modelOnPage, window.top === window ? exportOwnPage : exportModel, undefined, undefined, current);
+    if (top) serveCore(window, top, modelOnPage, window.top === window ? exportOwnPage : exportModel, undefined, undefined, current);
     if (window.top && window.top !== window) serveOpen(window, window.top, openObject, current);
   } else if (Date.now() - started > 10 * 60_000) {
     clearInterval(watch);

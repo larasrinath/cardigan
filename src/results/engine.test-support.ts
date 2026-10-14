@@ -1,5 +1,6 @@
 import { analyseApp } from "../analyse.js";
-import { exportInCore, reportFrame, serveCore, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe, type MessageTarget } from "../bridge.js";
+import { exportInCore, reportFrame, serveCore, topOriginOf, topWindow, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe,
+  type MessageTarget } from "../bridge.js";
 import { CALENDAR_PROPERTIES } from "../model/calendar.js";
 import { exportModel } from "../model/export.js";
 import type { CellSource } from "../model/grid.js";
@@ -76,9 +77,10 @@ export function serveEngine(tab: FakeTab, page: { host: string; shows: Subject; 
   watchCore(shell, found => { frame = found; });
   watchProbes(shell, probe => { probes.set(`${probe.host}${probe.path}`, probe); });
   if (page.core !== undefined) {
-    // model-content.ts, in the model's frame: the frame reports what it holds, and exports when the page around it asks.
+    // model-content.ts, in the model's frame: the frame reports what it holds, and exports when the page around it asks. It
+    // reads the page's origin as Chrome lists it, the last of the origins around the frame, and posts to that alone.
     const core = new FakeWindow(`https://${page.core}`);
-    const top = shell.seenBy(core);
+    const top = topWindow(shell.seenBy(core), topOriginOf(false, { origin: core.origin, ancestorOrigins: [shell.origin] }));
     reportFrame(top, ...ONCE);
     serveCore(core, top, modelOnPage, async (progress, diagnostics, stop) => {
       const made = await exportModel(progress, diagnostics, stop);

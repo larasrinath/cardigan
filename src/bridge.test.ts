@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, NO_MODEL, NO_READER, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, RUN_PROTOCOL, runInCore, serveCore, serveOpen, UNREADABLE, watchCore,
-  watchProbes, waitForCore,
+import { describeProbe, exportInCore, NO_MODEL, NO_READER, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, reportFrame, RUN_PROTOCOL, runInCore, serveCore, serveOpen,
+  topOriginOf, topWindow, UNREADABLE, watchCore, watchProbes, waitForCore,
   type CoreHandle,
-  type Endpoint, type FrameProbe } from "./bridge.js";
+  type Endpoint, type FrameProbe, type TopWindow } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
 import { readGrid, type Native } from "./model/native.js";
 import { Failure, OldReader, UNEXPECTED, type Progress, type Stop } from "./progress.js";
@@ -46,6 +46,10 @@ const MODEL = "FEDCBA9876543210FEDCBA9876543210";
 /** What every message of a run or of an ask to open carries: the run channel, and this build. */
 const RUN = { protocol: RUN_PROTOCOL, build: BUILD };
 const [SHELL, CORE] = ["https://us1a.app.anaplan.com", "https://eu2a.app.anaplan.com"];
+/** The page around a core frame as the frame's reader holds it, with the page's origin as Chrome lists it to the frame: the
+ * last of the origins around it (model-content.ts). */
+const topOf = (shell: FakeWindow, core: FakeWindow): TopWindow =>
+  topWindow(shell.seenBy(core), topOriginOf(false, { origin: core.origin, ancestorOrigins: [shell.origin] }));
 /** How a failed run ended: the sentence the results page shows and the detail the diagnostic log keeps (progress.ts `Failure`). */
 const failedWith = (error: unknown) => (error instanceof Failure ? [error.message, error.detail] : error);
 const failed = (run: Promise<unknown>) => run.then(() => "not failed", failedWith);
@@ -66,7 +70,7 @@ async function connected(exporter: (progress: Progress, diagnostics: () => strin
   const core = new FakeWindow(CORE);
   let found: CoreHandle | undefined;
   watchCore(shell, handle => { found = handle; });
-  const stop = serveCore(core, shell.seenBy(core), () => MODEL, exporter, 5);
+  const stop = serveCore(core, topOf(shell, core), () => MODEL, exporter, 5);
   await settle();
   return { shell, core, handle: found!, stop };
 }
@@ -151,7 +155,7 @@ describe("Model export bridge between the Model Building page and the model's co
     const core = new FakeWindow(CORE);
     const sibling = new FakeWindow(SHELL);
     let runs = 0;
-    const stop = serveCore(core, shell.seenBy(core), () => MODEL, async () => { runs++; return exported(); }, 5);
+    const stop = serveCore(core, topOf(shell, core), () => MODEL, async () => { runs++; return exported(); }, 5);
     core.seenBy(sibling).postMessage({ ...RUN, type: "run", nonce: "n" }, "*");
     await settle();
     expect(runs).toBe(0);
@@ -213,7 +217,7 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(lines).toEqual(["status: Reading Versions…"]);
   });
 
-  it("posts everything about a model to one origin only: the frame's as it announced itself, and the page's that asked", async () => {
+  it("posts everything about a model to one origin only: the frame's as it announced itself, and the page's, as the frame read it or was asked from it", async () => {
     /** A window that only records what is posted to it, and to which origin. */
     const posts: [type: string, targetOrigin: string][] = [];
     const recording: Endpoint = { postMessage: (message, targetOrigin) => { posts.push([(message as { type: string }).type, targetOrigin]); } };
@@ -231,25 +235,29 @@ describe("Model export bridge between the Model Building page and the model's co
     await expect(runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20)).rejects.toThrow(QUIET);
     expect(posts).toEqual([["ack", CORE], ["run", CORE], ["stop", CORE], ["run", CORE], ["stop", CORE]]);
 
-    // The frame: its steps, its log, its sign of life before a read, the result and a failure go to the origin that asked,
-    // and to no other.
+    // The frame: its announcement, with the model's ID, goes to the page's origin as the frame read it; its steps, its log,
+    // its sign of life before a read, the result and a failure, and whether it opened a module, to the origin that asked.
+    // None goes to any origin.
     posts.length = 0;
     const core = new FakeWindow(CORE);
     const exports: (() => AnalysisResult)[] = [exported, () => { throw new Failure("The model has not finished opening in the Anaplan tab."); }];
-    const stop = serveCore(core, recording, () => MODEL, async (progress, _diagnostics, check) => {
+    const stop = serveCore(core, topWindow(recording, SHELL), () => MODEL, async (progress, _diagnostics, check) => {
       progress.status("Reading Versions…");
       check.throwIfAborted();
       progress.log("Versions: 2 rows");
       return exports.shift()!();
     }, 60_000);
+    const stopOpen = serveOpen(core, recording, async () => true);
     core.receive({ ...RUN, type: "run", nonce: "first" }, SHELL, recording);
     await settle();
     core.receive({ ...RUN, type: "run", nonce: "second" }, SHELL, recording);
     await settle();
+    core.receive({ ...RUN, type: "open", nonce: "ask", model: MODEL, object: "102000000001" }, SHELL, recording);
+    await settle();
     stop();
-    // Only the announcement goes to whoever is on top, as it always has: it carries the model's ID and nothing of the model.
-    expect(posts).toEqual([["core-ready", "*"], ["status", SHELL], ["alive", SHELL], ["log", SHELL], ["done", SHELL],
-      ["status", SHELL], ["alive", SHELL], ["log", SHELL], ["error", SHELL]]);
+    stopOpen();
+    expect(posts).toEqual([["core-ready", SHELL], ["status", SHELL], ["alive", SHELL], ["log", SHELL], ["done", SHELL],
+      ["status", SHELL], ["alive", SHELL], ["log", SHELL], ["error", SHELL], ["opened", SHELL]]);
   });
 
   it("checks every field of the result before use: only a model's files, with file names that are no path", async () => {
@@ -326,7 +334,7 @@ describe("Model export bridge between the Model Building page and the model's co
     const readies: string[] = [];
     shell.addEventListener("message", event => { const data = event.data as { type?: string }; if (data.type === "core-ready") readies.push(data.type); });
     watchCore(shell, () => undefined);
-    const stop = serveCore(core, shell.seenBy(core), () => MODEL, async () => exported(), 5);
+    const stop = serveCore(core, topOf(shell, core), () => MODEL, async () => exported(), 5);
     await settle();
     await settle();
     const before = readies.length;
@@ -353,7 +361,7 @@ describe("Model export bridge between the Model Building page and the model's co
     // The export fails as a run tells its user (a sentence, and the detail for the log), then with an error of another kind.
     const failures: unknown[] = [new Failure("Cardigan could not read any of this model's settings.", "Line Items: not exported (This model page has no MODULE_WITH_LINE_ITEM axis.)."),
       new Failure("The model has not finished opening in the Anaplan tab."), new TypeError("Cannot read properties of undefined (reading 'getModelName')"), "plain text"];
-    const stop = serveCore(core, shell.seenBy(core), () => MODEL, async () => { throw failures.shift(); }, 5);
+    const stop = serveCore(core, topOf(shell, core), () => MODEL, async () => { throw failures.shift(); }, 5);
     await settle();
     await settle();
     const seen = announcements;
@@ -633,7 +641,7 @@ describe("Model export bridge between the Model Building page and the model's co
       const [shell, core] = [new FakeWindow(SHELL), new FakeWindow(CORE)];
       let handle: CoreHandle | undefined;
       watchCore(shell, found => { handle = found; });
-      const stop = serveCore(core, shell.seenBy(core), () => MODEL, reading(asks));
+      const stop = serveCore(core, topOf(shell, core), () => MODEL, reading(asks));
       await vi.advanceTimersByTimeAsync(0);
       const { lines, progress } = collect();
       const outcome = runInCore(shell, handle!, progress).then(result => result.tables[1].rows.length, failedWith);
@@ -670,7 +678,8 @@ describe("Model export bridge between the Model Building page and the model's co
     page.addEventListener("message", event => { if ((event.data as { type?: string }).type === "core-ready") announcements++; });
     watchCore(page, handle => { found = handle; });
     let runs = 0;
-    const stop = serveCore(page, itself, () => MODEL, async (progress, _diagnostics, check) => {
+    // The top window itself: its own origin is the page's.
+    const stop = serveCore(page, topWindow(itself, topOriginOf(true, page.location)), () => MODEL, async (progress, _diagnostics, check) => {
       runs++;
       progress.status("Reading Versions…");
       check.throwIfAborted();
@@ -819,7 +828,7 @@ describe("Model export bridge between the Model Building page and the model's co
 
     // The reader says the build it was made in.
     const posts: unknown[] = [];
-    const stop = serveCore(core, { postMessage: message => { posts.push(message); } }, () => MODEL, async () => exported(), 60_000);
+    const stop = serveCore(core, topWindow({ postMessage: message => { posts.push(message); } }, SHELL), () => MODEL, async () => exported(), 60_000);
     expect(posts).toEqual([{ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }]);
     stop();
   });
@@ -837,7 +846,7 @@ describe("Model export bridge between the Model Building page and the model's co
     let handle: CoreHandle | undefined;
     watchCore(shell, found => { handle = found; });
     let runs = 0;
-    const stopCore = serveCore(core, shell.seenBy(core), () => MODEL, async () => { runs++; return exported(); }, 5);
+    const stopCore = serveCore(core, topOf(shell, core), () => MODEL, async () => { runs++; return exported(); }, 5);
     const opened: string[] = [];
     const stopOpen = serveOpen(core, shell.seenBy(core), async (_model, object) => { opened.push(object); return true; });
     await settle();
@@ -867,7 +876,7 @@ describe("Model export bridge between the Model Building page and the model's co
     const ran: string[] = [];
     const opened: string[] = [];
     const copy = (name: string) => [
-      serveCore(core, shell.seenBy(core), () => MODEL, async () => { ran.push(name); return exported(); }, 60_000, undefined, () => latest === name),
+      serveCore(core, topOf(shell, core), () => MODEL, async () => { ran.push(name); return exported(); }, 60_000, undefined, () => latest === name),
       serveOpen(core, shell.seenBy(core), async () => { opened.push(name); return true; }, () => latest === name)];
     const first = copy("first");
     latest = "second";
@@ -893,7 +902,7 @@ describe("Opening a module in the Model Building page through the model's core f
     const core = new FakeWindow(CORE);
     let handle: CoreHandle | undefined;
     watchCore(shell, found => { handle = found; });
-    serveCore(core, shell.seenBy(core), () => MODEL, async () => exported(), 5);
+    serveCore(core, topOf(shell, core), () => MODEL, async () => exported(), 5);
     const asked: string[][] = [];
     let opens: () => Promise<boolean> = async () => true;
     const stop = serveOpen(core, shell.seenBy(core), (model, module) => { asked.push([model, module]); return opens(); });
@@ -949,5 +958,124 @@ describe("Opening a module in the Model Building page through the model's core f
     expect(over).toBe(true);
     // A frame that never answers: no, once the wait is over.
     expect(await openInCore(shell, handle, MODEL, MODULE, 20)).toBe(false);
+  });
+});
+
+describe("What the model's reader posts unasked: to the top window's own Anaplan origin, or nowhere", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  /** Invented origins: a frame between the top window and the model's frame, and a site that is not Anaplan. */
+  const BETWEEN = "https://between.app2.anaplan.com";
+  const ELSEWHERE = "https://planning.example";
+  /** Origins that are not Anaplan's, though some look it: none is ever taken for the top window's. */
+  const NOT_ANAPLAN = [ELSEWHERE, "null", "", "http://us1a.app.anaplan.com", "https://us1a.app.anaplan.com.example", "https://evilanaplan.com",
+    "https://us1a.app.anaplan.com:8443"];
+  const HELLO = { protocol: PROTOCOL, type: "hello" };
+
+  /** A frame on CORE whose reader is wired as model-content.ts wires it, its location `place`: the frame's window stands in
+   * the globals' place for its probe, and the top window only records what is posted to it, with the target origin.
+   * `isTop`: the frame is the top window itself. The bridge's timers are fake from here on. */
+  const framed = (place: { origin: string; ancestorOrigins?: ArrayLike<string> }, isTop = false) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const frame = new FakeWindow(place.origin);
+    vi.stubGlobal("window", frame);
+    vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+    const posts: [type: string, targetOrigin: string][] = [];
+    const page: Endpoint = { postMessage: (message, targetOrigin) => { posts.push([(message as { type: string }).type, targetOrigin]); } };
+    const top = topWindow(page, topOriginOf(isTop, place));
+    reportFrame(top);
+    const stop = serveCore(frame, top, () => MODEL, async () => exported());
+    /** A message to the frame from `origin`, sent by the top window, or by the window `source`. */
+    const hears = async (data: unknown, origin: string, source: unknown = page) => {
+      frame.receive(data, origin, source);
+      await vi.advanceTimersByTimeAsync(0);
+    };
+    return { posts, hears, stop };
+  };
+
+  it("reads the top window's origin where a window can, its own in the top window and in a frame the last of the origins Chrome lists, and takes only an Anaplan origin", () => {
+    expect(topOriginOf(true, { origin: SHELL, ancestorOrigins: [] })).toBe(SHELL);
+    // Chrome lists them from the frame's parent to the top window.
+    expect([topOriginOf(false, { origin: CORE, ancestorOrigins: [BETWEEN, SHELL] }), topOriginOf(false, { origin: CORE, ancestorOrigins: [SHELL] })]).toEqual([SHELL, SHELL]);
+    // None listed, or "null" said for the top window's under the page's referrer policy: nothing to take.
+    expect([topOriginOf(false, { origin: CORE }), topOriginOf(false, { origin: CORE, ancestorOrigins: [] }), topOriginOf(false, { origin: CORE, ancestorOrigins: [BETWEEN, "null"] })])
+      .toEqual([undefined, undefined, "null"]);
+    const page: Endpoint = { postMessage: () => undefined };
+    expect([SHELL, CORE, BETWEEN].map(origin => topWindow(page, origin).origin)).toEqual([SHELL, CORE, BETWEEN]);
+    expect([undefined, ...NOT_ANAPLAN].map(origin => topWindow(page, origin).origin)).toEqual(Array(NOT_ANAPLAN.length + 1).fill(undefined));
+  });
+
+  it("sends a frame's probe and its check-in to the top window's origin as Chrome lists it to the frame, from the start and every time after", async () => {
+    const { posts, stop } = framed({ origin: CORE, ancestorOrigins: [BETWEEN, SHELL] });
+    expect(posts).toEqual([["probe", SHELL], ["core-ready", SHELL]]);
+    await vi.advanceTimersByTimeAsync(6000);
+    // A probe every 3 seconds, and a check-in every 2 until the page answers it: all at the top window's origin.
+    expect([posts.filter(([type]) => type === "probe"), posts.filter(([type]) => type === "core-ready"), posts.length])
+      .toEqual([Array(3).fill(["probe", SHELL]), Array(4).fill(["core-ready", SHELL]), 7]);
+    stop();
+  });
+
+  it.each([["lists no origins around the frame", undefined], ["says \"null\" for the top window's", [BETWEEN, "null"]]])(
+    "sends nothing from a frame where Chrome %s until the top window greets it, then all at the greeting's origin", async (_case, ancestorOrigins) => {
+      const { posts, hears, stop } = framed({ origin: CORE, ...(ancestorOrigins ? { ancestorOrigins } : {}) });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(posts).toEqual([]);
+      // The page greets its frames while a run waits for the model: the frame answers at once.
+      await hears(HELLO, SHELL);
+      expect(posts).toEqual([["probe", SHELL], ["core-ready", SHELL]]);
+      // Its timers kept running: the next probe and check-in go there as well.
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(posts.slice(2).sort()).toEqual([["core-ready", SHELL], ["probe", SHELL]]);
+      stop();
+    });
+
+  it.each([["a message of the page's own", { type: "page's own" }, []], ["a run", { ...RUN, type: "run", nonce: "n" }, [["done", SHELL]]]])(
+    "learns the top window's origin from the first message the top window sends the frame, whatever it is: %s", async (_case, first, answered) => {
+      const { posts, hears, stop } = framed({ origin: CORE });
+      await hears(first, SHELL);
+      // A run is answered at the origin that asked, as ever; from then on the probe and the check-in go there too.
+      expect(posts).toEqual(answered);
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(posts.slice(answered.length).sort()).toEqual([["core-ready", SHELL], ["probe", SHELL]]);
+      stop();
+    });
+
+  it.each([["Chrome lists another site for the top window", [SHELL, ELSEWHERE]], ["the frame cannot read the top window's origin", undefined]])(
+    "sends nothing at all where %s and no Anaplan top window tells it: never to that site, and never to any origin", async (_case, ancestorOrigins) => {
+      const { posts, hears, stop } = framed({ origin: CORE, ...(ancestorOrigins ? { ancestorOrigins } : {}) });
+      // Greetings and a run from the top window at origins that are not Anaplan's, and a greeting at an Anaplan origin from
+      // another window than the top window, such as the frame's parent: none tells the frame where to post.
+      for (const origin of NOT_ANAPLAN) await hears(HELLO, origin);
+      await hears({ ...RUN, type: "run", nonce: "n" }, ELSEWHERE);
+      await hears(HELLO, SHELL, new FakeWindow(SHELL).seenBy(new FakeWindow(CORE)));
+      await vi.advanceTimersByTimeAsync(11 * 60_000);
+      expect(posts).toEqual([]);
+      stop();
+    });
+
+  it("sends from the top window itself, the classic model page opened on its own, to its own origin", async () => {
+    const { posts, stop } = framed({ origin: CORE, ancestorOrigins: [] }, true);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(posts.sort()).toEqual([["core-ready", CORE], ["core-ready", CORE], ["probe", CORE], ["probe", CORE]]);
+    stop();
+  });
+
+  it("finds the model's frame for a run where the frame cannot read the page's origin: the page's greeting tells it, and the frame checks in at once", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const shell = new FakeWindow(SHELL);
+    const core = new FakeWindow(CORE);
+    shell.frames = [Object.assign(core.seenBy(shell), { frames: [] })];
+    let found: CoreHandle | undefined;
+    watchCore(shell, handle => { found = handle; });
+    const stop = serveCore(core, topWindow(shell.seenBy(core), topOriginOf(false, { origin: CORE, ancestorOrigins: ["null"] })), () => MODEL, async () => exported());
+    await vi.advanceTimersByTimeAsync(10_000);
+    // It has not checked in: it had nowhere to.
+    expect(found).toBeUndefined();
+    const { lines, progress } = collect();
+    const run = exportInCore(shell as unknown as Window, () => found, () => [], MODEL, progress);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(run).resolves.toEqual(exported());
+    // The page waited one greeting for it.
+    expect([found?.origin, lines]).toEqual([CORE, ["status: Waiting for the model to open…", "log: Classic reader: answered; starting model settings"]]);
+    stop();
   });
 });

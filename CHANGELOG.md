@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.45.2 (14 October 2026)
+
+- **Messages within the Anaplan tab.** The model reader's messages to the Anaplan page are now addressed to the page's own Anaplan origin, never to any origin; the About page's Privacy link opens the privacy policy. Refresh the Anaplan tab once after updating. (#17)
+
 ## 0.45.1 (13 October 2026)
 
 - **Spinner words.** No two phrases start with the same word any more, and "Model is busy…", which read like a real warning, is gone; the saved views read shows the Modules phrases instead of the opening ones. (#15)

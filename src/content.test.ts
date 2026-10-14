@@ -56,6 +56,8 @@ describe("The content scripts on an Anaplan page", () => {
   let connect: ((port: chrome.runtime.Port) => void) | undefined;
   let listeners: Listener[];
   let posted: unknown[];
+  /** The origin each message posted to the top window was addressed to, in order. */
+  let targets: string[];
   let page: Record<string, unknown>;
 
   beforeEach(() => {
@@ -65,9 +67,10 @@ describe("The content scripts on an Anaplan page", () => {
     connect = undefined;
     listeners = [];
     posted = [];
-    // The top window: it hears messages, and a message posted to it is recorded.
+    targets = [];
+    // The top window: it hears messages, and a message posted to it is recorded, with the origin it was addressed to.
     page = { addEventListener: (_type: string, listener: Listener) => { listeners.push(listener); }, removeEventListener: () => undefined, frames: [],
-      postMessage: (message: unknown) => { posted.push(message); } };
+      postMessage: (message: unknown, targetOrigin: string) => { posted.push(message); targets.push(targetOrigin); } };
     page.top = page;
     vi.stubGlobal("window", page);
     vi.stubGlobal("document", untouchable());
@@ -77,9 +80,10 @@ describe("The content scripts on an Anaplan page", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-  /** Puts the page at an address: the window's own location says it as well as the global one. */
-  const at = (pathname: string, host = "us1a.app.anaplan.com") => {
-    const location = { host, origin: `https://${host}`, pathname };
+  /** Puts the page at an address: the window's own location says it as well as the global one. In a frame, `ancestorOrigins`
+   * is what Chrome lists of the origins around it, from its parent's to the top window's, where it lists them. */
+  const at = (pathname: string, host = "us1a.app.anaplan.com", ancestorOrigins?: string[]) => {
+    const location = { host, origin: `https://${host}`, pathname, ...(ancestorOrigins ? { ancestorOrigins } : {}) };
     page.location = location;
     vi.stubGlobal("location", location);
   };
@@ -727,6 +731,28 @@ describe("The content scripts on an Anaplan page", () => {
       [{ type: "opened", nonce: "ask-1", opened: false, detail: "the model's frame has not checked in" }]]);
   });
 
+  it("greets the frames when only a reader of another build has checked in, so that one of this build put beside it checks in and opens the module", async () => {
+    at(MODEL_BUILDING);
+    // The reader Chrome put into the frame as the page loaded, of another build, and this build's, which the results page
+    // put beside it since: it could not read the page's origin, so it checks in only when the page greets the frame.
+    const earlier = { asked: [] as { type: string }[], postMessage(message: { type: string }) { this.asked.push(message); } };
+    const renewed = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    page.frames = [{ frames: [], postMessage: () => hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, renewed) }];
+    await import("./content.js");
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, earlier);
+    const port = open();
+    port.take();
+    port.say({ type: "open", nonce: "ask-1", model: MODEL, object: "102000000001" });
+    await vi.advanceTimersByTimeAsync(300);
+    const ask = renewed.asked.find(message => message.type === "open")!;
+    expect(ask).toEqual({ ...RUN, type: "open", nonce: expect.any(String), model: MODEL, object: "102000000001" });
+    hear({ ...RUN, type: "opened", nonce: ask.nonce, opened: true }, CORE, renewed);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(port.take().filter(message => message.type === "opened")).toEqual([{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the tabs open there" }]);
+    // The reader of the other build is asked nothing.
+    expect(earlier.asked.map(message => message.type)).toEqual(["ack"]);
+  });
+
   it("opens a module from the model's frame inside Model Building when the page around it asks, through the classic client's own topic", async () => {
     const heard: Listener[] = [];
     const top = { posted: [] as unknown[], postMessage(message: unknown) { this.posted.push(message); } };
@@ -763,25 +789,74 @@ describe("The content scripts on an Anaplan page", () => {
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });
 
-  it("announces the model from its core frame to the page around it, and puts nothing on the page", async () => {
-    const top = { posted: [] as unknown[], postMessage(message: unknown) { this.posted.push(message); } };
+  it("announces the model from its core frame to the page around it, at the page's origin as Chrome lists it to the frame, and puts nothing on the page", async () => {
+    const top = { posted: [] as unknown[], targets: [] as string[], postMessage(message: unknown, targetOrigin: string) { this.posted.push(message); this.targets.push(targetOrigin); } };
     vi.stubGlobal("window", { require: () => undefined, modelId: MODEL, workspaceId: WS, addEventListener: () => undefined, top });
-    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+    // Chrome lists the origins around the frame from its parent's, here a frame of another Anaplan host, to the page's.
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com", ["https://between.app2.anaplan.com", SHELL]);
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
     expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
+    // The probe and the check-in, every one at the page's origin: none at the frame's own, the parent's, or any origin.
+    expect([top.posted.map(message => (message as { type: string }).type), top.targets]).toEqual([["probe", "core-ready"], [SHELL, SHELL]]);
     expect(connect).toBeUndefined();
   });
 
+  /** A core frame's window whose page around it, the top window, records what is posted to it and the origin it was
+   * addressed to; its listeners are kept in `heard`. */
+  const coreFrame = () => {
+    const heard: Listener[] = [];
+    const top = { posted: [] as { type: string }[], targets: [] as string[],
+      postMessage(message: { type: string }, targetOrigin: string) { this.posted.push(message); this.targets.push(targetOrigin); } };
+    vi.stubGlobal("window", { require: () => undefined, modelId: MODEL, workspaceId: WS, addEventListener: (_type: string, listener: Listener) => { heard.push(listener); },
+      removeEventListener: () => undefined, top });
+    /** A message to the frame from `origin`, sent by the page around it, or by the window `source`. */
+    const hears = (data: unknown, origin: string, source: unknown = top) => { for (const listener of [...heard]) listener({ data, origin, source }); };
+    return { top, hears };
+  };
+
+  it.each([["lists no origins around the frame", undefined], ["says \"null\" for the page's origin", ["null"]]])(
+    "checks in from a frame where Chrome %s once the page greets it, at the greeting's origin, and sends nothing before", async (_case, ancestorOrigins) => {
+      const { top, hears } = coreFrame();
+      at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com", ancestorOrigins);
+      await import("./model-content.js");
+      vi.advanceTimersByTime(30_000);
+      expect(top.posted).toEqual([]);
+      // The page greets its frames while a run waits for the model, and before it opens a module: the frame answers at once.
+      hears({ protocol: PROTOCOL, type: "hello" }, SHELL);
+      expect(top.posted).toEqual([{ protocol: PROTOCOL, type: "probe", probe: { host: "eu2a.app.anaplan.com", path: "/core-webapp/anaplan/framework.jsp", top: false,
+        loader: "function", model: "id", workspace: "id" } }, { protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }]);
+      // And from then on to that origin alone, as the reports and the check-in go on.
+      vi.advanceTimersByTime(4000);
+      expect([new Set(top.posted.slice(2).map(message => message.type)), new Set(top.targets)]).toEqual([new Set(["probe", "core-ready"]), new Set([SHELL])]);
+    });
+
+  it("checks in nowhere from a frame whose page is not Anaplan's, as Chrome lists it or as the page's messages say, and reads nothing for it", async () => {
+    const { top, hears } = coreFrame();
+    // The frame's parent is an Anaplan page; the top window around both is another site's.
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com", [SHELL, "https://planning.example"]);
+    await import("./model-content.js");
+    vi.advanceTimersByTime(1000);
+    hears({ protocol: PROTOCOL, type: "hello" }, "https://planning.example");
+    hears({ ...RUN, type: "run", nonce: "n" }, "https://planning.example");
+    hears({ ...RUN, type: "open", nonce: "ask", model: MODEL, object: "102000000001" }, "https://planning.example");
+    // A greeting at an Anaplan origin from another window than the top window, such as the frame's parent.
+    hears({ protocol: PROTOCOL, type: "hello" }, SHELL, { postMessage: () => undefined });
+    vi.advanceTimersByTime(11 * 60_000);
+    expect(top.posted).toEqual([]);
+    expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
+  });
+
   it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "throw"])("checks in without reading the engine or loading the client: %s", async raw => {
-    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com", [SHELL]);
     const top = { postMessage: vi.fn() };
     const getWorkspaceInfo = vi.fn(() => { if (raw === "throw") throw new Error("Not ready"); return { dataEngineType: raw }; });
     const require = vi.fn((id: string) => { expect(id).toBe("anaplan/data/ModelContentCache"); return { getWorkspaceInfo }; });
     Object.assign(page, { top, require, modelId: MODEL, workspaceId: WS });
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, "*");
+    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, SHELL);
+    expect(top.postMessage.mock.calls.map(([, targetOrigin]) => targetOrigin)).toEqual([SHELL, SHELL]);
     expect(require).not.toHaveBeenCalled();
     expect(getWorkspaceInfo).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -798,6 +873,8 @@ describe("The content scripts on an Anaplan page", () => {
     Object.assign(page, { require: () => undefined, modelId: MODEL, workspaceId: WS });
     vi.advanceTimersByTime(1000);
     expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
+    // The window is the top window itself: its own origin is the page's, and every message goes there.
+    expect(targets).toEqual(Array(posted.length).fill("https://eu2a.app.anaplan.com"));
     // A diagnostic greeting listener and the reader that serves this window.
     expect(listeners).toHaveLength(2);
   });
@@ -914,6 +991,8 @@ describe("The content scripts on an Anaplan page", () => {
     expect(posted).toHaveLength(before);
     hear({ protocol: PROTOCOL, type: "hello" }, SHELL, page);
     expect(posted).toHaveLength(before + 1);
+    // Every report at the page's own origin, this window being the top window.
+    expect(targets).toEqual(Array(before + 1).fill(SHELL));
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });
 });

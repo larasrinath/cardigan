@@ -165,12 +165,15 @@ if (window.top === window) {
   /** Opens a module, a list or a settings page of the model inside this Model Building page, beside the tabs open there, through the
    * model's core frame (model/open-object.ts), so that the page does not load afresh. Only where the page shows that model in Model
    * Building, and only through a frame of this build, which knows how: otherwise the results page loads the module's
-   * address. A frame that checked in with an earlier copy of this script is greeted, to check in again. */
+   * address. A frame that checked in with an earlier copy of this script is greeted, to check in again. So are the frames
+   * while only a reader of another build has checked in: one of this build that the results page has put beside it
+   * (results/connection.ts `renewReader`) answers the greeting, where it could not read this page's origin to check in by
+   * itself (bridge.ts `TopWindow`). */
   const open = async (model: string, object: string): Promise<Opened> => {
     const shown = MODEL_PATH.exec(location.pathname)?.[1];
     if (!shown) return { opened: false, detail: "the tab does not show Model Building" };
     if (shown.toUpperCase() !== model.toUpperCase()) return { opened: false, detail: "the tab shows another model" };
-    if (!frame) {
+    if (frame?.build !== BUILD) {
       greetFrames(window);
       await sleep(300);
     }
