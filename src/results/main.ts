@@ -918,6 +918,27 @@ function clearResult(): void {
   if (times) times.hidden = true;
 }
 
+/** A run reads another app or model than the result on the page, as the run said when it started (connection.ts `reads`):
+ * the Anaplan tab has moved on to it since. The result on the page goes as the run starts: its name in the header and in
+ * the tab's title, its tables and their details, its map, and the buttons that open its parts in Anaplan, so that nothing
+ * names it while the other is read. How it was looked at is written first, which a later run on it takes back. The page
+ * shows the run as it does before a first result, in the words of the kind the run reads, and the new result opens on its
+ * Overview, with nothing of how the earlier one was looked at (`showResult`). */
+function leaveResult(): void {
+  if (result) {
+    writeLooks();
+    // Focus that is inside what goes, or on the run control, which the run's card hides, moves to the view.
+    const replaced = [el("view"), el("mapHost"), el("drawer"), el("popover"), el("topnav"), el("runAgain")].some(part => part.contains(document.activeElement));
+    closePopover();
+    closeDrawer(false);
+    clearResult();
+    showRun(client.state);
+    if (replaced) el("view").focus({ preventScroll: true });
+    return;
+  }
+  if (client.state.phase !== "done") showRun(client.state);
+}
+
 /** Shows a result the page kept before it was refreshed (keep-result.ts). What comes back is read as a result once more,
  * field by field, as one from another window is (result-plain.ts): the keeper asks of it only what the page asks of the
  * pieces the tab sends, and what was kept may be another build's, or not a result's shape at all. False when it is no
@@ -2751,6 +2772,10 @@ const client = new ResultsClient({
   retries: { count: 10, pauseMs: 500 },
   tabGone: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(() => false, () => true),
   tabLoading: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(tab => tab.status === "loading", () => false),
+  // A run says what it reads as it starts: where that is another app or model than the result on the page, the page lets
+  // that result go.
+  onPage: () => result,
+  onSubject: () => leaveResult(),
   onState: next => {
     if (next.phase !== "done") {
       showRun(next);

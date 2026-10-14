@@ -135,7 +135,7 @@ To update, unzip the new release over the same folder and reload Cardigan in `ch
 2. Click the Cardigan icon. It opens a results tab, or uses the results tab already open for that Anaplan tab.
 3. Keep the Anaplan tab open while Cardigan reads. The analysing page shows a run card with changing phrases and an elapsed timer; the current step is available in its tooltip and to screen readers.
 
-**Run again** reads the tab again, keeping the current result visible until the new one is ready. Clicking the icon again also runs again; a read already in progress carries on. Closing the results tab stops the read. **Diagnostics** lets you inspect or copy the log.
+**Run again** reads what the tab shows now, keeping the current result visible until the new one is ready. If the tab has moved to another model or app, the current result is cleared as the read starts and the new one opens on its Overview. Clicking the icon again also runs again; a read already in progress carries on. Closing the results tab stops the read. **Diagnostics** lets you inspect or copy the log.
 
 ### Refresh the Anaplan tab and run
 
@@ -156,6 +156,7 @@ This button appears when Cardigan cannot load or update its reader in the open A
 ### If it does not start
 
 - If the model is still opening, wait until it is visible in Anaplan, then choose **Run again**.
+- If the model's page did not answer, refresh the Anaplan tab, wait until the model is visible, then choose **Run again**.
 - If the tab was closed or is not showing an app or model, open one and click Cardigan's icon on that tab.
 - If Anaplan is down for maintenance, try again when it is back.
 - If Chrome cannot load `dist/content.js`, check that you extracted the extension zip and selected the folder containing `manifest.json` and `dist`.

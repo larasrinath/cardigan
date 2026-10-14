@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, NO_MODEL, NO_READER, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, reportFrame, RUN_PROTOCOL, runInCore, serveCore, serveOpen,
-  topOriginOf, topWindow, UNREADABLE, watchCore, watchProbes, waitForCore,
+import { describeProbe, exportInCore, FIRST_ANSWER_MS, gone, NO_MODEL, NO_READER, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, reportFrame, RUN_PROTOCOL, runInCore, serveCore,
+  serveOpen, topOriginOf, topWindow, UNANSWERED, UNREADABLE, watchCore, watchProbes, waitForCore,
   type CoreHandle,
   type Endpoint, type FrameProbe, type TopWindow } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
@@ -168,10 +168,11 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(runs).toBe(1);
     stop();
 
-    // A frame that stops answering is given up on, and told to stop: whatever it still reads for this run is for nobody.
+    // A frame that does not answer is given up on, and told to stop: whatever it still reads for this run is for nobody.
+    // It is given no longer to answer than the idle time, here the shorter.
     const asked: { type: string; nonce: string }[] = [];
     const silent: CoreHandle = { source: { postMessage: message => { asked.push(message as { type: string; nonce: string }); } }, origin: CORE, modelId: MODEL };
-    expect(await failed(runInCore(shell, silent, collect().progress, 20))).toEqual([QUIET, "the model's frame sent nothing for 0.02 s"]);
+    expect(await failed(runInCore(shell, silent, collect().progress, 20))).toEqual([UNANSWERED, "case=NO_ANSWER; the model's frame did not answer the run in 0.02 s"]);
     expect(asked.map(message => [message.type, message.nonce === asked[0].nonce])).toEqual([["run", true], ["stop", true]]);
   });
 
@@ -184,8 +185,9 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(UNEXPECTED).toBe("Cardigan ran into a problem it did not expect. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.");
     expect(OLD_READER).toBe("This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader. "
       + "Refresh the Anaplan tab, wait until the model shows, then choose Run again.");
+    expect(UNANSWERED).toBe("The model's page in the Anaplan tab did not answer. Refresh the Anaplan tab, wait until the model shows, then choose Run again.");
     // No number, code or word a developer would use is left in them.
-    for (const message of [NO_MODEL, QUIET, UNREADABLE, UNEXPECTED, OLD_READER]) expect(message).not.toMatch(/\d|frame|HTTP|chrome:|extension/i);
+    for (const message of [NO_MODEL, QUIET, UNREADABLE, UNEXPECTED, OLD_READER, UNANSWERED]) expect(message).not.toMatch(/\d|frame|HTTP|chrome:|extension/i);
   });
 
   it("takes progress and the result only from the frame it asked, from that frame's origin and for its own run", async () => {
@@ -231,8 +233,8 @@ describe("Model export bridge between the Model Building page and the model's co
     const run = runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20, stopping.signal);
     stopping.abort(new Error("Stopped: the results page was closed."));
     await expect(run).rejects.toThrow("Stopped: the results page was closed.");
-    // So does the stop for a frame that went quiet.
-    await expect(runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20)).rejects.toThrow(QUIET);
+    // So does the stop for a frame that did not answer.
+    await expect(runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20)).rejects.toThrow(UNANSWERED);
     expect(posts).toEqual([["ack", CORE], ["run", CORE], ["stop", CORE], ["run", CORE], ["stop", CORE]]);
 
     // The frame: its announcement, with the model's ID, goes to the page's origin as the frame read it; its steps, its log,
@@ -605,6 +607,61 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(outcome).toEqual([QUIET, "the model's frame sent nothing for 1 s"]);
   });
 
+  it("gives up within half a minute on a frame that never answers the run, saying to refresh the tab, and waits the idle time once it has answered", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const shell = new FakeWindow(SHELL);
+    /** A run on a frame that only records what it is asked, so the test answers in its place, with the page's own waits. */
+    const asking = () => {
+      const asked: { type: string; nonce: string }[] = [];
+      const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string }); } };
+      let outcome: unknown = "waiting";
+      runInCore(shell, { source, origin: CORE, modelId: MODEL }, collect().progress).then(() => { outcome = "exported"; }, error => { outcome = failedWith(error); });
+      return { asked, source, outcome: () => outcome };
+    };
+    expect(FIRST_ANSWER_MS).toBe(30_000);
+    // A frame that says nothing at all: one Model Building moved to another page, whose reader serves nothing yet.
+    const silent = asking();
+    await vi.advanceTimersByTimeAsync(FIRST_ANSWER_MS - 1);
+    expect(silent.outcome()).toBe("waiting");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(silent.outcome()).toEqual([UNANSWERED, "case=NO_ANSWER; the model's frame did not answer the run in 30 s"]);
+    expect(silent.asked.map(message => [message.type, message.nonce === silent.asked[0].nonce])).toEqual([["run", true], ["stop", true]]);
+
+    // A frame that answers, with its first step, or with the sign of life of an export it takes over, and then says nothing
+    // while it reads: it is given the idle time, five minutes, as before.
+    for (const first of [{ type: "status", text: "Loading the model page's client…" }, { type: "alive" }]) {
+      const answering = asking();
+      await vi.advanceTimersByTimeAsync(2000);
+      shell.receive({ ...RUN, nonce: answering.asked[0].nonce, ...first }, CORE, answering.source);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(300_000 - 1);
+      expect(answering.outcome(), first.type).toBe("waiting");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answering.outcome(), first.type).toEqual([QUIET, "the model's frame sent nothing for 300 s"]);
+    }
+  });
+
+  it("answers a run that takes over a stopped export at once, so that a read under way is not taken for a frame that does not answer", async () => {
+    const { exporter, next, reached, runs } = stepped();
+    const { shell, handle, stop } = await connected(exporter);
+    const stopping = new AbortController();
+    const first = runInCore(shell, handle, collect().progress, undefined, stopping.signal);
+    await settle();
+    stopping.abort(new Error("Stopped: the results page was closed."));
+    await expect(first).rejects.toThrow("Stopped: the results page was closed.");
+    // The export is still in its first read, which ends only after the next run's wait for an answer, here 30 ms, is over.
+    const { lines, progress } = collect();
+    let outcome: unknown = "waiting";
+    runInCore(shell, handle, progress, undefined, undefined, 30).then(result => { outcome = result; }, error => { outcome = failedWith(error); });
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect(outcome).toBe("waiting");
+    await next(); await next(); await next();
+    expect(outcome).toEqual(exported());
+    // One export, carried on: the run that took it over hears its steps from then on, and nothing for its sign of life.
+    expect([runs(), reached, lines]).toEqual([1, ["Reading Line Items…", "Reading Modules…", "Reading Versions…"], ["status: Reading Modules…", "status: Reading Versions…"]]);
+    stop();
+  });
+
   it("does not give up on a frame while it reads a grid of many pages, each within the idle time: before each page the frame says it is still there", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
@@ -728,7 +785,7 @@ describe("Model export bridge between the Model Building page and the model's co
       "log: frame eu2a.app.anaplan.com/core-webapp-<id>/anaplan/framework.jsp: loader=function model=id workspace=id", "log: Classic reader: answered; starting model settings"]);
   });
 
-  it("says what reported in when no frame holds the model, and when the frame holds another model than the address names", async () => {
+  it("says what reported in when no frame holds the model", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const shell = new FakeWindow(SHELL) as unknown as Window;
     const probe: FrameProbe = { host: "us1a.app.anaplan.com", path: "/a/modeling/", top: true, loader: "undefined", model: "undefined", workspace: "undefined" };
@@ -745,16 +802,90 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(await something.outcome).toEqual([NO_MODEL, "case=MODEL_OPENING; the Classic frame did not answer after 120 s; 1 frame(s) reported in"]);
     expect(nothing.lines).toEqual(Array(120).fill("status: Waiting for the model to open…"));
     expect(something.lines.at(-1)).toBe("log: page us1a.app.anaplan.com/a/modeling/: loader=undefined model=undefined workspace=undefined");
+  });
 
-    // A frame that is there at once is asked at once; a different model than the address names is noted, and still exported.
-    const asked: { nonce: string }[] = [];
-    const source: Endpoint = { postMessage: message => { asked.push(message as { nonce: string }); } };
-    const { lines, progress } = collect();
-    const run = exportInCore(shell, () => ({ source, origin: CORE, modelId: SCOPE_IDS[0], build: BUILD }), () => [], MODEL, progress);
-    await vi.advanceTimersByTimeAsync(0);
-    (shell as unknown as FakeWindow).receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
-    await expect(run).resolves.toEqual(exported());
-    expect(lines).toEqual(["log: the model frame reports a different model than this page's address", "log: Classic reader: answered; starting model settings"]);
+  describe("after Model Building moved from model A to model B in the same page", () => {
+    const [MODEL_A, MODEL_B] = ["A".repeat(16) + "0".repeat(16), "B".repeat(16) + "1".repeat(16)];
+    /** A frame that records what it is asked, and whether it has gone. */
+    const recordingFrame = () => {
+      const asked: { type: string; nonce: string }[] = [];
+      const frame = { closed: false, postMessage: (message: unknown) => { asked.push(message as { type: string; nonce: string }); } };
+      return { asked, frame };
+    };
+    /** A page with one frame inside it, which records each greeting. */
+    const greetingShell = () => {
+      const shell = new FakeWindow(SHELL);
+      const greeted: unknown[] = [];
+      shell.frames = [{ postMessage: message => { greeted.push(message); } }];
+      Object.assign(shell.frames[0], { frames: [] });
+      return { shell, greeted };
+    };
+
+    it("never asks model A's frame while the address names B: it greets the frames until B's checks in, and asks that one", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const { shell, greeted } = greetingShell();
+      const a = recordingFrame();
+      const b = recordingFrame();
+      // A's frame, of this build, is the one held: Model Building showed model A until a moment ago.
+      let held: CoreHandle = { source: a.frame, origin: CORE, modelId: MODEL_A, build: BUILD };
+      const { lines, progress } = collect();
+      const run = exportInCore(shell as unknown as Window, () => held, () => [], MODEL_B, progress);
+      await vi.advanceTimersByTimeAsync(2500);
+      expect([a.asked, b.asked, greeted]).toEqual([[], [], Array(3).fill({ protocol: PROTOCOL, type: "hello" })]);
+      // B's frame checks in, its ID in another case: the same model. It is asked at the next look, and A's never is.
+      held = { source: b.frame, origin: CORE, modelId: MODEL_B.toLowerCase(), build: BUILD };
+      await vi.advanceTimersByTimeAsync(1000);
+      expect([a.asked, b.asked.map(message => message.type)]).toEqual([[], ["run"]]);
+      shell.receive({ ...RUN, type: "done", nonce: b.asked[0].nonce, result: exported() }, CORE, b.frame);
+      await expect(run).resolves.toEqual(exported());
+      // The log says once that A's frame was passed over, by the two models' IDs.
+      expect(lines).toEqual([`log: Classic reader: passed over the frame of model ${MODEL_A}: the tab's address names model ${MODEL_B}`,
+        ...Array(3).fill("status: Waiting for the model to open…"), "log: Classic reader: answered; starting model settings"]);
+    });
+
+    it("ends at the deadline, as for a frame that did not answer, when B's frame never checks in, and asks A's nothing", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const { shell, greeted } = greetingShell();
+      const a = recordingFrame();
+      const probe: FrameProbe = { host: "eu2a.app.anaplan.com", path: "/core-webapp-<id>/anaplan/framework.jsp", top: false, loader: "function", model: "id", workspace: "id" };
+      const { lines, progress } = collect();
+      const outcome = failed(exportInCore(shell as unknown as Window, () => ({ source: a.frame, origin: CORE, modelId: MODEL_A, build: BUILD }), () => [probe], MODEL_B, progress));
+      await vi.advanceTimersByTimeAsync(119_999);
+      expect(lines.filter(line => !line.startsWith("status:"))).toEqual([`log: Classic reader: passed over the frame of model ${MODEL_A}: the tab's address names model ${MODEL_B}`]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await outcome).toEqual([NO_MODEL, "case=MODEL_OPENING; the Classic frame did not answer after 120 s; 1 frame(s) reported in"]);
+      expect([a.asked, greeted.length, lines.filter(line => line.startsWith("status:")).length]).toEqual([[], 120, 120]);
+      // Of another build, A's frame is passed over all the same: the run does not fail as one of B's of another build would.
+      const old = failed(exportInCore(shell as unknown as Window, () => ({ source: a.frame, origin: CORE, modelId: MODEL_A, build: "0a1b2c3d4e5f" }), () => [], MODEL_B, collect().progress));
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(await old).toEqual([NO_READER, "case=NO_READER; no reader in the frames answered"]);
+      expect(a.asked).toEqual([]);
+    });
+
+    it("never asks a frame that has gone: it is passed over until the model's frame checks in again", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      const { shell } = greetingShell();
+      const removed = recordingFrame();
+      const again = recordingFrame();
+      // B's frame checked in, and was then taken out of the page: its window says it is closed.
+      removed.frame.closed = true;
+      let held: CoreHandle = { source: removed.frame, origin: CORE, modelId: MODEL_B, build: BUILD };
+      expect([gone(held), gone({ ...held, source: again.frame }), gone({ ...held, source: { postMessage: () => undefined } })]).toEqual([true, false, false]);
+      const { lines, progress } = collect();
+      const run = exportInCore(shell as unknown as Window, () => held, () => [], MODEL_B, progress);
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(removed.asked).toEqual([]);
+      held = { source: again.frame, origin: CORE, modelId: MODEL_B, build: BUILD };
+      await vi.advanceTimersByTimeAsync(1000);
+      expect([removed.asked, again.asked.map(message => message.type)]).toEqual([[], ["run"]]);
+      shell.receive({ ...RUN, type: "done", nonce: again.asked[0].nonce, result: exported() }, CORE, again.frame);
+      await expect(run).resolves.toEqual(exported());
+      expect(lines[0]).toBe(`log: Classic reader: passed over the frame of model ${MODEL_B}: it has gone`);
+      // Asked to run on it all the same, the run ends at once, and nothing is posted to it.
+      expect(await failed(runInCore(shell, { source: removed.frame, origin: CORE, modelId: MODEL_B, build: BUILD }, collect().progress)))
+        .toEqual([UNANSWERED, "case=NO_ANSWER; the model's frame has gone"]);
+      expect(removed.asked).toEqual([]);
+    });
   });
 
   it("stops waiting for the model's frame when the run is stopped", async () => {

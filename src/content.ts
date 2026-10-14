@@ -1,5 +1,5 @@
 import { analyseApp } from "./analyse.js";
-import { greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
+import { gone, greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { readPolarisModel, startModelPages } from "./model-pages.js";
 import { engineColumns, engineFromColumns, engineLine, POLARIS_FULL_NOTE } from "./model-engine.js";
 import { readModelNames } from "./model-names.js";
@@ -44,11 +44,22 @@ export const NO_SAVED_VIEWS = "not read: Cardigan reads saved views and their fi
 const page = window as unknown as { cardiganServing?: symbol };
 const me = Symbol("cardigan");
 
-/** Whether a reader that checks in takes the place of the one held: a reader of this build is never replaced by one of
- * another. A frame can hold both, after the results page put this build's beside the one Chrome put there
- * (results/connection.ts `renewReader`), and each says so when greeted: this build's is the one asked. One of another
- * build is held until one of this build checks in, so that a run can say why it reads nothing. */
-const takes = (found: CoreHandle, held: CoreHandle | undefined): boolean => found.build === BUILD || held?.build !== BUILD;
+/** Whether a reader that checks in takes the place of the one held. `model` is the model the tab's address names, where it
+ * names one.
+ * - A reader whose frame has gone (bridge.ts `gone`) is replaced by any.
+ * - One of `model` takes the place of one held for another model, whatever the builds of the two: Model Building moves to
+ *   another model inside its page, and the frame held until the new model's checks in is the earlier model's, which no
+ *   run reads (bridge.ts `waitForCore`). One of another model never takes the place of one of `model`.
+ * - Between readers of the same standing, a reader of this build is never replaced by one of another. A frame can hold
+ *   both, after the results page put this build's beside the one Chrome put there (results/connection.ts `renewReader`),
+ *   and each says so when greeted: this build's is the one asked. One of another build is held until one of this build
+ *   checks in, so that a run can say why it reads nothing. */
+const takes = (found: CoreHandle, held: CoreHandle | undefined, model?: string): boolean => {
+  if (!held || gone(held)) return true;
+  const fits = (reader: CoreHandle) => model !== undefined && reader.modelId.toUpperCase() === model.toUpperCase();
+  if (fits(found) !== fits(held)) return fits(found);
+  return found.build === BUILD || held.build !== BUILD;
+};
 
 if (window.top === window) {
   page.cardiganServing = me;
@@ -57,7 +68,7 @@ if (window.top === window) {
   let own: CoreHandle | undefined;
   const probes = new Map<string, FrameProbe>();
   watchCore(window, found => {
-    if (found.source === (window as unknown)) { if (takes(found, own)) own = found; } else if (takes(found, frame)) frame = found;
+    if (found.source === (window as unknown)) { if (takes(found, own)) own = found; } else if (takes(found, frame, MODEL_PATH.exec(location.pathname)?.[1])) frame = found;
   });
   watchProbes(window, probe => { probes.set(`${probe.host}${probe.path}`, probe); });
 

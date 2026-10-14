@@ -9,6 +9,8 @@ import type { AnalysisResult, Cell } from "./result-types.js";
  * - The page sends "run" when the icon has just opened it (OPENED_PARAM, FRESH_MS), reused it, or the user chose Run again. A results page that is
  *   reloaded, restored from history or reopened later asks nothing until the user clicks Run again: by then its tab ID
  *   may belong to another tab.
+ * - Every run says first what it reads, which is what the tab shows at that time ("subject"): a run after the tab moved
+ *   to another model or app reads that one, and the page takes it.
  * - A tab whose content script does not answer may have been open since before the extension was installed, updated or
  *   reloaded: Chrome puts content scripts only into pages that load after that. The page then puts it into the tab itself
  *   (CONTENT_SCRIPT), which the icon's click allows for that tab, and only on an Anaplan page (results/connection.ts).
@@ -57,7 +59,10 @@ export type PageMessage =
 
 /** Tab to page. */
 export type TabMessage =
-  /** Sent once, as soon as the port opens. */
+  /** Sent as soon as the port opens, and again as each run the page follows starts, before anything else of the run, with
+   * the app or model that run reads: what the tab shows then. That can be another than the port was first told, as Model
+   * Building and the apps move to another model, app or page inside the same page, and the port stays open: the page
+   * takes it (results/connection.ts `reads`). */
   | { type: "subject"; subject: Subject }
   /** While running: the current step. It replaces the previous status. */
   | { type: "status"; text: string }

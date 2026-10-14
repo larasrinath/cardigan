@@ -425,6 +425,24 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.postMessage.mock.calls.map(([message]) => (message as { type: string }).type)).toEqual(["ack", "ack"]);
   });
 
+  it("reads the classic model page opened on its own in its own window, for the model that window last said it holds", async () => {
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+    await import("./content.js");
+    const frame = { postMessage: vi.fn() };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, page);
+    // Should the window say another model since, it is that model the page shows and the run reads, in the same window:
+    // the one held is always the window's own latest word, and the window it runs on is the page's own, which cannot go.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: EARLIER, build: BUILD }, CORE, page);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(port.received.slice(0, 2)).toEqual([{ type: "subject", subject: { kind: "model", id: EARLIER } }, { type: "subject", subject: { kind: "model", id: EARLIER } }]);
+    expect(posted.map(message => (message as { type: string }).type)).toEqual(["ack", "ack", "run"]);
+    expect(frame.postMessage.mock.calls.map(([message]) => (message as { type: string }).type)).toEqual(["ack"]);
+    port.close();
+  });
+
   it("does nothing in a frame", async () => {
     vi.stubGlobal("window", { ...page, top: {} });
     at(`/a/apps/app/${APP}`);
@@ -442,7 +460,8 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.waitFor(() => expect(port.received.at(-1)?.type).toBe("error"));
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url))
       .toEqual([`https://us1a.app.anaplan.com/a/springboard-definition-service/apps/${APP}?includeUnpublished=true&includeReportPages=true`]);
-    expect(port.received).toEqual([{ type: "subject", subject: { kind: "app", id: APP } },
+    // What the tab shows as the port opens, then the run says first what it reads.
+    expect(port.received).toEqual([{ type: "subject", subject: { kind: "app", id: APP } }, { type: "subject", subject: { kind: "app", id: APP } },
       { type: "log", text: `01:59:09 Cardigan dev: app ${APP} on us1a.app.anaplan.com` }, { type: "status", text: "Reading the app…" },
       { type: "log", text: "01:59:09 Reading the app…" }, { type: "log", text: "01:59:09 stopped: SIGNED_OUT (HTTP 401)" },
       { type: "error", message: "You're signed out of Anaplan. Sign in and try again.", code: "SIGNED_OUT" }]);
@@ -518,10 +537,11 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(0);
     // Then this window reads the pages built on the model, for the customer the address names. Anaplan answers that the
     // session has ended: the export is handed on all the same, and says why it has no tables of those pages. The tables of
-    // what nothing uses are made all the same, and log their lines.
-    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", ...Array(UNUSED_LINES).fill("log"), "result", "rows", "rows",
-      "done"]);
-    expect(classicMessages(port).slice(0, 6)).toEqual([{ type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
+    // what nothing uses are made all the same, and log their lines. The run says first what it reads.
+    expect(classicMessages(port).map(message => message.type)).toEqual(["subject", "log", "status", "log", "status", "log", "log", ...Array(UNUSED_LINES).fill("log"), "result",
+      "rows", "rows", "done"]);
+    expect(classicMessages(port).slice(0, 7)).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL, origin: SHELL, customer: WS } },
+      { type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
       { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" },
       { type: "status", text: "Reading the pages built on this model…" }, { type: "log", text: "01:59:09 Reading the pages built on this model…" },
       { type: "log", text: "01:59:09 pages built on the model: SIGNED_OUT (HTTP 401)" }]);
@@ -560,8 +580,8 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(0);
     // Then what the pages' reading said, as a run that read them after the export says it: Anaplan answered that the
     // session has ended, and the export is handed on all the same.
-    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", ...Array(UNUSED_LINES).fill("log"), "result", "rows", "rows",
-      "done"]);
+    expect(classicMessages(port).map(message => message.type)).toEqual(["subject", "log", "status", "log", "status", "log", "log", ...Array(UNUSED_LINES).fill("log"), "result",
+      "rows", "rows", "done"]);
     expect(classicResult(port)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
       site: { origin: SHELL, customer: WS } });
     expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(1);
@@ -621,6 +641,69 @@ describe("The content scripts on an Anaplan page", () => {
         code: "OLD_READER", renewable }]);
     }
     expect(frame.asked.filter(message => message.type === "run")).toHaveLength(1);
+  });
+
+  /** A frame that records what it is asked, and says whether it has gone, as a frame's window does. */
+  const recorder = () => ({ closed: false, asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } });
+  /** Model A, which Model Building showed before it moved to the model the address names (MODEL). */
+  const EARLIER = "0123456789ABCDEF0123456789ABCDEF";
+
+  it("holds the frame of the model the address names in the place of another model's, whatever their builds, and runs on that model's alone", async () => {
+    at(MODEL_BUILDING);
+    await import("./content.js");
+    const [earlier, older, current] = [recorder(), recorder(), recorder()];
+    // A's frame, of this build, checked in while Model Building showed model A; B's, of another build, checks in now.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: EARLIER, build: BUILD }, CORE, earlier);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, older);
+    // A's checks in again, as greeted: it does not take B's place back.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: EARLIER, build: BUILD }, CORE, earlier);
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(4000);
+    // The run is on B, whose reader is of another build: it says so, and A's frame was never asked to run.
+    expect(port.received.filter(message => message.type === "error")).toEqual([{ type: "error", message: expect.stringContaining("still holds the earlier Cardigan's model reader"),
+      code: "OLD_READER", renewable: false }]);
+    expect([earlier.asked.map(message => message.type), older.asked.map(message => message.type)]).toEqual([["ack", "ack"], ["ack"]]);
+
+    // B's reader of this build checks in beside it, and the one of another build again: among B's, this build's is held.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, current);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, older);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: EARLIER, build: BUILD }, CORE, earlier);
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect([earlier.asked.map(message => message.type), older.asked.map(message => message.type), current.asked.map(message => message.type)])
+      .toEqual([["ack", "ack", "ack"], ["ack", "ack"], ["ack", "run"]]);
+    port.close();
+  });
+
+  it("never runs on a frame that has gone: the frame that checks in next takes its place, whatever its build, and the run waits for it", async () => {
+    at(MODEL_BUILDING);
+    await import("./content.js");
+    const [removed, next] = [recorder(), recorder()];
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, removed);
+    // Model Building took the model's frame out of the page: its window says it is closed.
+    removed.closed = true;
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(removed.asked.map(message => message.type)).toEqual(["ack"]);
+    expect(port.received).toContainEqual({ type: "log", text: `01:59:09 Classic reader: passed over the frame of model ${MODEL}: it has gone` });
+    expect(port.received.filter(message => message.type === "error")).toEqual([]);
+    // The model's frame checks in again: it is asked.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, next);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect([removed.asked.map(message => message.type), next.asked.map(message => message.type)]).toEqual([["ack"], ["ack", "run"]]);
+    port.close();
+    // One of another build takes the place of a frame that has gone as well, and the run then says why it reads nothing.
+    next.closed = true;
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, recorder());
+    const again = open();
+    again.take();
+    again.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(again.received.filter(message => message.type === "error")).toEqual([expect.objectContaining({ code: "OLD_READER" })]);
   });
 
   it("waits two minutes while Model Building has no Classic frame, on ordinary and refreshed runs", async () => {

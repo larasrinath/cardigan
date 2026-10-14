@@ -44,7 +44,7 @@ class FakePort implements TabPort {
  * otherwise, it is a page the icon has just opened. */
 function page(options: { noTab?: boolean; closeReason?: string; connect?: () => TabPort; autoRun?: boolean; repair?: () => Promise<Repair>;
   retries?: { count: number; pauseMs: number }; tabGone?: () => Promise<boolean>; wait?: (ms: number) => Promise<void>; renew?: () => Promise<Renewal>;
-  reload?: () => Promise<void>; tabLoading?: () => Promise<boolean> } = {}) {
+  reload?: () => Promise<void>; tabLoading?: () => Promise<boolean>; onPage?: () => { kind: string; id: string } | undefined; onSubject?: (subject: unknown) => void } = {}) {
   const ports: FakePort[] = [];
   const states: RunState[] = [];
   let shownLog: string[] = [];
@@ -63,6 +63,8 @@ function page(options: { noTab?: boolean; closeReason?: string; connect?: () => 
     wait: options.wait,
     renew: options.renew,
     reload: options.reload,
+    onPage: options.onPage,
+    onSubject: options.onSubject,
     onState: state => states.push(state),
     onLog: lines => { shownLog = [...lines]; },
   });
@@ -151,6 +153,78 @@ describe("The results page's connection to the Anaplan tab", () => {
     // A new connection asks afresh.
     client.runAgain();
     expect(client.shows).toBeUndefined();
+  });
+
+  describe("takes what a run reads, as the tab says when the run starts", () => {
+    const OTHER_APP = { kind: "app", id: "fedcba98-7654-3210-fedc-ba9876543210" } as const;
+    const OTHER_MODEL = { kind: "model", id: "FEDCBA9876543210FEDCBA9876543210", origin: "https://us1a.app.anaplan.com", customer: "0123456789abcdef0123456789abcdef" } as const;
+    /** A page on `first`, whose run has ended with a result of it, the result the page shows: then the tab moves on. */
+    const shown = (first: { kind: "app" | "model"; id: string }) => {
+      const told: unknown[] = [];
+      let onPage: { kind: string; id: string } | undefined;
+      const opened = page({ onPage: () => onPage, onSubject: subject => told.push(subject) });
+      opened.client.start();
+      opened.ports[0].send({ type: "subject", subject: first });
+      // As the run starts, the tab says the one it reads: the same, in whatever case its ID is written, changes nothing.
+      opened.ports[0].send({ type: "subject", subject: { ...first, id: first.id.toLowerCase() } });
+      opened.ports[0].send({ type: "result", result: { ...empty(), kind: first.kind, id: first.id } });
+      opened.ports[0].send({ type: "done" });
+      onPage = { kind: first.kind, id: first.id };
+      expect([opened.client.state.phase, told, opened.client.log]).toEqual(["done", [], []]);
+      return { ...opened, told };
+    };
+
+    it.each([[MODEL, OTHER_MODEL], [APP, OTHER_APP], [APP, OTHER_MODEL], [MODEL, OTHER_APP]] as const)("after %o, %o in the same page: on the same port", (first, next) => {
+      const { client, ports, told, log } = shown(first);
+      // Run again, as the icon's click does too: on the open port, which stays open as the tab moves on in its page.
+      client.runAgain();
+      expect([ports.length, ports[0].posted]).toEqual([1, [RUN, RUN]]);
+      // What the page shows is the one the last run read, as the tab wrote it.
+      expect(client.shows).toEqual({ ...first, id: first.id.toLowerCase() });
+      ports[0].send({ type: "subject", subject: next });
+      // The page takes it, the page is told, and the log says it by the IDs of the two.
+      expect([client.shows, told, client.state]).toEqual([next, [next], { phase: "running", status: "Starting the analysis…" }]);
+      expect(log()).toEqual([`14:02:05 The Anaplan tab shows ${next.kind} ${next.id} now, where this page had ${first.kind} ${first.id}: the page takes it, and this run reads it.`]);
+      // The tab's lines follow it.
+      ports[0].send({ type: "log", text: "14:02:06 Cardigan dev: invented" });
+      expect(log()).toHaveLength(2);
+    });
+
+    it("compares it with the result the page shows, which a refresh of the page brought back, and else with what the tab said before", () => {
+      // The result on the page is A's, which the page kept and brought back; the tab said B as the port opened.
+      const told: unknown[] = [];
+      const { client, ports, log } = page({ autoRun: false, onPage: () => ({ kind: "model", id: MODEL.id }), onSubject: subject => told.push(subject) });
+      client.start();
+      ports[0].send({ type: "subject", subject: OTHER_MODEL });
+      expect([client.state, told]).toEqual([{ phase: "ready", kind: "model" }, []]);
+      client.runAgain();
+      ports[0].send({ type: "subject", subject: OTHER_MODEL });
+      expect(told).toEqual([OTHER_MODEL]);
+      expect(log()[0]).toContain(`shows model ${OTHER_MODEL.id} now, where this page had model ${MODEL.id}`);
+
+      // Without a result on the page, the one before is what the tab last said; a run of the same one says nothing.
+      const bare = page({ autoRun: false, onSubject: subject => told.push(subject) });
+      bare.client.start();
+      bare.ports[0].send({ type: "subject", subject: APP });
+      bare.client.runAgain();
+      bare.ports[0].send({ type: "subject", subject: APP });
+      expect([told.length, bare.log()]).toEqual([1, []]);
+      bare.ports[0].send({ type: "error", message: "The connection stopped." });
+      bare.client.runAgain();
+      bare.ports[0].send({ type: "subject", subject: MODEL });
+      expect([told.at(-1), bare.client.shows, bare.log()[0]]).toEqual([MODEL, MODEL,
+        `14:02:05 The Anaplan tab shows model ${MODEL.id} now, where this page had app ${APP.id}: the page takes it, and this run reads it.`]);
+    });
+
+    it("takes nothing that is no app or model with an ID, and nothing outside a run", () => {
+      const { client, ports, told } = shown(APP);
+      // Outside a run: nothing changes.
+      ports[0].send({ type: "subject", subject: OTHER_MODEL });
+      expect([client.shows, told]).toEqual([APP, []]);
+      client.runAgain();
+      for (const odd of [{ kind: "none" }, { kind: "model" }, { kind: "model", id: 7 }, { kind: "list", id: OTHER_MODEL.id }, null, "model"]) ports[0].send({ type: "subject", subject: odd });
+      expect([client.shows, told, client.state.phase]).toEqual([APP, [], "running"]);
+    });
   });
 
   it("analyses an app by itself: one run as soon as the tab says what it shows, progress, then the result put together", () => {

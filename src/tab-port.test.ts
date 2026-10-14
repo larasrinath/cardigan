@@ -85,7 +85,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     }
   });
 
-  it("says what the tab shows as soon as the port opens, and reads nothing until it is asked to run", () => {
+  it("says what the tab shows as soon as the port opens, reads nothing until it is asked to run, and a run says first what it reads", () => {
     for (const shows of [APP, MODEL, { kind: "none" }] as Subject[]) {
       const { runs, open } = tab(shows);
       const page = open();
@@ -98,7 +98,8 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     const page = open();
     page.say({ type: "run" });
     expect(runs.map(run => run.subject)).toEqual([MODEL]);
-    expect(page.take().slice(1)).toEqual([{ type: "log", text: "01:59:09 Cardigan dev: model FEDCBA9876543210FEDCBA9876543210 on us1a.app.anaplan.com" }]);
+    expect(page.take().slice(1)).toEqual([{ type: "subject", subject: MODEL },
+      { type: "log", text: "01:59:09 Cardigan dev: model FEDCBA9876543210FEDCBA9876543210 on us1a.app.anaplan.com" }]);
   });
 
   it("opens a module inside the tab's page when the page asks, and answers that very ask with what came of it, while a run goes on as well", async () => {
@@ -164,7 +165,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     expect(run.diagnostics()).toBe([HEADER, "01:59:09 Reading the app…", "13:00:59 app: 2 pages"].join("\r\n"));
     run.finish(result());
     await settle();
-    expect(page.received).toEqual([{ type: "subject", subject: APP }, { type: "log", text: HEADER }, { type: "status", text: "Reading the app…" },
+    expect(page.received).toEqual([{ type: "subject", subject: APP }, { type: "subject", subject: APP }, { type: "log", text: HEADER }, { type: "status", text: "Reading the app…" },
       { type: "log", text: "01:59:09 Reading the app…" }, { type: "log", text: "13:00:59 app: 2 pages" }, ...RESULT_MESSAGES]);
     expect(assemble(page.received)).toEqual(result());
   });
@@ -176,10 +177,10 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     page.say({ type: "run" });
     page.say({ type: "run" });
     expect(runs).toHaveLength(1);
-    expect(page.types()).toEqual(["subject", "log"]);
+    expect(page.types()).toEqual(["subject", "subject", "log"]);
     runs[0].finish(result());
     await settle();
-    expect(page.take().map(message => message.type)).toEqual(["subject", "log", "result", "rows", "rows", "done"]);
+    expect(page.take().map(message => message.type)).toEqual(["subject", "subject", "log", "result", "rows", "rows", "done"]);
 
     // Run again: a new run, with a log of its own.
     page.say({ type: "run" });
@@ -199,18 +200,18 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     runs[0].fail(QUIET);
     await settle();
     // The page shows the message as it is: the count, the code or the status number is in the line of the log before it.
-    expect(page.take().slice(4)).toEqual([{ type: "log", text: "01:59:09 stopped: the model's frame sent nothing for 300 s" }, { type: "error", message: QUIET.message }]);
-    // A failure that has no detail of its own is logged in its own words.
+    expect(page.take().slice(5)).toEqual([{ type: "log", text: "01:59:09 stopped: the model's frame sent nothing for 300 s" }, { type: "error", message: QUIET.message }]);
+    // A failure that has no detail of its own is logged in its own words. Each run says first what it reads, and its log's first line.
     page.say({ type: "run" });
     runs[1].fail(new Failure("Open an app first: the address has no app ID."));
     await settle();
-    expect(page.take().slice(1)).toEqual([{ type: "log", text: "01:59:09 stopped: Open an app first: the address has no app ID." },
+    expect(page.take().slice(2)).toEqual([{ type: "log", text: "01:59:09 stopped: Open an app first: the address has no app ID." },
       { type: "error", message: "Open an app first: the address has no app ID." }]);
 
     page.say({ type: "run" });
     runs[2].fail(SIGNED_OUT_ERROR);
     await settle();
-    expect(page.take().slice(1)).toEqual([{ type: "log", text: "01:59:09 stopped: SIGNED_OUT (HTTP 401)" },
+    expect(page.take().slice(2)).toEqual([{ type: "log", text: "01:59:09 stopped: SIGNED_OUT (HTTP 401)" },
       { type: "error", message: "You're signed out of Anaplan. Sign in and try again.", code: "SIGNED_OUT" }]);
     expect(SIGNED_OUT).toBe("You're signed out of Anaplan. Sign in and try again.");
 
@@ -220,7 +221,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
       page.say({ type: "run" });
       runs.at(-1)!.fail(thrown);
       await settle();
-      expect(page.take().slice(1), logged).toEqual([{ type: "log", text: `01:59:09 stopped: ${logged}` }, { type: "error", message: UNEXPECTED }]);
+      expect(page.take().slice(2), logged).toEqual([{ type: "log", text: `01:59:09 stopped: ${logged}` }, { type: "error", message: UNEXPECTED }]);
     }
     // A run that fails before it returns a promise.
     let connect: (port: chrome.runtime.Port) => void = () => undefined;
@@ -272,12 +273,13 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     runs[0].progress.status("Reading names in Model one…");
     expect(page.received).toEqual([]);
 
-    // Run again on the same port: what the earlier run still reports is no part of this run, which has its own log.
+    // Run again on the same port: what the earlier run still reports is no part of this run, which says first what it reads
+    // and has its own log.
     page.say({ type: "run" });
     runs[0].progress.log("socket closed code=1000");
     runs[1].progress.log("app: 2 pages");
     runs[0].progress.status("Reading names in Model one…");
-    expect(page.take()).toEqual([{ type: "log", text: HEADER }, { type: "log", text: "01:59:09 app: 2 pages" }]);
+    expect(page.take()).toEqual([{ type: "subject", subject: APP }, { type: "log", text: HEADER }, { type: "log", text: "01:59:09 app: 2 pages" }]);
     expect(runs[1].diagnostics()).toBe(`${HEADER}\r\n01:59:09 app: 2 pages`);
 
     // The same after an error: the line that says why the run stopped is the last of its log.
@@ -308,11 +310,25 @@ describe("The Anaplan tab's end of the port to the results page", () => {
       { type: "log", text: expect.stringContaining("case=NOT_MODEL_PAGE") }, { type: "error", message: NOTHING_TO_ANALYSE, code: "NOT_MODEL_PAGE" }]);
     expect(NOTHING_TO_ANALYSE).toBe("This tab isn't showing a model. Open one in Model Building, then choose Run again.");
 
-    // The user opens a model in the same tab, then runs again: the subject is sent once, the run reads what is there now.
+    // The user opens a model in the same tab, then runs again on the same port: the run reads what is there now, and says
+    // so first.
     state.shows = MODEL;
     page.say({ type: "run" });
     expect(runs.map(run => run.subject)).toEqual([MODEL]);
-    expect(page.types()).toEqual(["log"]);
+    expect(page.take()).toEqual([{ type: "subject", subject: MODEL }, { type: "log", text: "01:59:09 Cardigan dev: model FEDCBA9876543210FEDCBA9876543210 on us1a.app.anaplan.com" }]);
+    runs[0].finish({ ...result(), kind: "model", id: MODEL.id });
+    await settle();
+    page.take();
+    // Then an app, and another app, in the same page: each run says the one it reads.
+    for (const shows of [APP, { kind: "app", id: "ffffffff-89ab-cdef-0123-456789abcdef" }] as const) {
+      state.shows = shows;
+      page.say({ type: "run" });
+      expect(page.take().slice(0, 1), shows.id).toEqual([{ type: "subject", subject: shows }]);
+      runs.at(-1)!.finish(result());
+      await settle();
+      page.take();
+    }
+    expect(runs.map(run => run.subject.id)).toEqual([MODEL.id, APP.id, "ffffffff-89ab-cdef-0123-456789abcdef"]);
   });
 
   it("stops the run when the page goes away, and sends nothing to a closed port", async () => {
@@ -338,7 +354,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     next.close();
     runs[1].fail(runs[1].signal.reason);
     await settle();
-    expect(next.types()).toEqual(["subject", "log"]);
+    expect(next.types()).toEqual(["subject", "subject", "log"]);
 
     // A port that fails although no disconnect was seen does not stop the run for anyone else, or break it.
     const [watching, broken] = [open(), open()];
@@ -366,8 +382,8 @@ describe("The Anaplan tab's end of the port to the results page", () => {
       { type: "error", message: "Cardigan finished reading but could not pass the result to this page. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log." }];
     expect(UNSENT).toBe(unsent[1].message);
     // What the page holds is not taken for a result.
-    expect(page.take().slice(2)).toEqual([...RESULT_MESSAGES.slice(0, 2), ...unsent]);
-    expect(other.take().slice(2)).toEqual(RESULT_MESSAGES);
+    expect(page.take().slice(3)).toEqual([...RESULT_MESSAGES.slice(0, 2), ...unsent]);
+    expect(other.take().slice(3)).toEqual(RESULT_MESSAGES);
 
     // The same whichever piece it is: the result itself, a table's first rows, or done. The run is over each time.
     for (const [refused, sent] of [["result", 0], ["rows", 1], ["done", 3]] as const) {
@@ -375,7 +391,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
       page.say({ type: "run" });
       runs.at(-1)!.finish(result());
       await settle();
-      expect(page.take().slice(1), refused).toEqual([...RESULT_MESSAGES.slice(0, sent), ...unsent]);
+      expect(page.take().slice(2), refused).toEqual([...RESULT_MESSAGES.slice(0, sent), ...unsent]);
     }
     expect(runs).toHaveLength(4);
   });
@@ -398,7 +414,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     await settle();
     expect(runs).toHaveLength(2);
     expect(runs[1].signal.aborted).toBe(false);
-    expect(second.take()).toEqual([{ type: "log", text: HEADER }]);
+    expect(second.take()).toEqual([{ type: "subject", subject: APP }, { type: "log", text: HEADER }]);
     runs[1].finish(result());
     await settle();
     expect(second.take()).toEqual(RESULT_MESSAGES);
@@ -425,8 +441,9 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     const second = open();
     second.say({ type: "run" });
     expect(runs).toHaveLength(1);
-    // It is told where the run is and every line so far, then follows.
-    expect(second.take()).toEqual([{ type: "subject", subject: APP }, { type: "status", text: "Reading page 1 of 2: Demand board" }, { type: "log", text: HEADER },
+    // It is told what the run reads, where the run is and every line so far, then follows.
+    expect(second.take()).toEqual([{ type: "subject", subject: APP }, { type: "subject", subject: APP }, { type: "status", text: "Reading page 1 of 2: Demand board" },
+      { type: "log", text: HEADER },
       { type: "log", text: "01:59:09 Reading page 1 of 2: Demand board" }, { type: "log", text: "01:59:09 page: boards answered 200" }]);
     second.say({ type: "run" });
     expect(second.received).toEqual([]);
@@ -438,7 +455,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     await settle();
     expect(second.take()).toEqual([{ type: "status", text: "Reading page 2 of 2: Draft page" }, { type: "log", text: "01:59:09 Reading page 2 of 2: Draft page" },
       ...RESULT_MESSAGES]);
-    expect(first.types()).toEqual(["subject", "log", "status", "log", "log"]);
+    expect(first.types()).toEqual(["subject", "subject", "log", "status", "log", "log"]);
 
     // Two following, both gone: stopped.
     const [third, fourth] = [open(), open()];
@@ -475,8 +492,8 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     for (let line = 1; line <= 3004; line++) runs[0].progress.log(`line ${line}`);
     const kept = runs[0].diagnostics().split("\r\n");
     expect([kept.length, kept[0], kept.at(-1)]).toEqual([3000, "01:59:09 line 5", "01:59:09 line 3004"]);
-    // The page was sent every line as it was written.
-    expect(page.received).toHaveLength(1 + 1 + 3004);
+    // The page was sent every line as it was written, after what the tab shows and what the run reads.
+    expect(page.received).toHaveLength(1 + 1 + 1 + 3004);
   });
 
   it("sends a model's line items, several thousand rows, piece by piece within the size a message may have", async () => {
@@ -496,7 +513,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     expect(sent.map(piece => [piece.table, piece.rows.length])).toEqual([[0, 1], ...Array(10).fill([1, ROWS_MAX])]);
     // Half a megabyte at most here; Chrome allows a message 64 MB.
     expect(page.largest).toBeLessThan(500_000);
-    expect(page.types()).toEqual(["subject", "log", "result", ...Array(11).fill("rows"), "done"]);
+    expect(page.types()).toEqual(["subject", "subject", "log", "result", ...Array(11).fill("rows"), "done"]);
     expect(assemble(page.received)).toEqual(exported);
   });
 });

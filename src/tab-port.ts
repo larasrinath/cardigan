@@ -7,8 +7,10 @@ import { message } from "./util.js";
 import { MAINTENANCE_MESSAGE } from "./maintenance.js";
 
 /** The Anaplan tab's end of the port to the results page (protocol.ts). The page opens the port; this side says what the
- * tab shows and reads nothing until the page sends "run". It then reports each step and each line of the diagnostic log,
- * and finally the result in pieces (pieces.ts), or the error that stopped the run.
+ * tab shows and reads nothing until the page sends "run". A run says first what it reads, which is what the tab shows
+ * then: Model Building and the apps move to another model, app or page inside the same page, and the port stays open. It
+ * then reports each step and each line of the diagnostic log, and finally the result in pieces (pieces.ts), or the error
+ * that stopped the run.
  * - One run at a time. A second results page of the same tab that asks while a run is going follows that run.
  * - A run's "done" or "error" is its last message: whatever the run still reports afterwards is sent to nobody.
  * - A page that a piece of the result cannot be sent to is told that the run failed, in place of the rest and of "done".
@@ -123,6 +125,7 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       tell({ type: "log", text: stamped });
     };
     const progress: Progress = { status: text => { current.status = text; tell({ type: "status", text }); log(text); }, log };
+    tell({ type: "subject", subject });
     log(firstLine(subject.kind, subject.id, tab.host));
     const perform = async () => {
       try {
@@ -170,6 +173,7 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       waiting.add(port);
       send(port, { type: "status", text: STOPPING });
     } else if (same(run.subject, tab.subject())) {
+      send(port, { type: "subject", subject: run.subject });
       if (run.status !== undefined) send(port, { type: "status", text: run.status });
       for (const text of run.lines) send(port, { type: "log", text });
       run.ports.add(port);
