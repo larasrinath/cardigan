@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMarkup } from "./dom.test-support.js";
 import { ElapsedTimer, formatElapsed, pixelDelay, pixelGridHtml, SpinnerWords } from "./pixel-loader.js";
 import * as spinnerWords from "./spinner-words.js";
-import { ENGINE_WORDS, WORD_PACE_MS, WORD_POOLS, type WordPool } from "./spinner-words.js";
+import { ENGINE_WORDS, MODEL_ONLY_WORDS, WORD_PACE_MS, WORD_POOLS, type WordPool } from "./spinner-words.js";
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -158,7 +158,7 @@ describe("Spinner word rotation", () => {
     vi.advanceTimersByTime(20 * WORD_PACE_MS.finishing);
     for (const [word] of show.mock.calls) {
       expect(Object.values(ENGINE_WORDS).flat()).not.toContain(word);
-      expect(["Drawing the model map…", "Drawing the arrows…"]).not.toContain(word);
+      expect(MODEL_ONLY_WORDS).not.toContain(word);
     }
     words.log([`14:02:06 Engine: ${engine} (from the Line Items columns)`]);
     words.log(["14:03:00 Names read"]);
@@ -170,7 +170,7 @@ describe("Spinner word rotation", () => {
     words.stop();
     words.log([]);
     words.update("Building the report…", "model");
-    expect(show).toHaveBeenLastCalledWith("Drawing the arrows…");
+    expect(show).toHaveBeenLastCalledWith("Sketching the arrows…");
     vi.advanceTimersByTime(WORD_PACE_MS.finishing);
     expect(show).toHaveBeenLastCalledWith("Almost there…");
     expect(show).toHaveBeenCalledTimes(7);
@@ -189,7 +189,7 @@ describe("Spinner word rotation", () => {
     words.stop();
     words.log([]);
     words.update("Building the report…", "model", true);
-    expect(show).toHaveBeenLastCalledWith("Drawing the arrows…");
+    expect(show).toHaveBeenLastCalledWith("Sketching the arrows…");
     show.mockClear();
     words.log(["Engine: Polaris"]);
     words.update("Building the report…", "model", true);
