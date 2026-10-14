@@ -172,9 +172,9 @@ Cardigan reads only when you start a run, using your signed-in Anaplan session. 
 
 Its content scripts run on `https://*.app.anaplan.com/*` and `https://*.app2.anaplan.com/*`, adding no controls to Anaplan's pages. Buttons that open things in Anaplan change the page shown, without changing the model or app.
 
-The last result and your view choices are kept in that tab's session storage. The result is compressed, not encrypted; searches and filters can contain model names and values. **Forget this result** removes the kept copy. Closing a tab does not guarantee erasure, because Chrome may keep it for restoration. Theme, map grouping and time-zone preferences are kept separately in local storage, without model or app data.
+The last result and your view choices are kept in that tab's session storage. The result is compressed, not encrypted; searches and filters can contain model names and values. **Forget this result** removes the kept copy. Closing a tab does not guarantee erasure, because Chrome may keep it for restoration. Theme, map grouping, time-zone and details width preferences are kept separately in local storage, without model or app data.
 
-Use Cardigan only on models and apps you are allowed to read. [NOTICE.md](NOTICE.md) gives the full privacy and storage details and [lists the reads to Anaplan](NOTICE.md#requests-to-anaplan).
+Use Cardigan only on models and apps you are allowed to read. [PRIVACY.md](PRIVACY.md) is the privacy policy; [NOTICE.md](NOTICE.md) gives the full privacy and storage details and [lists the reads to Anaplan](NOTICE.md#requests-to-anaplan).
 
 ## Limits
 
@@ -209,6 +209,7 @@ Follow the version rule in [CHANGELOG.md](CHANGELOG.md): features get a minor ve
 1. Run `npm run check`.
 2. Run `npm run package` to create `release/cardigan-<version>.zip` and print its SHA-256.
 3. Publish that zip with its SHA-256.
+4. Upload the same zip to the Chrome Web Store; [docs/store/listing.md](docs/store/listing.md) has the listing's text and pictures.
 
 ## Thanks
 
