@@ -31,13 +31,14 @@ describe("The About page", () => {
     expect([/<script[^>]*>[^<]/.test(html), /<style/i.test(html), tags.filter(tag => [...tag.attributes.keys()].some(key => /^on|^style$/i.test(key))).length]).toEqual([false, false, 0]);
   });
 
-  it("says what Cardigan is and that it only reads, and leads to the project's pages in a new tab: what's new, privacy, help and the source", () => {
+  it("says what Cardigan is and that it only reads, and leads to the project's pages in a new tab: what's new, the privacy policy, help and the source", () => {
     const page = new FakePage(html);
     expect([page.texts("h1"), page.id("aboutVersion").textContent, page.texts(".about-safe")])
       .toEqual([["Cardigan"], "", ["It only reads. It changes nothing in Anaplan, and sends what it reads nowhere else."]]);
     expect(page.texts(".about-what")[0]).toMatch(/^A read-only Chrome extension that shows you inside any Anaplan model or app/);
     const links = tags.filter(tag => tag.name === "a");
-    expect(links.map(tag => tag.attributes.get("href"))).toEqual([`${REPOSITORY}/blob/main/CHANGELOG.md`, `${REPOSITORY}/blob/main/NOTICE.md`, `${REPOSITORY}#readme`, REPOSITORY]);
+    // Privacy opens the privacy policy, PRIVACY.md, which leads on to NOTICE.md for the full detail.
+    expect(links.map(tag => tag.attributes.get("href"))).toEqual([`${REPOSITORY}/blob/main/CHANGELOG.md`, `${REPOSITORY}/blob/main/PRIVACY.md`, `${REPOSITORY}#readme`, REPOSITORY]);
     expect(page.texts(".about-links a")).toEqual(["What's new", "Privacy", "Help", "Source"]);
     expect(links.every(tag => tag.attributes.get("target") === "_blank" && tag.attributes.get("rel") === "noopener noreferrer")).toBe(true);
   });
