@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Spinner words.** No two phrases start with the same word any more, and "Model is busy…", which read like a real warning, is gone; the saved views read shows the Modules phrases instead of the opening ones.
+
 ## 0.45.0 (13 October 2026)
 
 - **Saved Views and Saved View Filters.** Modules gains Saved Views, every saved view with its filters and uses; App Usage's Saved View Filters now lists only the filters of saved views shown on a page, one row per card and condition, in Custom View Filters' column order with Saved view after Filtered module. A result kept by 0.43.0 or 0.44.0 shows its table as Saved Views. Refresh the Anaplan tab once after updating. (#14)

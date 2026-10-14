@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ALL_WORDS, ENGINE_WORDS, poolForStatus, WORD_POOLS, wordsForPool, type WordPool } from "./spinner-words.js";
+import { ALL_WORDS, ENGINE_WORDS, MODEL_ONLY_WORDS, poolForStatus, WORD_POOLS, wordsForPool, type WordPool } from "./spinner-words.js";
 
 const samples: Record<WordPool, string[]> = {
   opening: ["Connecting to the Anaplan tab…", "Waiting for the model to open…", "Loading the model page's client…", "Starting the analysis…", "Receiving the result…", "Reading Polaris settings", "Something new…", ""],
   time: ["Reading Model Calendar…", "Reading Time Ranges…", "Reading Versions…"],
   lists: ["Reading General Lists…", "Reading Line Item Subsets…", "Reading list names in Demo model…"],
-  modules: ["Reading Modules…", "Reading Line Items…", "Reading Dynamic Cell Access…", "Reading module dimensions in Demo model…", "Reading line items in Demo model…", "Reading names in Demo model…", "Reading names in Demo model: 5 s, model status OPENING. A model that is not open can take a few minutes to load…"],
+  modules: ["Reading Modules…", "Reading Line Items…", "Reading Dynamic Cell Access…", "Reading module dimensions in Demo model…", "Reading line items in Demo model…", "Reading names in Demo model…", "Reading names in Demo model: 5 s, model status OPENING. A model that is not open can take a few minutes to load…", "Reading saved views' filters…"],
   actions: ["Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Actions", "Import mappings", "Process actions", "Source Models"].map(name => `Reading ${name}…`),
   pages: ["Reading the app…", "Reading the pages built on this model…", "Reading the pages built on this model: 2 of 5", "Reading page 2 of 40: Demand board", "Reading the apps of the pages built on this model: 3", "Reading saved view layouts in Demo model…", "Finding filter line items in Demo model…", "Finding filter line items in Demo model: 2 of 5 modules…", "Reading filter item names in Demo model…", "Reading item names in Demo model…", "Reading dimension names in Demo model…"],
   finishing: ["Building the report…", "Building the tables of the pages built on this model…"],
@@ -20,6 +20,9 @@ describe("Anaplan spinner words", () => {
     expect(poolForStatus("Reading page 1 of 2: Modules and Versions")).toBe("pages");
     expect(poolForStatus("Reading module dimensions in General Lists…")).toBe("modules");
     expect(poolForStatus("Unknown step: Reading Line Items…")).toBe("opening");
+    expect(poolForStatus("Reading page 1 of 2: Reading saved views' filters")).toBe("pages");
+    expect(poolForStatus("Reading list names in Saved views' filters…")).toBe("lists");
+    expect(poolForStatus("Unknown step: Reading saved views' filters…")).toBe("opening");
   });
 
   it("keeps the expanded count of each pool and two phrases per engine", () => {
@@ -32,6 +35,8 @@ describe("Anaplan spinner words", () => {
   });
 
   it("gates engine words and leaves both map phrases out of every app pool", () => {
+    expect(MODEL_ONLY_WORDS).toEqual(["Drawing the model map…", "Sketching the arrows…"]);
+    expect([WORD_POOLS.finishing[1], WORD_POOLS.finishing[7]]).toEqual(["Drawing the model map…", "Sketching the arrows…"]);
     for (const pool of Object.keys(WORD_POOLS) as WordPool[]) {
       for (const kind of ["app", "model"] as const) {
         for (const engine of [undefined, "Classic", "Polaris"] as const) {
@@ -39,10 +44,10 @@ describe("Anaplan spinner words", () => {
           for (const [name, phrases] of Object.entries(ENGINE_WORDS)) {
             for (const word of phrases) expect(words.includes(word)).toBe(pool === "finishing" && name === engine);
           }
-          for (const word of ["Drawing the model map…", "Drawing the arrows…"]) {
+          for (const word of MODEL_ONLY_WORDS) {
             expect(words.includes(word)).toBe(pool === "finishing" && kind === "model");
           }
-          const base = WORD_POOLS[pool].filter(word => kind === "model" || !["Drawing the model map…", "Drawing the arrows…"].includes(word));
+          const base = WORD_POOLS[pool].filter(word => kind === "model" || !(MODEL_ONLY_WORDS as readonly string[]).includes(word));
           expect(words).toEqual([...base, ...(pool === "finishing" && engine ? ENGINE_WORDS[engine] : [])]);
         }
       }
@@ -58,5 +63,17 @@ describe("Anaplan spinner words", () => {
       expect(word.endsWith("…")).toBe(true);
       expect(word).not.toMatch(/[\u2190-\u21ff\u25b2\u25b6\u25bc\u203a\u00bb]/u);
     }
+  });
+
+  it("starts every phrase, the engine phrases included, with a word no other phrase starts with", () => {
+    const phrases = [...Object.values(WORD_POOLS).flat(), ...Object.values(ENGINE_WORDS).flat()];
+    // The first word without a trailing ellipsis, in any case: "Summing up…" would repeat "SUMming up…".
+    const firstWord = (phrase: string) => phrase.split(" ")[0].replace(/…$/u, "").toLowerCase();
+    const repeats = phrases.flatMap((phrase, index) => {
+      const earlier = phrases.slice(0, index).find(other => firstWord(other) === firstWord(phrase));
+      return earlier ? [`"${earlier}" and "${phrase}"`] : [];
+    });
+    expect(repeats).toEqual([]);
+    expect(phrases).toHaveLength(88);
   });
 });
