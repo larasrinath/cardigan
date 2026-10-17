@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.45.4 (17 October 2026)
+
+- **About wording.** The About page's line under the description now reads "Read-only: Cardigan never changes your models or apps, and what it reads stays in your browser." (#19)
+
 ## 0.45.3 (14 October 2026)
 
 - **Switching models in a tab.** After the Anaplan tab moves to another model, app or page, Cardigan reads what it shows now: Run again and the icon's click take the new model or app, the earlier result leaves the page as the run starts, and the new one opens on its Overview. A run waits for that model's own frame and never runs on an earlier model's, or on one that has gone, and a frame that does not answer a run is given up within 30 seconds, not five minutes. Refresh the Anaplan tab once after updating. (#18)
