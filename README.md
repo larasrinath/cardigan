@@ -11,6 +11,7 @@ Cardigan only reads, with your own signed-in session; nothing leaves your browse
 &emsp;– [Model map](#model-map)\
 &emsp;– [For an app](#for-an-app)\
 ▪ **[Install](#install)**\
+&emsp;– [From a release zip](#from-a-release-zip)\
 ▪ **[Use](#use)**\
 &emsp;– [Run](#run)\
 &emsp;– [Refresh the Anaplan tab and run](#refresh-the-anaplan-tab-and-run)\
@@ -120,12 +121,18 @@ The pictures use an invented bicycle planning model. All names, identifiers and 
 
 You need Chrome 111 or later.
 
+1. Add Cardigan from the [Chrome Web Store](https://chromewebstore.google.com/detail/cardigan/kgkfgnimejamebkoinbnmlifipgmpjmn).
+2. Pin it using Chrome's puzzle icon, then click it on an Anaplan tab.
+
+Chrome updates it by itself. Click its icon on your Anaplan tab; follow the refresh prompt if one appears. Right-click the icon for **About Cardigan** and the installed version. See [CHANGELOG.md](CHANGELOG.md) for changes.
+
+### From a release zip
+
 1. Download `cardigan-<version>.zip` from **Assets** on the [latest release](https://github.com/larasrinath/cardigan/releases/latest). Choose the extension zip, not GitHub's **Source code** archives.
 2. Unzip it into a folder you will keep. It should contain `manifest.json` and a `dist` folder with five JavaScript files.
 3. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select that folder.
-4. Pin Cardigan using Chrome's puzzle icon, then click it on an Anaplan tab.
 
-To update, unzip the new release over the same folder and reload Cardigan in `chrome://extensions`. Click its icon on your Anaplan tab; follow the refresh prompt if one appears. Right-click the icon for **About Cardigan** and the installed version. See [CHANGELOG.md](CHANGELOG.md) for changes.
+To update, unzip the new release over the same folder and reload Cardigan in `chrome://extensions`. Use the store's copy or a zip, not both: both would run on your Anaplan tabs.
 
 ## Use
 
@@ -207,10 +214,7 @@ Build, then load the repository root with **Load unpacked**. Rebuild after pulli
 
 Follow the version rule in [CHANGELOG.md](CHANGELOG.md): features get a minor version, fixes and speed-ups a patch; docs alone keep the version. Keep release versions aligned in `manifest.json`, `package.json` and `package-lock.json`, and record extension changes in the changelog.
 
-1. Run `npm run check`.
-2. Run `npm run package` to create `release/cardigan-<version>.zip` and print its SHA-256.
-3. Publish that zip with its SHA-256.
-4. Upload the same zip to the Chrome Web Store; [docs/store/listing.md](docs/store/listing.md) has the listing's text and pictures.
+The **Release Cardigan** workflow in GitHub Actions does the rest: run it from `main` after the version change is merged. It runs `npm run check` and `npm run package`, publishes `cardigan-<version>.zip` as a GitHub release, and sends the same zip to the Chrome Web Store for review. Its setup is in [docs/RELEASE_AUTOMATION.md](docs/RELEASE_AUTOMATION.md); the listing's text and pictures are in [docs/store/listing.md](docs/store/listing.md).
 
 ## Thanks
 
