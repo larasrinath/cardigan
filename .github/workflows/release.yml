@@ -115,7 +115,7 @@ jobs:
           UPLOAD_RESPONSE="$(curl --fail --silent --show-error \
             --request POST \
             --header "Authorization: Bearer $ACCESS_TOKEN" \
-            --upload-file "$ZIP" \
+            --data-binary "@$ZIP" \
             "https://chromewebstore.googleapis.com/upload/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID:upload")"
           UPLOAD_STATE="$(printf '%s' "$UPLOAD_RESPONSE" | jq -r '.uploadState // empty')"
 
