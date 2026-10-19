@@ -1,0 +1,153 @@
+name: Release Cardigan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cardigan-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Test, package, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run the release workflow from main."
+          exit 1
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run all project checks
+        run: npm run check
+
+      - name: Package extension
+        run: npm run package
+
+      - name: Read and validate release version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version")"
+          PACKAGE_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          if [[ "$VERSION" != "$PACKAGE_VERSION" ]]; then
+            echo "::error::manifest.json and package.json versions do not match."
+            exit 1
+          fi
+          TAG="v$VERSION"
+          ZIP="release/cardigan-$VERSION.zip"
+          test -s "$ZIP"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::GitHub release $TAG already exists. Bump the version in manifest.json and package.json before releasing."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create GitHub release and attach ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ZIP: ${{ steps.version.outputs.zip }}
+        run: |
+          gh release create "$TAG" "$ZIP" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Cardigan $VERSION" \
+            --generate-notes
+
+      - name: Validate Chrome Web Store credentials
+        env:
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          for name in CWS_PUBLISHER_ID CWS_EXTENSION_ID CWS_CLIENT_ID CWS_CLIENT_SECRET CWS_REFRESH_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Submit package to Chrome Web Store for review
+        env:
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          ZIP: ${{ steps.version.outputs.zip }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API_BASE="https://chromewebstore.googleapis.com/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
+
+          TOKEN_RESPONSE="$(curl --fail --silent --show-error \
+            --request POST 'https://oauth2.googleapis.com/token' \
+            --data-urlencode "client_id=$CWS_CLIENT_ID" \
+            --data-urlencode "client_secret=$CWS_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$CWS_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token')"
+          ACCESS_TOKEN="$(printf '%s' "$TOKEN_RESPONSE" | jq -er '.access_token')"
+
+          echo "Uploading $ZIP to the Chrome Web Store..."
+          UPLOAD_RESPONSE="$(curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --upload-file "$ZIP" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID:upload")"
+          UPLOAD_STATE="$(printf '%s' "$UPLOAD_RESPONSE" | jq -r '.uploadState // empty')"
+
+          # Google can process an upload asynchronously. Poll the official status endpoint when needed.
+          for attempt in $(seq 1 30); do
+            if [[ "$UPLOAD_STATE" == "SUCCESS" ]]; then
+              break
+            fi
+            if [[ "$UPLOAD_STATE" != "UPLOAD_IN_PROGRESS" ]]; then
+              echo "::error::Chrome Web Store upload did not succeed. Response: $UPLOAD_RESPONSE"
+              exit 1
+            fi
+            echo "Chrome Web Store is processing the upload (attempt $attempt/30)..."
+            sleep 10
+            STATUS_RESPONSE="$(curl --fail --silent --show-error \
+              --header "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API_BASE:fetchStatus")"
+            UPLOAD_STATE="$(printf '%s' "$STATUS_RESPONSE" | jq -r '.uploadState // empty')"
+            UPLOAD_RESPONSE="$STATUS_RESPONSE"
+          done
+
+          if [[ "$UPLOAD_STATE" != "SUCCESS" ]]; then
+            echo "::error::Chrome Web Store upload did not finish successfully. Response: $UPLOAD_RESPONSE"
+            exit 1
+          fi
+
+          echo "Submitting the uploaded version for review..."
+          PUBLISH_RESPONSE="$(curl --fail --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            "$API_BASE:publish")"
+          echo "Chrome Web Store accepted the publish request. Google review is still required."
+          printf '%s\n' "$PUBLISH_RESPONSE" | jq '{itemId, itemError, message, state}' 2>/dev/null || true
