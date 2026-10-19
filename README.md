@@ -214,7 +214,7 @@ Build, then load the repository root with **Load unpacked**. Rebuild after pulli
 
 Follow the version rule in [CHANGELOG.md](CHANGELOG.md): features get a minor version, fixes and speed-ups a patch; docs alone keep the version. Keep release versions aligned in `manifest.json`, `package.json` and `package-lock.json`, and record extension changes in the changelog.
 
-The **Release Cardigan** workflow in GitHub Actions does the rest: run it from `main` after the version change is merged. It runs `npm run check` and `npm run package`, publishes `cardigan-<version>.zip` as a GitHub release, and sends the same zip to the Chrome Web Store for review. Its setup is in [docs/RELEASE_AUTOMATION.md](docs/RELEASE_AUTOMATION.md); the listing's text and pictures are in [docs/store/listing.md](docs/store/listing.md).
+The **Release Cardigan** workflow in GitHub Actions does the rest: run it from `main` after the version change is merged. It runs `npm run check` and `npm run package` and publishes `cardigan-<version>.zip` as a GitHub release. Any published GitHub release, however it was made, sends its zip to the Chrome Web Store for review. The setup is in [docs/RELEASE_AUTOMATION.md](docs/RELEASE_AUTOMATION.md); the listing's text and pictures are in [docs/store/listing.md](docs/store/listing.md).
 
 ## Thanks
 

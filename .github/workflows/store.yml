@@ -1,0 +1,208 @@
+name: Submit to Chrome Web Store
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to submit, for example v1.2.3
+        required: true
+        type: string
+    secrets:
+      CWS_PUBLISHER_ID:
+        required: false
+      CWS_EXTENSION_ID:
+        required: false
+      CWS_CLIENT_ID:
+        required: false
+      CWS_CLIENT_SECRET:
+        required: false
+      CWS_REFRESH_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to submit again, for example v1.2.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Upload and submit for review
+    # Release events: only published releases that are not drafts or pre-releases.
+    if: github.event_name != 'release' || (!github.event.release.draft && !github.event.release.prerelease)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: cardigan-store
+      cancel-in-progress: false
+    steps:
+      - name: Validate Chrome Web Store credentials
+        env:
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        shell: bash
+        run: |
+          for name in CWS_PUBLISHER_ID CWS_EXTENSION_ID CWS_CLIENT_ID CWS_CLIENT_SECRET CWS_REFRESH_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Download and check release ZIP
+        id: package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # In workflow_call the github context belongs to the caller, so the tag comes from inputs there.
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '$TAG' is not in the form v<x.y.z>."
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+
+          if ! RELEASE_FLAGS="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')"; then
+            echo "::error::GitHub release $TAG was not found."
+            exit 1
+          fi
+          if [[ "$RELEASE_FLAGS" != "false false" ]]; then
+            echo "::error::GitHub release $TAG is a draft or a pre-release. Only published releases go to the Chrome Web Store."
+            exit 1
+          fi
+
+          DOWNLOAD_DIR="$RUNNER_TEMP/cardigan-release"
+          mkdir -p "$DOWNLOAD_DIR"
+          # An asset can land a moment after the release is published, so try a few times.
+          for attempt in $(seq 1 5); do
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'cardigan-*.zip' --dir "$DOWNLOAD_DIR" --clobber; then
+              break
+            fi
+            if [[ "$attempt" -eq 5 ]]; then
+              echo "::error::GitHub release $TAG has no cardigan-*.zip asset. Attach cardigan-$VERSION.zip from npm run package to the release, then run Submit to Chrome Web Store with tag $TAG."
+              exit 1
+            fi
+            echo "No cardigan-*.zip on $TAG yet (attempt $attempt/5), waiting..."
+            sleep 15
+          done
+
+          shopt -s nullglob
+          ZIPS=("$DOWNLOAD_DIR"/cardigan-*.zip)
+          if [[ "${#ZIPS[@]}" -ne 1 ]]; then
+            echo "::error::GitHub release $TAG must have exactly one cardigan-*.zip asset; found ${#ZIPS[@]}."
+            exit 1
+          fi
+          ZIP="${ZIPS[0]}"
+
+          if ! ZIP_VERSION="$(unzip -p "$ZIP" manifest.json | jq -er '.version')"; then
+            echo "::error::Could not read the version from manifest.json inside $(basename "$ZIP")."
+            exit 1
+          fi
+          if [[ "$ZIP_VERSION" != "$VERSION" ]]; then
+            echo "::error::manifest.json inside $(basename "$ZIP") has version $ZIP_VERSION, but the release tag is $TAG."
+            exit 1
+          fi
+
+          echo "Submitting $(basename "$ZIP") (version $VERSION) from release $TAG."
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Submit package to Chrome Web Store for review
+        env:
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          ZIP: ${{ steps.package.outputs.zip }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API_BASE="https://chromewebstore.googleapis.com/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
+          RETRY_HINT="A version still in review blocks new uploads. Once that review clears, run Submit to Chrome Web Store again with tag $TAG."
+          BODY="$RUNNER_TEMP/cws-response.json"
+
+          # The token response holds secrets: on failure print only the HTTP status, never the body.
+          TOKEN_STATUS="$(curl --silent --show-error --output "$BODY" --write-out '%{http_code}' \
+            --request POST 'https://oauth2.googleapis.com/token' \
+            --data-urlencode "client_id=$CWS_CLIENT_ID" \
+            --data-urlencode "client_secret=$CWS_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$CWS_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token')" || TOKEN_STATUS="000"
+          if [[ "$TOKEN_STATUS" != 2* ]] || ! ACCESS_TOKEN="$(jq -er '.access_token' "$BODY" 2>/dev/null)"; then
+            rm -f "$BODY"
+            echo "::error::Google OAuth token refresh failed (HTTP $TOKEN_STATUS). Check CWS_CLIENT_ID, CWS_CLIENT_SECRET and CWS_REFRESH_TOKEN."
+            exit 1
+          fi
+          rm -f "$BODY"
+          echo "::add-mask::$ACCESS_TOKEN"
+
+          echo "Uploading $(basename "$ZIP") to the Chrome Web Store..."
+          UPLOAD_STATUS="$(curl --silent --show-error --output "$BODY" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header 'Content-Type: application/zip' \
+            --data-binary "@$ZIP" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID:upload")" || UPLOAD_STATUS="000"
+          UPLOAD_RESPONSE="$(cat "$BODY" 2>/dev/null || true)"
+          if [[ "$UPLOAD_STATUS" != 2* ]]; then
+            echo "::error::Chrome Web Store upload failed (HTTP $UPLOAD_STATUS). $RETRY_HINT Response: $UPLOAD_RESPONSE"
+            exit 1
+          fi
+          UPLOAD_STATE="$(printf '%s' "$UPLOAD_RESPONSE" | jq -r '.uploadState // empty')"
+
+          # Google can process an upload asynchronously. Poll the official status endpoint when needed.
+          # API v2 names the states SUCCEEDED and IN_PROGRESS; the v1.1 names are accepted too.
+          for attempt in $(seq 1 30); do
+            case "$UPLOAD_STATE" in
+              SUCCEEDED|SUCCESS) break ;;
+              IN_PROGRESS|UPLOAD_IN_PROGRESS) ;;
+              *)
+                echo "::error::Chrome Web Store upload did not succeed (state: ${UPLOAD_STATE:-none}). $RETRY_HINT Response: $UPLOAD_RESPONSE"
+                exit 1
+                ;;
+            esac
+            echo "Chrome Web Store is processing the upload (attempt $attempt/30)..."
+            sleep 10
+            STATUS_CODE="$(curl --silent --show-error --output "$BODY" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $ACCESS_TOKEN" \
+              "$API_BASE:fetchStatus")" || STATUS_CODE="000"
+            UPLOAD_RESPONSE="$(cat "$BODY" 2>/dev/null || true)"
+            if [[ "$STATUS_CODE" != 2* ]]; then
+              echo "::error::Chrome Web Store status check failed (HTTP $STATUS_CODE). Response: $UPLOAD_RESPONSE"
+              exit 1
+            fi
+            UPLOAD_STATE="$(printf '%s' "$UPLOAD_RESPONSE" | jq -r '.lastAsyncUploadState // .uploadState // empty')"
+          done
+
+          if [[ "$UPLOAD_STATE" != "SUCCEEDED" && "$UPLOAD_STATE" != "SUCCESS" ]]; then
+            echo "::error::Chrome Web Store upload did not finish successfully (state: ${UPLOAD_STATE:-none}). $RETRY_HINT Response: $UPLOAD_RESPONSE"
+            exit 1
+          fi
+
+          echo "Submitting the uploaded version for review..."
+          PUBLISH_STATUS="$(curl --silent --show-error --output "$BODY" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            "$API_BASE:publish")" || PUBLISH_STATUS="000"
+          PUBLISH_RESPONSE="$(cat "$BODY" 2>/dev/null || true)"
+          rm -f "$BODY"
+          if [[ "$PUBLISH_STATUS" != 2* ]]; then
+            echo "::error::Chrome Web Store publish request failed (HTTP $PUBLISH_STATUS). $RETRY_HINT Response: $PUBLISH_RESPONSE"
+            exit 1
+          fi
+          echo "Chrome Web Store accepted the publish request. Google review is still required."
+          printf '%s\n' "$PUBLISH_RESPONSE" | jq '{name, itemId, state, warningInfo}' 2>/dev/null || true
